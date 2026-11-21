@@ -658,22 +658,12 @@ pub fn rental_charge_periods(
     if terms.term_until < terms.term_from {
         return Ok(Vec::new());
     }
-    // Exclusive ends: the last out day is billable, and so is the last day of
-    // the contract term. The period stays anchored on `active_from`; what the
-    // term bounds change is how many of its days are billable.
-    // `checked_add_signed` rather than `+`: a date on the edge of the calendar
-    // makes the exclusive end unrepresentable, and that is an empty schedule,
-    // not a panic.
-    let (Some(active_end), Some(term_end)) = (
-        terms
-            .active_until
-            .checked_add_signed(chrono::Duration::days(1)),
-        terms
-            .term_until
-            .checked_add_signed(chrono::Duration::days(1)),
-    ) else {
-        return Ok(Vec::new());
-    };
+    // Everything is compared on INCLUSIVE dates. A period arrives half-open
+    // (`start .. next start`), so its last billable day is `end - 1`, taken with
+    // `pred_opt` instead of building an exclusive end that can overflow. A lease
+    // whose `active_until` is `NaiveDate::MAX` bills every day the period
+    // generator can represent; the final day itself is only billable while a
+    // period boundary exists after it.
     let mut out = Vec::new();
     for (start, end) in crate::periods::periods_starting_in(
         terms.active_from,
@@ -681,20 +671,26 @@ pub fn rental_charge_periods(
         from.max(terms.active_from),
         to,
     ) {
-        if start >= active_end || start >= term_end {
+        // The period starts on or after the lease/term end: nothing left.
+        if start > terms.active_until || start > terms.term_until {
             break;
         }
+        let Some(period_last_day) = end.pred_opt() else {
+            continue;
+        };
         // Only the days inside the lease AND inside its contract term bill. A
         // period that straddles either edge is prorated to the overlap, so a
         // lease that starts early or runs past the contract never charges a day
         // the contract does not cover.
         let span_start = start.max(terms.active_from).max(terms.term_from);
-        let span_end = end.min(active_end).min(term_end);
-        if span_end <= span_start {
+        let span_end = period_last_day
+            .min(terms.active_until)
+            .min(terms.term_until);
+        if span_end < span_start {
             continue;
         }
-        let days = (span_end - span_start).num_days();
-        let period_days = (end - start).num_days();
+        let days = (span_end - span_start).num_days() + 1;
+        let period_days = (period_last_day - start).num_days() + 1;
         let Some(amount) = prorate_days(terms.cycle_amount_minor, days, period_days) else {
             continue;
         };

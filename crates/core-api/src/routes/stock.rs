@@ -2139,24 +2139,10 @@ pub async fn on_hand(
     )
     .await?;
 
-    // `stock_levels` counts what is physically on a shelf. Saleable quantity is
-    // what is on that shelf and not in the rental pool, so the pool's in-stock
-    // units come off the count in one grouped read. A pool unit that is out on
-    // a lease is already absent from the level: its loan leg took it off.
-    let pool_counts = sqlx::query!(
-        r#"SELECT stock_item_id, location_id AS "location_id!", count(*)::bigint AS "qty!"
-             FROM stock_serials
-            WHERE org_id = $1 AND custody_class = 'rental_out' AND status = 'in_stock'
-              AND location_id IS NOT NULL
-            GROUP BY stock_item_id, location_id"#,
-        org_id
-    )
-    .fetch_all(&mut *tx)
-    .await?;
-    let pool: std::collections::HashMap<(Uuid, Uuid), i64> = pool_counts
-        .into_iter()
-        .map(|row| ((row.stock_item_id, row.location_id), row.qty * 1000))
-        .collect();
+    // `stock_levels` is the one definition of saleable quantity: a pool unit is
+    // taken off the shelf's quantity when it is commissioned and put back when
+    // it is decommissioned, so the read and the write agree and a pool unit is
+    // never subtracted twice.
 
     let mut items: std::collections::HashMap<Uuid, (String, String, String)> =
         std::collections::HashMap::new();
@@ -2185,14 +2171,8 @@ pub async fn on_hand(
                 hit
             }
         };
-        let saleable = (level.qty_milli
-            - pool
-                .get(&(level.stock_item_id, level.stock_location_id))
-                .copied()
-                .unwrap_or(0))
-        .max(0);
         let low = match level.reorder_point_milli {
-            Some(point) => saleable <= point,
+            Some(point) => level.qty_milli <= point,
             None => false,
         };
         if low && !q.low_only.unwrap_or(false) {
@@ -2207,7 +2187,7 @@ pub async fn on_hand(
                 stock_location_id: level.stock_location_id,
                 location_name,
                 location_kind,
-                qty_milli: saleable,
+                qty_milli: level.qty_milli,
                 min_qty_milli: level.min_qty_milli,
                 max_qty_milli: level.max_qty_milli,
                 reorder_point_milli: level.reorder_point_milli,

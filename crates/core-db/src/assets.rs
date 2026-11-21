@@ -510,12 +510,21 @@ fn map_class_guard(e: sqlx::Error) -> DbError {
         if db.code().as_deref() == Some("P0001") {
             return DbError::Conflict(db.message().to_string());
         }
-        // A CHECK on `device_assets` (the rented-in shape above all) is the
-        // caller asking for a row the model does not allow. It names the
-        // constraint and nothing else, so it is safe as a typed conflict.
+        // A CHECK on `device_assets` is the caller asking for a row the model
+        // does not allow. The rented-in shape is the one a lifecycle patch can
+        // hit, and it has a remedy the caller can act on; say that instead of
+        // handing back a constraint name.
         if db.code().as_deref() == Some("23514") {
-            let constraint = db.constraint().unwrap_or("device_assets shape");
-            return DbError::Conflict(format!("the asset row does not satisfy {constraint}"));
+            if db.constraint() == Some("device_assets_rented_in_shape") {
+                return DbError::Conflict(
+                    "a rented-in asset cannot carry a depreciation method; set \
+                     depreciation_method to none and retry"
+                        .into(),
+                );
+            }
+            return DbError::Conflict(
+                "the asset change does not satisfy the inventory shape rules".into(),
+            );
         }
     }
     DbError::Sql(e)

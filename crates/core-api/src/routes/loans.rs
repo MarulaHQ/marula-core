@@ -470,7 +470,9 @@ pub async fn return_loan(
     require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
-    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    // The path id is part of what this key was used for: a key replayed against
+    // another agreement is a different request, not the same one.
+    let fingerprint = serde_json::json!({ "id": id, "request": &req });
     let key = req.instant.idempotency_key.clone();
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
@@ -993,7 +995,10 @@ pub struct VendorRentalListQuery {
     /// open | returned (absent = both).
     #[serde(default)]
     pub status: Option<String>,
+    /// Page size. Must be at least 1; absent uses the module limit and larger
+    /// values are capped. A value below 1 is a 422.
     #[serde(default)]
+    #[schema(minimum = 1)]
     pub limit: Option<i64>,
 }
 
@@ -1187,7 +1192,10 @@ pub async fn create_vendor_rental(
     tag = "commercial",
     security(("bearer" = [])),
     params(VendorRentalListQuery),
-    responses((status = 200, body = [VendorRentalView]))
+    responses(
+        (status = 200, body = [VendorRentalView]),
+        (status = 422, description = "validation failure (limit below 1)")
+    )
 )]
 pub async fn list_vendor_rentals(
     axum::extract::State(state): axum::extract::State<AppState>,
@@ -1204,6 +1212,9 @@ pub async fn list_vendor_rentals(
                 "status must be open or returned".into(),
             ));
         }
+    }
+    if q.limit.is_some_and(|limit| limit < 1) {
+        return Err(ApiError::Validation("limit must be at least 1".into()));
     }
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
@@ -1281,7 +1292,8 @@ pub async fn return_vendor_rental(
     require_permission(&authed.principal, Permission::ViewFinancials)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
-    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    // Same rule as the client-loan return: the path id is part of the request.
+    let fingerprint = serde_json::json!({ "id": id, "request": &req });
     let key = req.instant.idempotency_key.clone();
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(

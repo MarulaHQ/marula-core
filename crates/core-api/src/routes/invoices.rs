@@ -95,6 +95,11 @@ pub struct CreateInvoiceRunRequest {
     pub to: chrono::NaiveDate,
     /// Restrict the run to one client's billable contracts.
     pub client_id: Option<Uuid>,
+    /// Restrict the run to one currency. A run is single-currency by
+    /// construction; the selector is what lets a receivable stored under another
+    /// currency bill in a run of its own, instead of waiting for a sweep whose
+    /// regular contracts happen to share it.
+    pub currency: Option<String>,
     /// Payment terms for the issued invoices, in days (default 30).
     pub due_in_days: Option<i32>,
     /// Instant-first autosave parameters (IF1): idempotency key.
@@ -355,7 +360,36 @@ pub async fn create_run(
         if let Some(client) = client_filter {
             contracts.retain(|c| c.client_id == client);
         }
+        let currency_filter = req.currency.as_deref().map(|code| {
+            core_domain::money::CurrencyCode::new(code)
+                .map(|code| code.to_string())
+                .map_err(|e| ApiError::Validation(e.to_string()))
+        });
+        let currency_filter = currency_filter.transpose()?;
+        if let Some(currency) = currency_filter.as_deref() {
+            contracts.retain(|c| c.currency.eq_ignore_ascii_case(currency));
+        }
 
+        // The contracts the window selected evaluate normally. Everything added
+        // below is a rental-only participant: its term does not cover the window
+        // (that is why the ordinary list dropped it), so evaluating it would
+        // contribute no line and could raise on inputs it will never use. These
+        // ids make that distinction explicit.
+        let window_selected: std::collections::HashSet<Uuid> =
+            contracts.iter().map(|c| c.id).collect();
+        let mut regular_currencies: Vec<&str> =
+            contracts.iter().map(|c| c.currency.as_str()).collect();
+        regular_currencies.sort_unstable();
+        regular_currencies.dedup();
+        // The run is single-currency; a mixed regular population is refused in
+        // the loop below and admits no extras here.
+        let scope_currency: Option<String> = match currency_filter.clone() {
+            Some(currency) => Some(currency),
+            None => match regular_currencies.as_slice() {
+                [only] => Some((*only).to_string()),
+                _ => None,
+            },
+        };
         let contract_ids: Vec<Uuid> = contracts.iter().map(|c| c.id).collect();
         let billed_keys =
             core_db::invoices::list_billed_keys(&mut *ctx.tx, org_id, &contract_ids).await?;
@@ -424,18 +458,46 @@ pub async fn create_run(
         // the line is.
         let pending_charges = core_db::loans::list_all_pending_rental_charges(&mut ctx.tx, org_id)
             .await?;
+        // Contracts a pending charge or a lease names, but the window did not
+        // select. Two rules keep the run coherent:
+        //   * the campaign's currency scope, taken from the regular contracts,
+        //     so a EUR charge cannot drag a EUR contract into a USD run (it
+        //     bills in a run scoped to its own currency);
+        //   * the client filter, so a one-client run stays one client.
+        let lease_contract_ids =
+            core_db::loans::list_lease_contract_ids(&mut *ctx.tx, org_id, window.0, window.1)
+                .await?;
         let mut extra_ids: Vec<Uuid> = pending_charges
             .iter()
             .filter(|c| client_filter.is_none_or(|client| c.client_id == client))
+            .filter(|c| {
+                scope_currency
+                    .as_deref()
+                    .is_none_or(|scope| c.currency.eq_ignore_ascii_case(scope))
+            })
             .map(|c| c.contract_id)
-            .filter(|id| !contract_ids.contains(id))
             .collect();
+        extra_ids.extend(lease_contract_ids);
         extra_ids.sort_unstable();
         extra_ids.dedup();
+        let mut added: Vec<Uuid> = Vec::new();
         for id in extra_ids {
-            contracts.push(
-                core_db::contracts::get_contract(&mut *ctx.tx, org_id, id).await?,
-            );
+            if window_selected.contains(&id) || added.contains(&id) {
+                continue;
+            }
+            let contract = core_db::contracts::get_contract(&mut *ctx.tx, org_id, id).await?;
+            if let Some(client) = client_filter {
+                if contract.client_id != client {
+                    continue;
+                }
+            }
+            if let Some(scope) = scope_currency.as_deref() {
+                if !contract.currency.eq_ignore_ascii_case(scope) {
+                    continue;
+                }
+            }
+            added.push(id);
+            contracts.push(contract);
         }
         let contract_ids: Vec<Uuid> = contracts.iter().map(|c| c.id).collect();
 
@@ -482,14 +544,24 @@ pub async fn create_run(
         // processing means later contracts re-read UNBILLED entries and
         // see the consumption links this run already wrote.
         for contract in &contracts {
-            let entries = core_db::invoices::list_unbilled_entries(
-                &mut *ctx.tx,
-                org_id,
-                contract.client_id,
-                window.0,
-                window.1,
-            )
-            .await?;
+            // A contract the window did not select (a lease that overlaps the
+            // window, or a contract a pending charge names) contributes only its
+            // rental lines. Its ordinary evaluation would produce nothing — its
+            // term does not cover the window — and loading its inputs could
+            // raise on configuration it will never use.
+            let evaluated = window_selected.contains(&contract.id);
+            let entries = if evaluated {
+                core_db::invoices::list_unbilled_entries(
+                    &mut *ctx.tx,
+                    org_id,
+                    contract.client_id,
+                    window.0,
+                    window.1,
+                )
+                .await?
+            } else {
+                Vec::new()
+            };
             let inputs: Vec<core_billing::BillableEntry> = entries
                 .iter()
                 .map(|e| core_billing::BillableEntry {
@@ -499,50 +571,63 @@ pub async fn create_run(
                     entry_date: e.entry_date,
                 })
                 .collect();
-            let rates = core_db::contracts::list_rates(&mut *ctx.tx, org_id, contract.id).await?;
-            let fees = core_db::contracts::list_fees(&mut *ctx.tx, org_id, contract.id).await?;
-            let eval_inputs = crate::routes::billing::load_eval_inputs(
-                &mut ctx.tx,
-                org_id,
-                contract,
-                window.0,
-                window.1,
-            )
-            .await?;
-            let evaluation = core_billing::rules::evaluate_with(
-                contract,
-                &rates,
-                &fees,
-                &inputs,
-                window.0,
-                window.1,
-                &eval_inputs,
-            )
-            .map_err(engine_error)?;
+            let mut eval_inputs = core_billing::EvalInputs::default();
+            let evaluation = if evaluated {
+                let rates =
+                    core_db::contracts::list_rates(&mut *ctx.tx, org_id, contract.id).await?;
+                let fees = core_db::contracts::list_fees(&mut *ctx.tx, org_id, contract.id).await?;
+                eval_inputs = crate::routes::billing::load_eval_inputs(
+                    &mut ctx.tx,
+                    org_id,
+                    contract,
+                    window.0,
+                    window.1,
+                )
+                .await?;
+                Some(
+                    core_billing::rules::evaluate_with(
+                        contract,
+                        &rates,
+                        &fees,
+                        &inputs,
+                        window.0,
+                        window.1,
+                        &eval_inputs,
+                    )
+                    .map_err(engine_error)?,
+                )
+            } else {
+                None
+            };
 
             // Skip already-billed candidates; the partial unique indexes
             // remain the concurrency backstop.
             let mut lines: Vec<BillingCandidateLine> = evaluation
-                .lines
-                .iter()
-                .filter(|l| match l.kind {
-                    BillingLineKind::TimeMaterials => true,
-                    _ => !billed_periods.contains(&(
-                        contract.id,
-                        l.kind.as_str().to_string(),
-                        l.period_start,
-                    )),
+                .as_ref()
+                .map(|evaluation| {
+                    evaluation
+                        .lines
+                        .iter()
+                        .filter(|l| match l.kind {
+                            BillingLineKind::TimeMaterials => true,
+                            _ => !billed_periods.contains(&(
+                                contract.id,
+                                l.kind.as_str().to_string(),
+                                l.period_start,
+                            )),
+                        })
+                        .filter(|l| {
+                            l.kind != BillingLineKind::FixedFee
+                                || !billed_fees.contains(&(
+                                    contract.id,
+                                    l.period_start,
+                                    l.description.clone(),
+                                ))
+                        })
+                        .cloned()
+                        .collect()
                 })
-                .filter(|l| {
-                    l.kind != BillingLineKind::FixedFee
-                        || !billed_fees.contains(&(
-                            contract.id,
-                            l.period_start,
-                            l.description.clone(),
-                        ))
-                })
-                .cloned()
-                .collect();
+                .unwrap_or_default();
 
             // Rental lines: charges this contract already owes a line for, then
             // the periods this window starts. Every line cites its charge; the
@@ -969,7 +1054,10 @@ pub async fn create_run(
             // * project releases flip pending → billed with the consuming
             //   invoice + line (Wave 39 lane 4: the ledger seatbelt that
             //   makes a replayed milestone completion bill exactly once).
-            if let Some(consumption) = &evaluation.block_consumption {
+            if let Some(consumption) = evaluation
+                .as_ref()
+                .and_then(|evaluation| evaluation.block_consumption.as_ref())
+            {
                 for draw in &consumption.draws {
                     let Some(entry_id) = draw.time_entry_id else {
                         continue;
@@ -986,7 +1074,9 @@ pub async fn create_run(
                 }
             }
             let applied_credit_ids: Vec<Uuid> = evaluation
-                .lines
+                .as_ref()
+                .map(|evaluation| evaluation.lines.as_slice())
+                .unwrap_or(&[])
                 .iter()
                 .filter(|l| l.kind == BillingLineKind::SlaCredit)
                 .filter_map(|l| {
