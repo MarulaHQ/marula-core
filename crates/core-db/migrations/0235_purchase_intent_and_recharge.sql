@@ -340,7 +340,11 @@ CREATE POLICY purchase_recharges_org ON purchase_recharges
 -- succeed: a cascade reaches this row after its org is already gone, and
 -- deleting the actor row nulls `created_by` while the record stays otherwise
 -- identical. Both allowances mirror migration 0232's guard for the movement
--- ledger. A direct update or delete still raises.
+-- ledger.
+--
+-- The actor exception is narrow on purpose: it applies only when the user row
+-- the column named is already gone. A direct `SET created_by = NULL` on a live
+-- record would strip its attribution, which is an edit, and is refused.
 CREATE FUNCTION purchase_recharges_append_only() RETURNS trigger AS $$
 BEGIN
   IF TG_OP = 'DELETE' THEN
@@ -351,6 +355,8 @@ BEGIN
     END IF;
   ELSIF TG_OP = 'UPDATE'
         AND NEW.created_by IS NULL
+        AND OLD.created_by IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM users u WHERE u.id = OLD.created_by)
         AND (to_jsonb(NEW) - 'created_by') = (to_jsonb(OLD) - 'created_by') THEN
     RETURN NEW;
   END IF;
