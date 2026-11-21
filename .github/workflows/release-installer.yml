@@ -311,10 +311,15 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           key: release-installer-${{ matrix.os }}-${{ matrix.arch }}
-          # `RUSTC_WRAPPER` sits under rust-cache's default `RUST` env prefix. A
-          # wrapper does not change compiler output, so it does not belong in
-          # the key; the other prefixes stay.
-          env-vars: "CARGO CC CFLAGS CXX CMAKE"
+        # `RUSTC_WRAPPER` sits under rust-cache's built-in `RUST` env prefix, so
+        # a non-empty value keys the cache apart from a run without the wrapper.
+        # A wrapper does not change compiler output, so it does not belong in the
+        # key. `env-vars` cannot express that — it appends to the built-in prefix
+        # list rather than replacing it — so the wrapper is blanked for this step
+        # only, because the action hashes a prefix only when its value is
+        # non-empty.
+        env:
+          RUSTC_WRAPPER: ""
 
       # Pinned to the same version ci.yml uses. The action has no default
       # version: without it, the cached binary floats independently of the

@@ -274,9 +274,15 @@ jobs:
           # `RUSTC_WRAPPER` sits under the default `RUST` env prefix, so it
           # would key this cache apart from `rls-coverage`, which runs no
           # sccache under the same `rust-test` key. A wrapper does not change
-          # compiler output, so it does not belong in the key; the other
-          # prefixes (CARGO, CC, CFLAGS, CXX, CMAKE) stay.
-          env-vars: "CARGO CC CFLAGS CXX CMAKE"
+          # compiler output, so it does not belong in the key.
+          #
+          # `env-vars` cannot express that: it APPENDS to the built-in prefix
+          # list (`CARGO CC CFLAGS CXX CMAKE RUST` in the action's config.ts), so
+          # passing the first five re-adds nothing and leaves `RUST` active. An
+          # empty value in this step's environment is what excludes it, because
+          # the action only hashes a prefix whose value is non-empty.
+        env:
+          RUSTC_WRAPPER: ""
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         with:
           # The action has no default version: without this it downloads
@@ -389,9 +395,15 @@ jobs:
           # `RUSTC_WRAPPER` sits under the default `RUST` env prefix, so it
           # would key this cache apart from `rls-coverage`, which runs no
           # sccache under the same `rust-test` key. A wrapper does not change
-          # compiler output, so it does not belong in the key; the other
-          # prefixes (CARGO, CC, CFLAGS, CXX, CMAKE) stay.
-          env-vars: "CARGO CC CFLAGS CXX CMAKE"
+          # compiler output, so it does not belong in the key.
+          #
+          # `env-vars` cannot express that: it APPENDS to the built-in prefix
+          # list (`CARGO CC CFLAGS CXX CMAKE RUST` in the action's config.ts), so
+          # passing the first five re-adds nothing and leaves `RUST` active. An
+          # empty value in this step's environment is what excludes it, because
+          # the action only hashes a prefix whose value is non-empty.
+        env:
+          RUSTC_WRAPPER: ""
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         with:
           # The action has no default version: without this it downloads
@@ -843,9 +855,15 @@ jobs:
           # `RUSTC_WRAPPER` sits under the default `RUST` env prefix, so it
           # would key this cache apart from `rls-coverage`, which runs no
           # sccache under the same `rust-test` key. A wrapper does not change
-          # compiler output, so it does not belong in the key; the other
-          # prefixes (CARGO, CC, CFLAGS, CXX, CMAKE) stay.
-          env-vars: "CARGO CC CFLAGS CXX CMAKE"
+          # compiler output, so it does not belong in the key.
+          #
+          # `env-vars` cannot express that: it APPENDS to the built-in prefix
+          # list (`CARGO CC CFLAGS CXX CMAKE RUST` in the action's config.ts), so
+          # passing the first five re-adds nothing and leaves `RUST` active. An
+          # empty value in this step's environment is what excludes it, because
+          # the action only hashes a prefix whose value is non-empty.
+        env:
+          RUSTC_WRAPPER: ""
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
         with:
           # The action has no default version: without this it downloads
