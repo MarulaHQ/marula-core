@@ -436,57 +436,58 @@ jobs:
             echo "::error::'$to' is not a release version"
             exit 1
           fi
+          # Compare dotted versions as numbers. `sort -V` is GNU-only, and the
+          # repository also publishes 0.10.0-style versions where a string
+          # comparison would order "0.9.0" after "0.10.0".
+          version_lt() {
+            local -a a b
+            local i
+            IFS=. read -r -a a <<<"$1"
+            IFS=. read -r -a b <<<"$2"
+            for i in 0 1 2; do
+              if (( 10#${a[i]} < 10#${b[i]} )); then return 0; fi
+              if (( 10#${a[i]} > 10#${b[i]} )); then return 1; fi
+            done
+            return 1
+          }
+
           if [ -n "${RAW_FROM:-}" ]; then
             from="${RAW_FROM#v}"
           else
-            # The release immediately older than the target, and only one that
+            # The highest published release strictly older than the target that
             # carries a Linux archive: 0.5.0 never published, and an earlier tag
             # with no assets is not something anyone can install.
             #
-            # Drafts and prereleases are excluded at the source, and the version
-            # shape is checked again below: this repository also publishes
-            # `desktop-v*` releases, and a prerelease sitting between the target
-            # and its stable predecessor must be stepped over rather than
-            # selected and then refused.
-            if ! list=$(gh release list --repo "$GH_REPO" --limit 50 \
-              --json tagName,isDraft,isPrerelease \
-              --jq '.[] | select((.isDraft | not) and (.isPrerelease | not)) | .tagName'); then
-              echo "::error::could not list the published releases: $list"
-              exit 1
-            fi
-            # Read line by line rather than with `mapfile`: the runner's bash has
-            # it and a developer's macOS bash 3.2 does not, and this step should
-            # behave the same in both places.
-            tags=()
-            while IFS= read -r tag; do
-              [ -n "$tag" ] && tags+=("$tag")
-            done <<<"$list"
-            index=-1
-            for i in "${!tags[@]}"; do
-              [ "${tags[$i]#v}" = "$to" ] && index=$i && break
-            done
-            if [ "$index" -lt 0 ]; then
-              echo "::error::could not find v${to} among the published releases; pass 'from' explicitly"
+            # `--paginate` walks the whole history and returns each release with
+            # its assets, so a page limit cannot hide the predecessor and a
+            # failed lookup cannot read as "this release has no archive".
+            # Drafts, prereleases and the `desktop-v*` releases are filtered
+            # here; a prerelease sitting between the target and its stable
+            # predecessor is stepped over rather than selected and refused.
+            if ! releases=$(gh api --paginate \
+              "repos/${GH_REPO}/releases?per_page=100" \
+              --jq '.[] | select((.draft | not) and (.prerelease | not)) | [.tag_name, ([.assets[].name] | join(","))] | @tsv'); then
+              echo "::error::could not list the published releases: $releases"
               exit 1
             fi
             from=""
-            for ((i = index + 1; i < ${#tags[@]}; i++)); do
-              candidate="${tags[$i]#v}"
+            while IFS=$'\t' read -r tag asset_list; do
+              [ -n "$tag" ] || continue
+              candidate="${tag#v}"
               # A server release, not a desktop one and not a codename.
               [[ "$candidate" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
-              # Read the assets before deciding: a failed lookup is not an absent
-              # archive, and the `if` above suppresses errexit, so the result has
-              # to be checked rather than inferred from a false.
-              if ! assets=$(gh release view "v${candidate}" --repo "$GH_REPO" \
-                --json assets --jq '.assets[].name'); then
-                echo "::error::could not read the assets of v${candidate}: $assets"
-                exit 1
-              fi
-              if printf '%s\n' "$assets" | grep -qx "marula-${candidate}-linux-x64.tar.gz"; then
+              # Strictly older: the list's order is by creation time, not
+              # version, so a patch cut after a newer release must not be
+              # mistaken for one above the target.
+              version_lt "$candidate" "$to" || continue
+              case ",${asset_list}," in
+                *",marula-${candidate}-linux-x64.tar.gz,"*) ;;
+                *) continue ;;
+              esac
+              if [ -z "$from" ] || version_lt "$from" "$candidate"; then
                 from="$candidate"
-                break
               fi
-            done
+            done <<<"$releases"
             if [ -z "$from" ]; then
               echo "::notice::no published release older than v${to} carries a Linux archive, so there is no upgrade pair to test"
               echo "skip=1" >>"$GITHUB_OUTPUT"
@@ -495,6 +496,12 @@ jobs:
           fi
           if ! printf '%s' "$from" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
             echo "::error::'$from' is not a release version"
+            exit 1
+          fi
+          # A named `from` that is not older would run this leg as a downgrade or a
+          # reinstall and still pass, which is not the thing it claims to test.
+          if ! version_lt "$from" "$to"; then
+            echo "::error::'v${from}' is not older than 'v${to}': this leg tests an upgrade"
             exit 1
           fi
           echo "from=$from" >>"$GITHUB_OUTPUT"
