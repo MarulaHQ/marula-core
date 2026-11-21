@@ -114,21 +114,70 @@ else
 fi
 
 say "loading the images this bundle carries"
-docker load --input images.tar >/dev/null
+# Both streams, because Docker has printed this line on either one across
+# versions, and the check below reads what the load said.
+LOADED=$(docker load --input images.tar 2>&1) ||
+  die "docker load failed: ${LOADED}"
 
+# The name Docker writes for an image, which is not always the one Compose spells.
+# The classic exporter records `docker.io/library/busybox:1.36` as
+# `busybox:1.36`, and it records a name with no tag as `:latest`.
+normalise_ref() {
+  local ref=$1
+  case "$ref" in
+    docker.io/library/*) ref=${ref#docker.io/library/} ;;
+    index.docker.io/library/*) ref=${ref#index.docker.io/library/} ;;
+    docker.io/*) ref=${ref#docker.io/} ;;
+    index.docker.io/*) ref=${ref#index.docker.io/} ;;
+    library/*) ref=${ref#library/} ;;
+  esac
+  case "${ref##*/}" in
+    *:*) ;;
+    *) ref="$ref:latest" ;;
+  esac
+  printf '%s\n' "$ref"
+}
+
+# What this archive supplied, rather than what the store happens to hold: the
+# `Loaded image:` lines are the daemon's report of what it read out of the tar. On
+# a host that has installed before, an image under the same name would otherwise
+# answer for one the archive lost, and the install would start on an image nobody
+# checked.
+delivered() {
+  local want line
+  want=$(normalise_ref "$1")
+  while IFS= read -r line; do
+    case "$line" in
+      "Loaded image: "*) ;;
+      *) continue ;;
+    esac
+    if [ "$(normalise_ref "${line#Loaded image: }")" = "$want" ]; then
+      return 0
+    fi
+  done < <(printf '%s\n' "$LOADED")
+  return 1
+}
+
+# Asked for by the name portion. A digest does not survive the trip through this
+# archive: the images are files in a tar, and a tag is the only name the daemon
+# keeps when it reads them back. A bundle written before that was understood lists
+# `name:tag@sha256:…`, and the tag is still the thing `docker load` restored, so
+# the tag is the name to look for in both shapes.
 missing=()
 while IFS= read -r image; do
   [ -n "$image" ] || continue
-  if ! docker image inspect "$image" >/dev/null 2>&1; then
-    missing+=("$image")
+  name=${image%%@*}
+  if ! delivered "$name"; then
+    missing+=("$name")
   fi
 done <images.list
 if [ "${#missing[@]}" -gt 0 ]; then
-  printf 'install-offline: these images are not loaded and cannot be built offline:\n' >&2
+  printf 'install-offline: this archive did not supply these images:\n' >&2
   printf '  %s\n' "${missing[@]}" >&2
+  printf 'and they cannot be built offline, so the archive is incomplete.\n' >&2
   exit 1
 fi
-say "every image in images.list is loaded"
+say "every image in images.list came out of this archive"
 
 # See the header: the derived image names depend on this value.
 export COMPOSE_PROJECT_NAME=marula
