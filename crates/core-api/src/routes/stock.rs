@@ -2135,7 +2135,7 @@ pub async fn on_hand(
         org_id,
         q.item_id,
         q.location_id,
-        q.limit.unwrap_or(LIST_LIMIT).min(LIST_LIMIT),
+        q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
     )
     .await?;
 
@@ -2247,7 +2247,7 @@ pub async fn consumption_velocity_route(
         &mut tx,
         org_id,
         window_days.clamp(1, 365) as i32,
-        q.limit.unwrap_or(LIST_LIMIT).min(LIST_LIMIT),
+        q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
     )
     .await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -2313,7 +2313,7 @@ pub async fn item_movements(
         &mut tx,
         authed.principal.user.org_id,
         id,
-        q.limit.unwrap_or(LIST_LIMIT).min(LIST_LIMIT),
+        q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
     )
     .await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -2365,7 +2365,7 @@ pub async fn ticket_movements(
         &mut tx,
         authed.principal.user.org_id,
         id,
-        q.limit.unwrap_or(LIST_LIMIT).min(LIST_LIMIT),
+        q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
     )
     .await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -2409,7 +2409,7 @@ pub async fn item_serials(
         id,
         q.location_id,
         q.status.as_deref(),
-        q.limit.unwrap_or(LIST_LIMIT).min(LIST_LIMIT),
+        q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
     )
     .await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -2533,6 +2533,7 @@ pub struct PoolListQuery {
     /// Only units no open agreement holds.
     #[serde(default)]
     pub available_only: Option<bool>,
+    /// Page size, at least 1 (absent or out of range is clamped).
     #[serde(default)]
     pub limit: Option<i64>,
 }
@@ -2644,7 +2645,11 @@ async fn pool_apply(
     }
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
-    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    // The key is claimed on the movement family, and a commission and a
+    // decommission are different operations against it: the fingerprint carries
+    // the op so reusing a key across the two is a key-reuse refusal, not a
+    // replay of the other operation's answer.
+    let fingerprint = serde_json::json!({ "op": op, "request": &req });
     let key = req.instant.idempotency_key.clone();
     let core_req = core_db::loans::PoolMoveRequest {
         unit,
@@ -2679,7 +2684,12 @@ async fn pool_apply(
             instant::SeqSpec {
                 entity: "inventory_class_movement",
                 entity_id: movement.id,
-                version: req.instant.version,
+                // A pool move creates its movement row; there is no prior
+                // version of this id for `If-Match` to guard. The version token
+                // therefore guards nothing here and is not consulted: a replay
+                // is the idempotency key's job, and the unit itself is guarded
+                // by the class trigger, not by an ETag.
+                version: None,
             },
         )
         .await?;
@@ -2776,7 +2786,7 @@ pub async fn list_pool(
         &mut tx,
         org_id,
         q.available_only == Some(true),
-        q.limit.unwrap_or(LIST_LIMIT).min(LIST_LIMIT),
+        q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
     )
     .await?;
     tx.commit().await.map_err(ApiError::from)?;

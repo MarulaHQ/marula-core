@@ -465,6 +465,12 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "rental_charge_already_raised",
             "a damage or loss charge already exists for that unit on this agreement",
         )),
+        // Migration 0256: an asset-only loan line is one open agreement per
+        // unit, the same promise the serial index keeps for stock-sourced lines.
+        "uq_client_loan_open_asset" => Some((
+            "asset_already_on_loan",
+            "that unit is already on an open client agreement",
+        )),
         // Migration 0237: a vendor's unit is promised to one agreement at a time.
         "uq_vendor_rentals_open_asset" => Some((
             "unit_already_rented",

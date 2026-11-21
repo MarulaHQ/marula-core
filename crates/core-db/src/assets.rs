@@ -397,6 +397,19 @@ pub async fn update_asset_lifecycle(
     //
     // One movement either way; the open-agreement refusal is the trigger's, and
     // it still sees the class it must.
+    // Rented-in gear never depreciates, and `device_assets_rented_in_shape`
+    // enforces it. A patch that moves a unit into `rental_in` while carrying a
+    // depreciation method (a fleet asset on straight-line, typically) would
+    // violate the shape at the movement, so the method is forced off with the
+    // class. The same patch copy is used in both write orders below.
+    let mut patch = p.clone();
+    if let Some((_, to, _, _)) = &next_class {
+        if *to == core_domain::entities::CustodyClass::RentalIn {
+            patch.depreciation_method = Some("none".into());
+        }
+    }
+    let p = &patch;
+
     if let Some((from, to, from_ownership, next_ownership)) = &next_class {
         let into_rental_in = *to == core_domain::entities::CustodyClass::RentalIn;
         if into_rental_in {
@@ -496,6 +509,13 @@ fn map_class_guard(e: sqlx::Error) -> DbError {
     if let sqlx::Error::Database(db) = &e {
         if db.code().as_deref() == Some("P0001") {
             return DbError::Conflict(db.message().to_string());
+        }
+        // A CHECK on `device_assets` (the rented-in shape above all) is the
+        // caller asking for a row the model does not allow. It names the
+        // constraint and nothing else, so it is safe as a typed conflict.
+        if db.code().as_deref() == Some("23514") {
+            let constraint = db.constraint().unwrap_or("device_assets shape");
+            return DbError::Conflict(format!("the asset row does not satisfy {constraint}"));
         }
     }
     DbError::Sql(e)

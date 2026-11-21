@@ -191,12 +191,29 @@ async fn issue_unit_class(
     label: &str,
     loan_id: Uuid,
 ) -> DbResult<(CustodyClass, Option<Uuid>)> {
-    let (current, _serial, paired_asset) = pool_unit_classes(conn, org_id, unit).await?;
+    let (current, serial_id, paired_asset) = pool_unit_classes(conn, org_id, unit).await?;
     let parsed = CustodyClass::parse(&current).map_err(|e| DbError::Conflict(e.to_string()))?;
     if !loan_issue_origin_is_valid(parsed) {
         return Err(DbError::Conflict(format!(
             "{label} is {current} and cannot be issued on a client agreement"
         )));
+    }
+    // The class trigger refuses this when it writes a movement, but an issue
+    // that needs no movement (the unit is already `rental_out`) never reaches
+    // it. A unit consumed on a ticket is on a job, not on a shelf to lend.
+    if let Some(serial_id) = serial_id {
+        let on_ticket: Option<Uuid> =
+            sqlx::query_scalar("SELECT ticket_id FROM stock_serials WHERE org_id = $1 AND id = $2")
+                .bind(org_id)
+                .bind(serial_id)
+                .fetch_optional(&mut *conn)
+                .await?
+                .flatten();
+        if on_ticket.is_some() {
+            return Err(DbError::Conflict(format!(
+                "{label} is consumed on a ticket and cannot be issued"
+            )));
+        }
     }
     if parsed != LOAN_OPEN_CLASS {
         record_class_move(
@@ -360,18 +377,11 @@ pub async fn issue_loan(
                     serial.serial_number, serial.status
                 )));
             }
-            let from_location_id = serial.location_id.ok_or_else(|| {
-                DbError::Conflict(format!(
-                    "serial {} has no location; it is not in stock",
-                    serial.serial_number
-                ))
-            })?;
-
             // 0. Custody first: the unit leaves sale stock (or the fleet) and is
             //    `rental_out` while the client holds it. Written before the loan
             //    line exists, because the ledger refuses a move while an open
             //    agreement holds the unit — and the line is that agreement.
-            let (_issued_from, paired_asset) = issue_unit_class(
+            let (issued_from, paired_asset) = issue_unit_class(
                 conn,
                 org_id,
                 user_id,
@@ -383,6 +393,20 @@ pub async fn issue_loan(
                 loan.id,
             )
             .await?;
+            // A unit already in the pool left saleable quantity when it was
+            // commissioned; taking it off a shelf again would subtract twice.
+            // Its leg records the loan without a location, which is what the
+            // stock writer keys the level change on.
+            let from_location_id = if issued_from == CustodyClass::RentalOut {
+                None
+            } else {
+                Some(serial.location_id.ok_or_else(|| {
+                    DbError::Conflict(format!(
+                        "serial {} has no location; it is not in stock",
+                        serial.serial_number
+                    ))
+                })?)
+            };
 
             // 1. The ledger leg (client destination, not a location).
             let movement = StockMovement {
@@ -390,7 +414,7 @@ pub async fn issue_loan(
                 org_id,
                 stock_item_id: stock_item.id,
                 kind: "loan".into(),
-                from_location_id: Some(from_location_id),
+                from_location_id,
                 to_location_id: None,
                 qty_milli: -1000,
                 cost_minor: None,
@@ -517,10 +541,16 @@ pub async fn issue_loan(
             .await
             .map_err(|e| match e {
                 DbError::Sql(sqlx::Error::Database(db)) if db.is_unique_violation() => {
-                    DbError::Conflict(format!(
-                        "serial {} is already on an open loan",
-                        serial.serial_number
-                    ))
+                    let message = match db.constraint() {
+                        Some("uq_client_loan_open_unit") => {
+                            format!("serial {} is already on an open loan", serial.serial_number)
+                        }
+                        Some("uq_client_loan_open_asset") => {
+                            "that unit is already on an open loan".to_string()
+                        }
+                        _ => "that unit is already on an open loan".to_string(),
+                    };
+                    DbError::Conflict(message)
                 }
                 other => other,
             })?;
@@ -669,6 +699,7 @@ async fn loan_issue_origin(
     loan_id: Uuid,
     serial_id: Option<Uuid>,
     device_asset_id: Option<Uuid>,
+    unit: PoolUnit,
 ) -> DbResult<CustodyClass> {
     let row: Option<(String,)> = sqlx::query_as(
         r#"SELECT from_class FROM inventory_class_movements
@@ -684,10 +715,21 @@ async fn loan_issue_origin(
     .bind(device_asset_id)
     .fetch_optional(&mut *conn)
     .await?;
-    match row {
-        Some((class,)) => CustodyClass::parse(&class).map_err(|e| DbError::Conflict(e.to_string())),
-        None => Ok(CustodyClass::RentalOut),
+    if let Some((class,)) = row {
+        return CustodyClass::parse(&class).map_err(|e| DbError::Conflict(e.to_string()));
     }
+    // No movement means the loan predates the class ledger. The unit's current
+    // class is what it actually is, so a legacy sale-stock loan returns to sale
+    // stock instead of being assumed to be pool gear. `rental_in` is the one
+    // class a client return cannot keep: it is the vendor's, and a unit leased
+    // to a client is `rental_out` (ADR 0035 §4.1), so that legacy row routes to
+    // the pool.
+    let (current, _, _) = pool_unit_classes(conn, org_id, unit).await?;
+    let parsed = CustodyClass::parse(&current).map_err(|e| DbError::Conflict(e.to_string()))?;
+    Ok(match parsed {
+        CustodyClass::RentalIn => CustodyClass::RentalOut,
+        other => other,
+    })
 }
 
 /// Returns devices. Stock-sourced units ride a `loan_return` ledger leg and
@@ -796,6 +838,52 @@ pub async fn return_loan(
             .expect("validated above");
         let mut movement_in_id: Option<Uuid> = None;
 
+        // Resolve the unit and where it goes before the ledger leg: the leg is
+        // only owed when the destination is counted in saleable stock, and a
+        // unit that leaves custody must not increment it. The read takes the
+        // canonical locks (asset, then serial), so the class it returns is the
+        // class the routing below will move from.
+        let unit = match (line.serial_id, line.device_asset_id) {
+            (Some(serial_id), _) => PoolUnit {
+                side: UnitSide::Serial,
+                id: serial_id,
+            },
+            (None, Some(device_asset_id)) => PoolUnit {
+                side: UnitSide::Asset,
+                id: device_asset_id,
+            },
+            (None, None) => {
+                return Err(DbError::Conflict(format!(
+                    "line {} names no unit to route",
+                    t.line_id
+                )))
+            }
+        };
+        let (current, _, _) = pool_unit_classes(conn, org_id, unit).await?;
+        let current_class =
+            CustodyClass::parse(&current).map_err(|e| DbError::Conflict(e.to_string()))?;
+        let destination = match t.disposition.as_deref() {
+            Some(disposition) => return_disposition_class(disposition)?,
+            None => {
+                loan_issue_origin(
+                    conn,
+                    org_id,
+                    loan_id,
+                    line.serial_id,
+                    line.device_asset_id,
+                    unit,
+                )
+                .await?
+            }
+        };
+        // Saleable stock is the shelf. A pool unit and an e-waste unit are not
+        // on it; every other destination keeps the unit in the ledger's
+        // quantity, as it was before this return.
+        let counted_in_stock = !matches!(
+            destination,
+            CustodyClass::RentalOut | CustodyClass::EwasteCustody
+        );
+
         // The lease ends with the return. Close it at the ACTUAL date (the
         // expected return was the plan; the asset carries what happened). The
         // ownership is NOT reset here: an asset leased before the custody work
@@ -824,51 +912,59 @@ pub async fn return_loan(
 
         if let (Some(serial_id), Some(stock_item_id)) = (line.serial_id, line.stock_item_id) {
             let location_id = to_location_id.expect("required for stock-sourced lines");
-            let item = crate::stock::get_stock_item(&mut *conn, org_id, stock_item_id).await?;
-            let movement = StockMovement {
-                id: Uuid::now_v7(),
-                org_id,
-                stock_item_id,
-                kind: "loan_return".into(),
-                from_location_id: None,
-                to_location_id: Some(location_id),
-                qty_milli: 1000,
-                cost_minor: None,
-                currency: None,
-                fx_rate_used: None,
-                fx_rate_date: None,
-                fx_source: None,
-                base_cost_minor: None,
-                serial_id: Some(serial_id),
-                client_id: Some(loan.client_id),
-                ticket_id: None,
-                carrier: None,
-                tracking_ref: None,
-                note: None,
-                created_by: Some(user_id),
-                created_at: now,
-            };
-            let outcome = crate::stock::record_movement(
-                conn,
-                &LedgerInput {
-                    movement,
-                    item_name: item.name.clone(),
-                    item_kind: "serialized".into(),
-                    serial_number: None,
-                },
-            )
-            .await?;
+            if counted_in_stock {
+                let item = crate::stock::get_stock_item(&mut *conn, org_id, stock_item_id).await?;
+                let movement = StockMovement {
+                    id: Uuid::now_v7(),
+                    org_id,
+                    stock_item_id,
+                    kind: "loan_return".into(),
+                    from_location_id: None,
+                    to_location_id: Some(location_id),
+                    qty_milli: 1000,
+                    cost_minor: None,
+                    currency: None,
+                    fx_rate_used: None,
+                    fx_rate_date: None,
+                    fx_source: None,
+                    base_cost_minor: None,
+                    serial_id: Some(serial_id),
+                    client_id: Some(loan.client_id),
+                    ticket_id: None,
+                    carrier: None,
+                    tracking_ref: None,
+                    note: None,
+                    created_by: Some(user_id),
+                    created_at: now,
+                };
+                let outcome = crate::stock::record_movement(
+                    conn,
+                    &LedgerInput {
+                        movement,
+                        item_name: item.name.clone(),
+                        item_kind: "serialized".into(),
+                        serial_number: None,
+                    },
+                )
+                .await?;
+                movement_in_id = Some(outcome.movement.id);
+                legs.push(MovementLeg {
+                    movement: outcome.movement,
+                    low: outcome.low,
+                });
+            }
             // The lane-1 tick only arms serials that are `in_stock`; a
-            // `loaned` unit re-arms here, in the same commit.
+            // `loaned` unit re-arms here, in the same commit. Active even when
+            // no ledger leg was owed: the serial still physically comes back.
             let n = sqlx::query!(
                 r#"UPDATE stock_serials
                      SET status = 'in_stock', location_id = $3, client_id = NULL,
-                         movement_in_id = $4, updated_at = now()
+                         movement_in_id = COALESCE($4, movement_in_id), updated_at = now()
                    WHERE org_id = $1 AND id = $2 AND status = 'loaned'"#,
                 org_id,
                 serial_id,
                 location_id,
-                outcome.movement.id,
+                movement_in_id,
             )
             .execute(&mut *conn)
             .await?;
@@ -878,11 +974,6 @@ pub async fn return_loan(
                     t.line_id
                 )));
             }
-            movement_in_id = Some(outcome.movement.id);
-            legs.push(MovementLeg {
-                movement: outcome.movement,
-                low: outcome.low,
-            });
         }
         let n = sqlx::query!(
             r#"UPDATE client_loan_lines
@@ -907,37 +998,11 @@ pub async fn return_loan(
         }
 
         // Custody: the agreement is closed (above), so the unit can move. It
-        // goes back to the class it was issued from unless the caller routed it
+        // goes back to the class resolved at the top unless the caller routed it
         // somewhere else, and every routing that changes the class is one
         // movement whose source is this return line. Routing back to the pool is
         // the identity case: the unit is already `rental_out`, and a movement
         // that does not change the class would be a lie.
-        let unit = match (line.serial_id, line.device_asset_id) {
-            (Some(serial_id), _) => PoolUnit {
-                side: UnitSide::Serial,
-                id: serial_id,
-            },
-            (None, Some(device_asset_id)) => PoolUnit {
-                side: UnitSide::Asset,
-                id: device_asset_id,
-            },
-            (None, None) => {
-                return Err(DbError::Conflict(format!(
-                    "line {} names no unit to route",
-                    t.line_id
-                )))
-            }
-        };
-        let destination = match t.disposition.as_deref() {
-            Some(disposition) => return_disposition_class(disposition)?,
-            None => {
-                loan_issue_origin(conn, org_id, loan_id, line.serial_id, line.device_asset_id)
-                    .await?
-            }
-        };
-        let (current, _, _) = pool_unit_classes(conn, org_id, unit).await?;
-        let current_class =
-            CustodyClass::parse(&current).map_err(|e| DbError::Conflict(e.to_string()))?;
         if current_class != destination {
             let reason = format!(
                 "returned from client agreement → {}: {}",
@@ -957,6 +1022,24 @@ pub async fn return_loan(
                 t.return_condition.as_deref(),
                 None,
             )
+            .await?;
+        }
+
+        // The client no longer holds the unit, so its asset row leaves the
+        // client's fleet and returns to the internal projection the issue put
+        // aside. Scope and client move together (the shape constraint ties
+        // them), and the site goes with them: whatever site the client had it
+        // at is not where it is now.
+        if let Some(asset_id) = line.device_asset_id {
+            sqlx::query(
+                r#"UPDATE device_assets
+                      SET scope = 'internal_org', client_id = NULL, site_id = NULL,
+                          updated_at = now()
+                    WHERE org_id = $1 AND id = $2"#,
+            )
+            .bind(org_id)
+            .bind(asset_id)
+            .execute(&mut *conn)
             .await?;
         }
 
@@ -1178,40 +1261,87 @@ async fn pool_unit_classes(
     org_id: Uuid,
     unit: PoolUnit,
 ) -> DbResult<(String, Option<Uuid>, Option<Uuid>)> {
-    let row: Option<(String, Option<Uuid>, Option<Uuid>)> = match unit.side {
+    // The pair is read under the same lock order the class-movement trigger
+    // takes (asset first, then serial), so a concurrent conversion cannot move
+    // the partner between this read and the movement the caller writes. The
+    // pair is re-read after both locks: if it changed while we waited, the unit
+    // this caller looked at is not the unit it is about to move, and the answer
+    // is a retry, not a stale `from_class`.
+    let first_pass: (String, Option<Uuid>, Option<Uuid>) = match unit.side {
         UnitSide::Serial => {
-            sqlx::query_as(
-                r#"SELECT custody_class, id, device_asset_id
-                 FROM stock_serials WHERE org_id = $1 AND id = $2"#,
+            let row: Option<(String, Option<Uuid>)> = sqlx::query_as(
+                r#"SELECT custody_class, device_asset_id
+                     FROM stock_serials WHERE org_id = $1 AND id = $2"#,
             )
             .bind(org_id)
             .bind(unit.id)
             .fetch_optional(&mut *conn)
-            .await?
+            .await?;
+            let (class, asset_id) = row.ok_or(DbError::NotFound)?;
+            (class, Some(unit.id), asset_id)
         }
         UnitSide::Asset => {
-            sqlx::query_as(
-                r#"SELECT custody_class, serial_id, id
-                 FROM device_assets WHERE org_id = $1 AND id = $2"#,
+            let row: Option<(String, Option<Uuid>)> = sqlx::query_as(
+                r#"SELECT custody_class, serial_id
+                     FROM device_assets WHERE org_id = $1 AND id = $2"#,
             )
             .bind(org_id)
             .bind(unit.id)
             .fetch_optional(&mut *conn)
-            .await?
+            .await?;
+            let (class, serial_id) = row.ok_or(DbError::NotFound)?;
+            (class, serial_id, Some(unit.id))
         }
     };
-    let (class, serial_id, asset_id) = row.ok_or(DbError::NotFound)?;
-    Ok((
-        class,
-        match unit.side {
-            UnitSide::Serial => Some(unit.id),
-            UnitSide::Asset => serial_id,
-        },
-        match unit.side {
-            UnitSide::Serial => asset_id,
-            UnitSide::Asset => Some(unit.id),
-        },
-    ))
+
+    // Asset before serial, the order the trigger uses.
+    if let Some(asset_id) = first_pass.2 {
+        sqlx::query("SELECT 1 FROM device_assets WHERE org_id = $1 AND id = $2 FOR UPDATE")
+            .bind(org_id)
+            .bind(asset_id)
+            .execute(&mut *conn)
+            .await?;
+    }
+    if let Some(serial_id) = first_pass.1 {
+        sqlx::query("SELECT 1 FROM stock_serials WHERE org_id = $1 AND id = $2 FOR UPDATE")
+            .bind(org_id)
+            .bind(serial_id)
+            .execute(&mut *conn)
+            .await?;
+    }
+
+    let locked: (String, Option<Uuid>, Option<Uuid>) = match unit.side {
+        UnitSide::Serial => {
+            let row: Option<(String, Option<Uuid>)> = sqlx::query_as(
+                r#"SELECT custody_class, device_asset_id
+                     FROM stock_serials WHERE org_id = $1 AND id = $2"#,
+            )
+            .bind(org_id)
+            .bind(unit.id)
+            .fetch_optional(&mut *conn)
+            .await?;
+            let (class, asset_id) = row.ok_or(DbError::NotFound)?;
+            (class, Some(unit.id), asset_id)
+        }
+        UnitSide::Asset => {
+            let row: Option<(String, Option<Uuid>)> = sqlx::query_as(
+                r#"SELECT custody_class, serial_id
+                     FROM device_assets WHERE org_id = $1 AND id = $2"#,
+            )
+            .bind(org_id)
+            .bind(unit.id)
+            .fetch_optional(&mut *conn)
+            .await?;
+            let (class, serial_id) = row.ok_or(DbError::NotFound)?;
+            (class, serial_id, Some(unit.id))
+        }
+    };
+    if locked.1 != first_pass.1 || locked.2 != first_pass.2 {
+        return Err(DbError::Conflict(
+            "the unit was paired or unpaired while the move was prepared; retry".into(),
+        ));
+    }
+    Ok((locked.0, locked.1, locked.2))
 }
 
 /// The class-movement trigger raises `P0001` with a sentence naming the unit and
@@ -1327,6 +1457,79 @@ fn pool_reason(note: Option<&str>, what: &str, grade: &str) -> String {
     reason.chars().take(500).collect()
 }
 
+/// Moves a serial-backed unit in or out of saleable `stock_levels` at the shelf
+/// it sits on. A pool unit is not saleable, so the level must stop counting it
+/// when it is commissioned and start again when it is decommissioned; the class
+/// movement is the audit record of why the quantity moved. A unit with no level
+/// row (an asset-only purchase that never went through receive) has nothing to
+/// adjust, which is not an error.
+async fn adjust_pool_quantity(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    serial_id: Option<Uuid>,
+    delta_milli: i64,
+) -> DbResult<()> {
+    let Some(serial_id) = serial_id else {
+        return Ok(());
+    };
+    let row: Option<(Uuid, Option<Uuid>)> = sqlx::query_as(
+        "SELECT stock_item_id, location_id FROM stock_serials WHERE org_id = $1 AND id = $2",
+    )
+    .bind(org_id)
+    .bind(serial_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    let Some((item_id, Some(location_id))) = row else {
+        return Ok(());
+    };
+    if delta_milli < 0 {
+        let held: Option<i64> = sqlx::query_scalar(
+            r#"SELECT qty_milli FROM stock_levels
+                WHERE org_id = $1 AND stock_item_id = $2 AND stock_location_id = $3"#,
+        )
+        .bind(org_id)
+        .bind(item_id)
+        .bind(location_id)
+        .fetch_optional(&mut *conn)
+        .await?;
+        match held {
+            None => Ok(()),
+            Some(qty) if qty + delta_milli >= 0 => {
+                sqlx::query(
+                    r#"UPDATE stock_levels SET qty_milli = qty_milli + $4, updated_at = now()
+                        WHERE org_id = $1 AND stock_item_id = $2 AND stock_location_id = $3"#,
+                )
+                .bind(org_id)
+                .bind(item_id)
+                .bind(location_id)
+                .bind(delta_milli)
+                .execute(&mut *conn)
+                .await?;
+                Ok(())
+            }
+            Some(_) => Err(DbError::Conflict(
+                "the shelf does not hold this unit in saleable quantity".into(),
+            )),
+        }
+    } else {
+        sqlx::query(
+            r#"INSERT INTO stock_levels
+                 (id, org_id, stock_item_id, stock_location_id, qty_milli)
+               VALUES ($1, $2, $3, $4, $5)
+               ON CONFLICT (org_id, stock_item_id, stock_location_id) DO UPDATE
+                 SET qty_milli = stock_levels.qty_milli + $5, updated_at = now()"#,
+        )
+        .bind(Uuid::now_v7())
+        .bind(org_id)
+        .bind(item_id)
+        .bind(location_id)
+        .bind(delta_milli)
+        .execute(&mut *conn)
+        .await?;
+        Ok(())
+    }
+}
+
 /// Commission: sale stock → the rental pool. The unit leaves saleable quantity
 /// (its class is the only truth about that) and becomes available for leases.
 pub async fn commission_to_pool(
@@ -1352,7 +1555,7 @@ pub async fn commission_to_pool(
         "commissioned into the rental pool",
         grade,
     );
-    record_pool_move(
+    let movement = record_pool_move(
         conn,
         org_id,
         user_id,
@@ -1363,7 +1566,9 @@ pub async fn commission_to_pool(
         grade,
         req.data_wipe_ref.as_deref(),
     )
-    .await
+    .await?;
+    adjust_pool_quantity(conn, org_id, movement.serial_id, -1000).await?;
+    Ok(movement)
 }
 
 /// Decommission: the rental pool → sale stock. Refused while the unit is on an
@@ -1392,7 +1597,7 @@ pub async fn decommission_from_pool(
         "decommissioned from the rental pool",
         grade,
     );
-    record_pool_move(
+    let movement = record_pool_move(
         conn,
         org_id,
         user_id,
@@ -1403,7 +1608,10 @@ pub async fn decommission_from_pool(
         grade,
         req.data_wipe_ref.as_deref(),
     )
-    .await
+    .await?;
+    // The unit is saleable again: it re-enters the shelf's quantity.
+    adjust_pool_quantity(conn, org_id, movement.serial_id, 1000).await?;
+    Ok(movement)
 }
 
 // --- lease agreements and their charges ---------------------------------------
@@ -1725,6 +1933,24 @@ pub async fn list_pending_rental_charges(
     ))
     .bind(org_id)
     .bind(contract_ids)
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows.into_iter().map(charge_from_row).collect())
+}
+
+/// Every pending charge in the org, whatever contract it bills under. The run
+/// uses this so a charge raised under a contract its window does not select
+/// still bills: a receivable does not expire with the window.
+pub async fn list_all_pending_rental_charges(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+) -> DbResult<Vec<RentalCharge>> {
+    let rows: Vec<ChargeRow> = sqlx::query_as(&format!(
+        r#"SELECT {CHARGE_COLS} FROM rental_charges
+            WHERE org_id = $1 AND status = 'pending'
+            ORDER BY period_start, id"#
+    ))
+    .bind(org_id)
     .fetch_all(&mut *conn)
     .await?;
     Ok(rows.into_iter().map(charge_from_row).collect())

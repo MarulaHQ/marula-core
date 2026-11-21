@@ -415,10 +415,34 @@ pub async fn create_run(
         )
         .await?;
 
+        // A pending rental charge is a receivable: a damage charge raised under
+        // a contract whose term has already ended must still bill, and a
+        // window-bounded contract list would never select that contract. So the
+        // pending charges are read org-wide, and any contract one of them names
+        // joins the sweep even when the window does not choose it. Its own
+        // evaluation contributes nothing outside the term; the charge is what
+        // the line is.
+        let pending_charges = core_db::loans::list_all_pending_rental_charges(&mut *ctx.tx, org_id)
+            .await?;
+        let mut extra_ids: Vec<Uuid> = pending_charges
+            .iter()
+            .filter(|c| client_filter.is_none_or(|client| c.client_id == client))
+            .map(|c| c.contract_id)
+            .filter(|id| !contract_ids.contains(id))
+            .collect();
+        extra_ids.sort_unstable();
+        extra_ids.dedup();
+        for id in extra_ids {
+            contracts.push(
+                core_db::contracts::get_contract(&mut *ctx.tx, org_id, id).await?,
+            );
+        }
+        let contract_ids: Vec<Uuid> = contracts.iter().map(|c| c.id).collect();
+
         // Rental charges, loaded once for the whole sweep: the leases that
         // bill under these contracts, the periods already charged, and the
-        // one-off charges (damage, loss) waiting for a line. Two queries, never
-        // one per agreement.
+        // one-off charges waiting for a line. Grouped by contract here so the
+        // loop below reads a map instead of rescanning the rows per contract.
         let billable_leases =
             core_db::loans::list_billable_leases(&mut ctx.tx, org_id, &contract_ids).await?;
         let lease_ids: Vec<Uuid> = billable_leases.iter().map(|l| l.loan_id).collect();
@@ -433,9 +457,26 @@ pub async fn create_run(
             .iter()
             .map(|(loan, kind, start, end, _)| (*loan, kind.clone(), *start, *end))
             .collect();
-        let pending_charges =
-            core_db::loans::list_pending_rental_charges(&mut ctx.tx, org_id, &contract_ids)
-                .await?;
+        let mut charges_by_contract: std::collections::HashMap<
+            Uuid,
+            Vec<&core_db::loans::RentalCharge>,
+        > = std::collections::HashMap::new();
+        for charge in &pending_charges {
+            charges_by_contract
+                .entry(charge.contract_id)
+                .or_default()
+                .push(charge);
+        }
+        let mut leases_by_contract: std::collections::HashMap<
+            Uuid,
+            Vec<&core_db::loans::BillableLease>,
+        > = std::collections::HashMap::new();
+        for lease in &billable_leases {
+            leases_by_contract
+                .entry(lease.contract_id)
+                .or_default()
+                .push(lease);
+        }
 
         // Contracts arrive ordered by number: per-client sequential
         // processing means later contracts re-read UNBILLED entries and
@@ -509,12 +550,23 @@ pub async fn create_run(
             // contract's is refused rather than converted (the run is
             // single-currency by construction).
             let mut rental_lines: Vec<RentalLine> = Vec::new();
-            for charge in pending_charges.iter().filter(|c| c.contract_id == contract.id) {
+            for charge in charges_by_contract
+                .get(&contract.id)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
+            {
+                // A charge stored before the currency rule can carry another
+                // currency than its contract. The run is single-currency, but
+                // one bad row must not stop billing for every other contract:
+                // skip it and say so, so it can be corrected.
                 if !charge.currency.eq_ignore_ascii_case(&contract.currency) {
-                    return Err(ApiError::Conflict(format!(
-                        "rental charge {} is {} but contract {} bills in {}",
-                        charge.id, charge.currency, contract.number, contract.currency
-                    )));
+                    tracing::warn!(
+                        charge = %charge.id,
+                        charge_currency = %charge.currency,
+                        contract_currency = %contract.currency,
+                        "pending rental charge skipped: currency differs from its contract"
+                    );
+                    continue;
                 }
                 rental_lines.push(RentalLine {
                     candidate: BillingCandidateLine {
@@ -533,9 +585,10 @@ pub async fn create_run(
                     new_charge: None,
                 });
             }
-            for lease in billable_leases
-                .iter()
-                .filter(|l| l.contract_id == contract.id)
+            for lease in leases_by_contract
+                .get(&contract.id)
+                .map(Vec::as_slice)
+                .unwrap_or(&[])
             {
                 // A lease with no cycle price is a loan recorded as one; it
                 // produces no charge rather than an endless zero line.
@@ -585,10 +638,16 @@ pub async fn create_run(
                     continue;
                 }
                 if !lease.currency.eq_ignore_ascii_case(&contract.currency) {
-                    return Err(ApiError::Conflict(format!(
-                        "lease {} bills in {} but its contract {} bills in {}",
-                        lease.loan_id, lease.currency, contract.number, contract.currency
-                    )));
+                    // A lease written before the currency rule cannot bill under
+                    // this contract. Skip it with a warning rather than abort the
+                    // sweep; the agreement needs correcting, not a failed run.
+                    tracing::warn!(
+                        lease = %lease.loan_id,
+                        lease_currency = %lease.currency,
+                        contract_currency = %contract.currency,
+                        "lease skipped: currency differs from its contract"
+                    );
+                    continue;
                 }
                 for period in periods {
                     let charge_id = Uuid::now_v7();
@@ -629,15 +688,15 @@ pub async fn create_run(
                     });
                 }
             }
-            let rental_total: i64 = rental_lines
-                .iter()
-                .try_fold(0i64, |acc, r| acc.checked_add(r.candidate.amount_minor))
-                .ok_or_else(|| ApiError::Conflict("invoice run totals overflow".into()))?;
             let rental_base = lines.len();
             lines.extend(rental_lines.iter().map(|r| r.candidate.clone()));
-            let invoice_total_minor = evaluation
-                .total_minor
-                .checked_add(rental_total)
+            // The invoice total is the sum of the lines that survived the
+            // already-billed filters, not the evaluation's total: the two differ
+            // whenever a candidate was skipped, and the issued document must
+            // equal what it carries.
+            let invoice_total_minor = lines
+                .iter()
+                .try_fold(0i64, |acc, l| acc.checked_add(l.amount_minor))
                 .ok_or_else(|| ApiError::Conflict("invoice run totals overflow".into()))?;
             if lines.is_empty() {
                 continue;
@@ -678,12 +737,19 @@ pub async fn create_run(
                 })
                 .map(|l| (l.period_start, l.period_end))
                 .collect();
+            // A T&M contract can produce an invoice with no labour line at all
+            // (a rental-only sweep). Consuming the entries in that case would
+            // mark time billed by a document that does not carry it.
+            let has_labour_lines = lines
+                .iter()
+                .any(|line| line.kind == BillingLineKind::TimeMaterials);
             let consumed: Vec<Uuid> = match contract.contract_type {
-                ContractType::TimeAndMaterials => entries
+                ContractType::TimeAndMaterials if has_labour_lines => entries
                     .iter()
                     .filter(|e| e.entry_date >= lo && e.entry_date <= hi)
                     .map(|e| e.time_entry_id)
                     .collect(),
+                ContractType::TimeAndMaterials => Vec::new(),
                 ContractType::Retainer => entries
                     .iter()
                     .filter(|e| {
@@ -880,16 +946,16 @@ pub async fn create_run(
                 core_db::loans::mark_rental_charges_billed(&mut ctx.tx, org_id, &billed).await?;
                 let line_ids: Vec<Uuid> = billed.iter().map(|b| b.2).collect();
                 let charge_ids: Vec<Uuid> = billed.iter().map(|b| b.0).collect();
-                sqlx::query(
+                sqlx::query!(
                     r#"UPDATE invoice_lines l
                           SET source_kind = 'rental_charge', source_id = v.charge_id
                          FROM (SELECT unnest($2::uuid[]) AS line_id,
                                       unnest($3::uuid[]) AS charge_id) v
                         WHERE l.org_id = $1 AND l.id = v.line_id"#,
+                    org_id,
+                    &line_ids,
+                    &charge_ids,
                 )
-                .bind(org_id)
-                .bind(&line_ids)
-                .bind(&charge_ids)
                 .execute(&mut *ctx.tx)
                 .await?;
             }

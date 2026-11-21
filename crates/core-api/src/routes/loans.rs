@@ -509,6 +509,11 @@ pub async fn return_loan(
             let damage_charge = match line.damage_charge_minor {
                 None => None,
                 Some(amount) => {
+                    if amount < 0 {
+                        return Err(ApiError::Validation(
+                            "a damage charge cannot be negative".into(),
+                        ));
+                    }
                     if !before.is_lease {
                         return Err(ApiError::Validation(
                             "damage charges belong to a lease agreement".into(),
@@ -1044,10 +1049,18 @@ pub async fn create_vendor_rental(
         core_domain::money::CurrencyCode::new(code)
             .map_err(|e| ApiError::Validation(e.to_string()))?;
     }
-    if req.device_asset_id.is_none() && req.asset.is_none() {
-        return Err(ApiError::Validation(
-            "name the rented asset or describe one to create".into(),
-        ));
+    match (req.device_asset_id, req.asset.as_ref()) {
+        (None, None) => {
+            return Err(ApiError::Validation(
+                "name the rented asset or describe one to create".into(),
+            ))
+        }
+        (Some(_), Some(_)) => {
+            return Err(ApiError::Validation(
+                "name an existing asset or describe one to create, not both".into(),
+            ))
+        }
+        _ => {}
     }
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;

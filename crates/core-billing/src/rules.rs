@@ -661,8 +661,19 @@ pub fn rental_charge_periods(
     // Exclusive ends: the last out day is billable, and so is the last day of
     // the contract term. The period stays anchored on `active_from`; what the
     // term bounds change is how many of its days are billable.
-    let active_end = terms.active_until + chrono::Duration::days(1);
-    let term_end = terms.term_until + chrono::Duration::days(1);
+    // `checked_add_signed` rather than `+`: a date on the edge of the calendar
+    // makes the exclusive end unrepresentable, and that is an empty schedule,
+    // not a panic.
+    let (Some(active_end), Some(term_end)) = (
+        terms
+            .active_until
+            .checked_add_signed(chrono::Duration::days(1)),
+        terms
+            .term_until
+            .checked_add_signed(chrono::Duration::days(1)),
+    ) else {
+        return Ok(Vec::new());
+    };
     let mut out = Vec::new();
     for (start, end) in crate::periods::periods_starting_in(
         terms.active_from,
@@ -3111,7 +3122,7 @@ mod tests {
         assert_eq!(days.len(), 1);
         assert_eq!(days[0].days_billed, 17);
         assert_eq!(days[0].period_days, 31);
-        assert_eq!(days[0].amount_minor, prorate_days(49_000, 17, 31).unwrap());
+        assert_eq!(days[0].amount_minor, 26_871, "17 of 31 days of 49000");
         assert!(days[0].amount_minor < 49_000);
     }
 
@@ -3125,10 +3136,7 @@ mod tests {
         assert_eq!(billed.len(), 1);
         assert_eq!(billed[0].period_start, d(2026, 1, 15), "anchor unchanged");
         assert_eq!(billed[0].days_billed, 14);
-        assert_eq!(
-            billed[0].amount_minor,
-            prorate_days(49_000, 14, 31).unwrap()
-        );
+        assert_eq!(billed[0].amount_minor, 22_129, "14 of 31 days of 49000");
     }
 
     #[test]
