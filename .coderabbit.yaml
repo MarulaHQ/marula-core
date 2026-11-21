@@ -55,6 +55,11 @@ reviews:
         - Queries use the `sqlx::query!` / `query_as!` macros with the offline
           cache in `.sqlx/`; a new or changed query needs `cargo sqlx prepare`
           in the same PR, or the build breaks in CI.
+        - A runtime `sqlx::query` is allowed only where a macro cannot express
+          the statement: SQL assembled from a closed set of known fragments,
+          catalog or `pg_*` introspection, and pgvector operator queries. The
+          statement carries a comment naming that reason. Every other runtime
+          query is a finding.
         - Every query on user data is scoped to the caller's organization. A
           new user-data table needs an `org_id` column and an RLS policy, or
           the CI coverage test fails.
