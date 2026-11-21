@@ -128,17 +128,20 @@ say "installing $(basename "$TO") over it"
 wait_for_readyz "the upgrade reported success but /readyz never answered"
 
 AFTER=$(core_api_image) || die "no core-api container is running after the upgrade"
-# The point of the leg: an installer that leaves the old container alone would
-# still answer /readyz, so the image has to change. Two installs of the same
-# release would fail this, which is correct — the leg exists to move versions.
+# The identity check below is the pass condition. An image id that did not change
+# is not a failure on its own: image ids identify content, so two releases whose
+# core-api content is identical share one, and the pipeline never promised
+# otherwise. What must hold is that the running image is the one the newer
+# release pins, which also catches an installer that left the old container
+# running while the target's image was already in the local store.
 if [ "$BEFORE" = "$AFTER" ]; then
-  die "core-api is still running the image the older release started (${AFTER:0:19}…): the upgrade did not replace it"
+  say "core-api's image id is unchanged: the two releases carry identical core-api content"
+else
+  say "core-api moved to image ${AFTER:0:19}…"
 fi
-say "core-api moved to image ${AFTER:0:19}…"
 
-# Changing is not enough: an installer that pulled the wrong tag would also
-# change the id. The target release names the image it expects in the override it
-# writes, and the running container has to be that image.
+# The newer release names the image it expects in the override it writes from its
+# signed manifest, and the running container has to be that image.
 PIN=$(core_api_pin) || die "could not read the core-api pin from $INSTALL_DIR/marula.images.yml"
 [ -n "$PIN" ] || die "the upgrade did not pin core-api in $INSTALL_DIR/marula.images.yml"
 PIN_ID=$(docker image inspect -f '{{.Id}}' "$PIN") \
