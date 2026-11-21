@@ -116,11 +116,16 @@ fi
 say "loading the images this bundle carries"
 docker load --input images.tar >/dev/null
 
+# Asked for by the name portion. A digest does not survive the trip through this
+# archive: the images are files in a tar, and a tag is the only name the daemon
+# keeps when it reads them back. A bundle written before that was understood lists
+# `name:tag@sha256:…`, and the tag is still the thing `docker load` restored, so
+# the tag is the name to look for in both shapes.
 missing=()
 while IFS= read -r image; do
   [ -n "$image" ] || continue
-  if ! docker image inspect "$image" >/dev/null 2>&1; then
-    missing+=("$image")
+  if ! docker image inspect "${image%%@*}" >/dev/null 2>&1; then
+    missing+=("${image%%@*}")
   fi
 done <images.list
 if [ "${#missing[@]}" -gt 0 ]; then

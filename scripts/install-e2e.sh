@@ -245,10 +245,14 @@ done
 assert_no_registry_fetch() {
   local image count=0
   local -a missing=()
+  # By the name portion: a bundle that still lists `name:tag@sha256:…` was loaded
+  # from a tar, and the tag is the only name the daemon kept. Asking for the digest
+  # would fail on a store that does not keep repo digests, which is the store this
+  # leg is meant to run against.
   while IFS= read -r image; do
     [ -n "$image" ] || continue
     count=$((count + 1))
-    docker image inspect "$image" >/dev/null 2>&1 || missing+=("$image")
+    docker image inspect "${image%%@*}" >/dev/null 2>&1 || missing+=("${image%%@*}")
   done <"$BUNDLE/images.list"
   [ "$count" -gt 0 ] || die "$BUNDLE/images.list is empty: the bundle names no images"
   if [ "${#missing[@]}" -gt 0 ]; then
@@ -304,6 +308,7 @@ assert_no_registry_fetch() {
   # that cannot deliver its own marker is a failed measurement, not a slow one.
   local marker marker_image drained=0
   marker_image=$(awk 'NF { print; exit }' "$BUNDLE/images.list")
+  marker_image=${marker_image%%@*}
   marker="marula-e2e-drain-$$"
   MARKER_TAG=$marker
   docker image tag "$marker_image" "$marker" >/dev/null 2>&1 ||

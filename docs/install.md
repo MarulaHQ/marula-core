@@ -163,9 +163,17 @@ the job does not claim the host was disconnected. It asserts what belongs to the
 bundle: after the load, every image `images.list` names is in the local store;
 the stack that starts resolves only to those images; and the daemon's own image
 events, watched from before the install to a marker emitted just after `/readyz`
-answered, contain no pull. A bundle that left an image out fails the job and names the image. A host
-with no route at all is the one case the job cannot stage, and the bundle
-carries nothing that would behave differently there.
+answered, contain no pull. A bundle that left an image out fails the job and
+names the image. A host with no route at all is the one case the job cannot
+stage, and the bundle carries nothing that would behave differently there.
+
+An archive names its images by tag, not by digest. A digest does not survive the
+trip through a tar: `docker load` restores a tag and drops the repo digest on
+the overlay2 driver, which is what most hosts and CI use, and an image saved
+under a digest reference comes back with no name at all. The tag is the one name
+that survives, so that is what the archive's compose file and `images.list`
+carry. What pins the bundle is its own `SHA256SUMS`, over the image tar and the
+compose file, and the release key's signature over that list.
 
 The Windows archive carries no front door it can run: the bundle's `install.sh`
 is POSIX, and neither WSL nor Git Bash is a supported path to it. Two ways in,

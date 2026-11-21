@@ -43,6 +43,30 @@ PROFILES=()
 say() { printf '==> %s\n' "$*"; }
 die() { printf 'offline-bundle: %s\n' "$*" >&2; exit 1; }
 
+# The sums, in the shape `sha256sum -c` reads: sorted, two spaces, paths relative
+# to the directory. `find` never yields SHA256SUMS because the name is excluded,
+# which is the file being written beside it.
+write_sums() {
+  local dir=$1
+  # shellcheck disable=SC2094  # SHA256SUMS is excluded from its own input
+  (
+    cd "$dir"
+    if command -v sha256sum >/dev/null 2>&1; then
+      find . -type f ! -name SHA256SUMS -print0 |
+        LC_ALL=C sort -z |
+        xargs -0 sha256sum |
+        sed 's|  \./|  |' >SHA256SUMS
+      sha256sum --quiet -c SHA256SUMS
+    else
+      find . -type f ! -name SHA256SUMS -print0 |
+        LC_ALL=C sort -z |
+        xargs -0 shasum -a 256 |
+        sed 's|  \./|  |' >SHA256SUMS
+      shasum -a 256 -c SHA256SUMS >/dev/null
+    fi
+  )
+}
+
 while [ $# -gt 0 ]; do
   case "$1" in
     --version)
@@ -158,16 +182,54 @@ mkdir -p "$BUNDLE_DIR"
 
 say "collecting the image list"
 COMPOSE_PROJECT_NAME=marula docker compose "${COMPOSE_ARGS[@]}" --profile pooler config --images |
-  LC_ALL=C sort -u >"$STAGING/images.list"
-[ -s "$STAGING/images.list" ] || die "compose reported no images; is $COMPOSE_FILE readable?"
+  LC_ALL=C sort -u >"$STAGING/images.refs"
+[ -s "$STAGING/images.refs" ] || die "compose reported no images; is $COMPOSE_FILE readable?"
 
+# What the bundle calls each image. A digest survives `docker save`/`docker load`
+# only on a store that keeps repo digests (the containerd image store does; the
+# overlay2 driver most hosts and CI use does not), and an image that is saved by
+# its digest reference carries no tag in the tar at all: it comes back with no
+# name, so neither `name:tag@digest` nor `name:tag` finds it. The tag is the only
+# name that survives, so the bundle names every image by its tag, saves it under
+# that tag, and the compose file beside it is rewritten to match. What the digest
+# pinned here is the bundle's own SHA256SUMS, which covers the tar and is signed
+# at release level; inside a bundle the digest buys nothing that check does not.
+#
+# The rule is narrow on purpose: a reference with no tag (`prom/prometheus@sha256:…`)
+# is left alone, because dropping its digest would rewrite it to `:latest`, a
+# different image.
+bundle_name() {
+  local ref=$1 name=${1%@*}
+  case "${name##*/}" in
+    *:*) printf '%s\n' "$name" ;;
+    *) return 1 ;;
+  esac
+}
+
+REFS=()
 IMAGES=()
-while IFS= read -r line; do
-  [ -n "$line" ] && IMAGES+=("$line")
-done <"$STAGING/images.list"
+while IFS= read -r ref; do
+  [ -n "$ref" ] || continue
+  REFS+=("$ref")
+  if name=$(bundle_name "$ref"); then
+    IMAGES+=("$name")
+  else
+    IMAGES+=("$ref")
+  fi
+done <"$STAGING/images.refs"
 
 unavailable=()
-for image in "${IMAGES[@]}"; do
+for index in "${!IMAGES[@]}"; do
+  image=${IMAGES[$index]}
+  # Give the image the name the bundle will carry, so `docker save` writes it and
+  # `docker load` restores it. A reference that already reads as its own bundle
+  # name (a locally built `marula-core-api`) needs nothing.
+  if [ "${REFS[$index]}" != "$image" ]; then
+    # A failure here leaves the image unnamed under the bundle's name, and the
+    # inspect below reports it with the rest.
+    docker tag "${REFS[$index]}" "$image" >/dev/null 2>&1 ||
+      printf 'offline-bundle: could not tag %s as %s\n' "${REFS[$index]}" "$image" >&2
+  fi
   if ! docker image inspect "$image" >/dev/null 2>&1; then
     unavailable+=("$image")
   fi
@@ -183,34 +245,34 @@ fi
 
 say "saving ${#IMAGES[@]} images"
 docker save --output "$BUNDLE_DIR/images.tar" "${IMAGES[@]}"
-cp "$STAGING/images.list" "$BUNDLE_DIR/images.list"
+printf '%s\n' "${IMAGES[@]}" >"$BUNDLE_DIR/images.list"
 
 say "copying the release directory"
 cp -R "$RELEASE_DIR" "$BUNDLE_DIR/marula-$VERSION-$OS-$ARCH"
 cp "$ROOT/scripts/release/install-offline.sh" "$BUNDLE_DIR/install-offline.sh"
 chmod 0755 "$BUNDLE_DIR/install-offline.sh"
 
+# The compose file in the bundle has to name the images the way the bundle made
+# them. Both groups are needed to tell a tagged reference from a naked digest: a
+# registry host may carry a port (`localhost:5005/thing:1.0`), and a reference
+# with no tag has nothing to fall back on, so it is left exactly as it was.
+say "naming the images by tag in the bundled compose files"
+for compose in "$BUNDLE_DIR/marula-$VERSION-$OS-$ARCH"/deploy/docker-compose*.yml; do
+  [ -f "$compose" ] || continue
+  sed -E \
+    's#(image:[[:space:]]*"?)([A-Za-z0-9._-]+(:[0-9]+)?/)?([A-Za-z0-9._/-]+):([A-Za-z0-9._-]+)@sha256:[0-9a-f]{64}#\1\2\4:\5#' \
+    "$compose" >"$compose.tmp"
+  mv "$compose.tmp" "$compose"
+done
+
+# The nested release directory carries the sums it was assembled with, and one of
+# those files has just changed. Left stale, it would accuse the bundle of the very
+# edit that makes it installable.
+say "rechecking the bundled release directory"
+write_sums "$BUNDLE_DIR/marula-$VERSION-$OS-$ARCH"
+
 say "writing SHA256SUMS"
-# Compute the sums in the same shape `sha256sum -c` reads: sorted, two spaces,
-# paths relative to this directory. `find` never yields SHA256SUMS because the
-# name is excluded, which is the file being written beside it.
-# shellcheck disable=SC2094
-(
-  cd "$BUNDLE_DIR"
-  if command -v sha256sum >/dev/null 2>&1; then
-    find . -type f ! -name SHA256SUMS -print0 |
-      LC_ALL=C sort -z |
-      xargs -0 sha256sum |
-      sed 's|  \./|  |' >SHA256SUMS
-    sha256sum --quiet -c SHA256SUMS
-  else
-    find . -type f ! -name SHA256SUMS -print0 |
-      LC_ALL=C sort -z |
-      xargs -0 shasum -a 256 |
-      sed 's|  \./|  |' >SHA256SUMS
-    shasum -a 256 -c SHA256SUMS >/dev/null
-  fi
-)
+write_sums "$BUNDLE_DIR"
 
 mkdir -p "$OUT"
 ARCHIVE="$OUT/$BUNDLE.tar.zst"
