@@ -599,6 +599,9 @@ pub struct ClientScope {
     pub sees_every_client: bool,
 }
 
+// The parameters are the list filters the SQL binds; a struct would only move
+// them one line away from the query.
+#[allow(clippy::too_many_arguments)]
 pub async fn list_purchase_orders(
     executor: &mut sqlx::PgConnection,
     org_id: Uuid,

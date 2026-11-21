@@ -763,7 +763,7 @@ pub async fn add_line(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     let line = validate_line(&req.line)?;
-    let fingerprint = serde_json::to_value(&(id, &req)).unwrap_or(Value::Null);
+    let fingerprint = serde_json::to_value((id, &req)).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
@@ -897,7 +897,7 @@ pub async fn record_event(
         require_max_len(notes, 2000, "notes")?;
     }
 
-    let fingerprint = serde_json::to_value(&(id, &req)).unwrap_or(Value::Null);
+    let fingerprint = serde_json::to_value((id, &req)).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
     let input = NewEvent {
         line_id: req.line_id,
@@ -998,7 +998,7 @@ pub async fn set_destruction(
             "status must be not_required, pending or completed".into(),
         ));
     }
-    let fingerprint = serde_json::to_value(&(id, line_id, &req)).unwrap_or(Value::Null);
+    let fingerprint = serde_json::to_value((id, line_id, &req)).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
@@ -1096,7 +1096,7 @@ pub async fn record_disposition(
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
     validate_disposition(&req)?;
-    let fingerprint = serde_json::to_value(&(id, &req)).unwrap_or(Value::Null);
+    let fingerprint = serde_json::to_value((id, &req)).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
     let input = NewDisposition {
         line_id: req.line_id,
