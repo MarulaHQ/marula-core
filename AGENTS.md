@@ -407,22 +407,33 @@ reconstruction at tag time.
   Never hand-edit a version file or a changelog heading; `apply` is the only
   writer, so the number cannot move in seven files and not the eighth.
 
-## Before a pull request: run the pre-review pass (BINDING, added 2026-11-17)
+## Before a pull request: run the review gauntlet (BINDING, added 2026-11-17; gauntlet named 2026-11-21)
 
 Added by user directive. CodeRabbit reviews every PR against this repository's
 path instructions, so most of its findings are a rule this repo already wrote
-down. The lane runs `skill: pre-review` on its own diff before it opens a pull
-request, and again before a push that changes code on an open PR.
+down. The lane runs `skill: review-gauntlet` on its own diff before it opens a
+pull request, and again before a push that changes code on an open PR. The
+gauntlet runs `skill: pre-review` as its first pass, so it replaces the
+pre-review step rather than adding to it: one loop, not two. The skill is
+installed at `~/.agents/skills/review-gauntlet` and is not part of this
+repository.
 
-- **Load the contract first.** The skill reads `reviews.path_instructions` in
-  `.coderabbit.yaml` for the paths the diff touches, and `CONTRIBUTING.md` for
-  the ground rules. Every matching bullet is satisfied or deliberately
+- **Load the contract first.** The gauntlet reads `reviews.path_instructions`
+  in `.coderabbit.yaml` for the paths the diff touches, and `CONTRIBUTING.md`
+  for the ground rules. Every matching bullet is satisfied or deliberately
   overridden before the diff leaves the machine.
-- **Run the mechanical half.** `tools/prereview-sweep.sh <base>` ships beside
-  the skill's `SKILL.md` and reports added-line candidates plus three
-  whole-diff checks: a migration edited after it was in the base, a unique
-  constraint without a `map_unique_constraint` arm, and a checked macro
-  without its `.sqlx/` changes.
+- **Run the mechanical half.** `tools/gauntlet.sh <base>` in the skill extends
+  the pre-review sweep with the checks this repository's findings needed: dead
+  doc links and backticked paths, environment variables documented but not
+  read, `actionlint`, `shellcheck`, `helm lint` and `helm template`, and PR
+  body completeness. `tools/prereview-sweep.sh <base>` still ships beside the
+  pre-review skill and runs inside pass 1; it reports added-line candidates
+  plus the migration, `map_unique_constraint` and `.sqlx/` whole-diff checks.
+- **Run the passes the diff needs.** Correctness and state; logic and pitfalls;
+  security with Cloudflare `security-audit` in guidance mode; docs and claims;
+  CI, shell and Helm; frontend when UI changed. Prose is a pass of its own,
+  because it produced a third of the external findings. The security pass is
+  never skipped on a trust boundary.
 - **Fix the class, not the instance.** A finding in one page or handler is
   checked in its siblings and in the file's other branches. One unencoded id
   across five pages is one habit, not five decisions.
@@ -433,10 +444,18 @@ request, and again before a push that changes code on an open PR.
 - **Carry the report into the PR.** Fixed, swept, open and declined, in the
   skill's output format, belong in the PR description or the lane's landing
   record, so the reviewer and the maintainer read one account of the diff.
+- **Use the oracle before the push.** When the CodeRabbit CLI is installed, run
+  `coderabbit review --agent --committed --deep --gate major`. Exit `2` blocks
+  on a finding at or above major, and exit `1` is an incomplete review, not a
+  pass. Do not loop it: the hourly allowance is shared with the PR review.
 
-The pass is cheap: git and the shell, reading the diff rather than the
-workspace. It does not replace the four-axis commit review above, nor the gate
-run a lane still needs approval to start.
+The loop stops when a full cycle finds nothing new and every earlier finding is
+fixed with a verification or declined with a recorded reason. Three cycles is
+the cap; if the third still finds new classes, that is a design problem, and it
+is reported rather than looped. The mechanical half is cheap. The model passes
+are the cost, which is why the skill scopes each pass to its files and re-reviews
+only the fix diff from cycle two. The gauntlet does not replace the four-axis
+commit review above, nor the gate run a lane still needs approval to start.
 
 ## Parallel lanes: merge groups (BINDING, default for parallel work)
 
