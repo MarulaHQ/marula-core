@@ -5820,8 +5820,9 @@ export interface paths {
         put?: never;
         /**
          * POST /api/ewaste/intakes/{id}/close — the balanced end of a receipt.
-         * @description An optional `{"version": n}` body is checked before the close writes; a
-         *     bodyless call still works.
+         * @description The body is optional. It may carry `version`, checked before the close
+         *     writes, and an `idempotency_key`, so a retry after a lost response replays
+         *     the stored result instead of colliding with the close it already made.
          */
         post: operations["ewaste_close_intake"];
         delete?: never;
@@ -26259,6 +26260,12 @@ export interface components {
             events: components["schemas"]["EwasteEvent"][];
             intake: components["schemas"]["EwasteIntake"];
             lines: components["schemas"]["EwasteIntakeLine"][];
+            /**
+             * Format: int64
+             * @description The intake's write-sequence version. A client echoes it as `version` on
+             *     the next conditional write, notably the close.
+             */
+            version: number;
         };
         /** @description One line of a received consignment. */
         IntakeLineRequest: {
@@ -26303,6 +26310,11 @@ export interface components {
             total_in_g: number;
             /** Format: int64 */
             total_out_g: number;
+            /**
+             * Format: int64
+             * @description The intake's write-sequence version, for a conditional close.
+             */
+            version: number;
         };
         /** @description Per-connector link state as data (linked/unlinked + last touch). */
         IntegrationLinkStatus: {
