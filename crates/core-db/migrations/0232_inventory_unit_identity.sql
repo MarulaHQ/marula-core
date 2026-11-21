@@ -391,6 +391,10 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- BEFORE INSERT is safe because nothing upserts this ledger: every writer
+-- inserts a fresh UUID with no `ON CONFLICT`, so the row cannot be skipped
+-- after the trigger has applied the change. A future upsert writer must move
+-- this trigger AFTER INSERT first.
 CREATE TRIGGER inventory_class_movements_apply
   BEFORE INSERT ON inventory_class_movements
   FOR EACH ROW EXECUTE FUNCTION inventory_class_movement_apply();
