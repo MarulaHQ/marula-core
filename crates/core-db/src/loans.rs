@@ -161,6 +161,13 @@ fn lease_patch(req: &LoanIssueRequest, out_date: NaiveDate) -> crate::assets::As
         rental_cost_minor: req.lease_cost_minor,
         rental_currency: req.lease_currency.clone(),
         rental_cycle: req.lease_cycle.clone(),
+        // A lease changes what the unit is for, so the patch says it may move
+        // the class. On this path it writes nothing: `issue_unit_class` already
+        // moved the unit to `rental_out` with the loan as its source, and the
+        // class `leased` implies for a client-scoped row is the class the unit
+        // already carries. The flag is what keeps a caller that patches a lease
+        // onto a unit nobody moved from getting a silent class edit.
+        record_class_movement: true,
         ..Default::default()
     }
 }
@@ -755,6 +762,34 @@ pub async fn return_loan(
             .find(|l| l.id == t.line_id)
             .expect("validated above");
         let mut movement_in_id: Option<Uuid> = None;
+
+        // The lease ends with the return. Close it at the ACTUAL date (the
+        // expected return was the plan; the asset carries what happened) and
+        // stop calling the unit leased: from here it is ours again, and the
+        // routing below decides where it sits. Ownership is patched without a
+        // class movement because that movement is the routing's, written with
+        // this return as its source — one class transition, not two.
+        //
+        // This runs before the ledger leg so the asset row is locked before the
+        // serial. The class-movement trigger takes the same order, so a return
+        // and an issue on one unit cannot deadlock by taking them in opposite
+        // order.
+        if loan.is_lease {
+            if let Some(asset_id) = line.device_asset_id {
+                crate::assets::update_asset_lifecycle(
+                    &mut *conn,
+                    org_id,
+                    asset_id,
+                    &crate::assets::AssetLifecyclePatch {
+                        rental_end: Some(now.date_naive()),
+                        ownership: Some("owned".into()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            }
+        }
+
         if let (Some(serial_id), Some(stock_item_id)) = (line.serial_id, line.stock_item_id) {
             let location_id = to_location_id.expect("required for stock-sourced lines");
             let item = crate::stock::get_stock_item(&mut *conn, org_id, stock_item_id).await?;
@@ -816,24 +851,6 @@ pub async fn return_loan(
                 movement: outcome.movement,
                 low: outcome.low,
             });
-        }
-        if loan.is_lease {
-            // Lease closed at the ACTUAL return date (expected return was
-            // the plan; the asset carries what happened). Applies to both
-            // sources: a stock-sourced device's instantiated asset closes
-            // exactly like an existing fleet asset.
-            if let Some(asset_id) = line.device_asset_id {
-                crate::assets::update_asset_lifecycle(
-                    &mut *conn,
-                    org_id,
-                    asset_id,
-                    &crate::assets::AssetLifecyclePatch {
-                        rental_end: Some(now.date_naive()),
-                        ..Default::default()
-                    },
-                )
-                .await?;
-            }
         }
         let n = sqlx::query!(
             r#"UPDATE client_loan_lines
