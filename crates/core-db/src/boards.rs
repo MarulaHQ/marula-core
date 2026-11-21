@@ -1,8 +1,7 @@
 //! Boards, board statuses (semantic-category-bound), and favorites.
 //! Workflow customization v1 lives here too: the explicit per-board
 //! transition adjacency read/written through core-api only, plus board
-//! groups/favorites annotations and per-board membership roles
-//!.
+//! groups/favorites annotations and per-board membership roles.
 
 use crate::{DbError, DbResult};
 use core_domain::entities::{Board, BoardFavorite, BoardGroup, BoardMember, BoardStatus};

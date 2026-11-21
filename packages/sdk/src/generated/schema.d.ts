@@ -2751,10 +2751,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model
-         *     : /calendar team mode overlays THIS instead of the
-         *      bounded page-1 tickets fetch. Alive tickets only (category not closed)
-         *      whose due date falls in the window; hydrated in the row itself.
+         * GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model:
+         *     /calendar team mode overlays THIS instead of the
+         *     bounded page-1 tickets fetch. Alive tickets only (category not closed)
+         *     whose due date falls in the window; hydrated in the row itself.
          */
         get: operations["calendar_deadlines"];
         put?: never;
@@ -3302,11 +3302,11 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * POST /api/config-items/feed-upsert — CI2: the single feeder write path
-         *     . Never blind-inserts: existing (source_system,
-         *      external_id) links resolve to their own item; identity keys resolve the
-         *      deterministic case; ambiguity queues reviewable candidates and only
-         *      auto-merges at/above the org threshold.
+         * POST /api/config-items/feed-upsert — CI2: the single feeder write path.
+         *     Never blind-inserts: existing (source_system,
+         *     external_id) links resolve to their own item; identity keys resolve the
+         *     deterministic case; ambiguity queues reviewable candidates and only
+         *     auto-merges at/above the org threshold.
          */
         post: operations["config_items_feed_upsert"];
         delete?: never;
@@ -38294,8 +38294,7 @@ export interface components {
         UpdateProposalView: {
             consent_diff: components["schemas"]["ConsentDiffView"];
             /**
-             * @description The credential bindings this consent would CLEAR, by profile name
-             *     .
+             * @description The credential bindings this consent would CLEAR, by profile name.
              *
              *     `outbound_scopes` is manifest-declared, so the same profile name in the
              *     next version can allowlist a different host. A binding that outlived

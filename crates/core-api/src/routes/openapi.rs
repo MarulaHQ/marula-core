@@ -3168,6 +3168,10 @@ fn scrub_build_history(text: &str) -> String {
         text = text.replace("  ", " ");
     }
     for (from, to) in [
+        ("\n.", "."),
+        ("\n,", ","),
+        ("\n;", ";"),
+        ("\n:", ":"),
         (" .", "."),
         (" ,", ","),
         (" ;", ";"),
@@ -3236,6 +3240,18 @@ mod build_history_tests {
         assert_eq!(
             scrub_build_history("Frozen on save. Wave 9's invoice runs refuse it."),
             "Frozen on save. Invoice runs refuse it."
+        );
+    }
+
+    #[test]
+    fn a_seam_left_by_source_editing_is_tidied() {
+        assert_eq!(
+            scrub_build_history("the single feeder write path\n. Never blind-inserts"),
+            "the single feeder write path. Never blind-inserts"
+        );
+        assert_eq!(
+            scrub_build_history("the ticket-deadline read model\n: /calendar"),
+            "the ticket-deadline read model: /calendar"
         );
     }
 

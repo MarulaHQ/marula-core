@@ -396,8 +396,8 @@ pub enum ApiError {
         /// Seconds until the current exponential-backoff lock expires.
         retry_after_secs: i64,
     },
-    /// Typed 409 for a time-entry mutation the invoicing lock refuses
-    ///: once an entry is consumed by an invoice it is
+    /// Typed 409 for a time-entry mutation the invoicing lock refuses:
+    /// once an entry is consumed by an invoice it is
     /// frozen — no submit, decide, reopen, or content edit. Carries the
     /// entry id so the client can flag the exact blocked row.
     #[error("time entry is locked by invoicing")]

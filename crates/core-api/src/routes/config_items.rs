@@ -406,8 +406,8 @@ pub async fn list_candidates(
     Ok(Json(out))
 }
 
-/// POST /api/config-items/feed-upsert — CI2: the single feeder write path
-///. Never blind-inserts: existing (source_system,
+/// POST /api/config-items/feed-upsert — CI2: the single feeder write path.
+/// Never blind-inserts: existing (source_system,
 /// external_id) links resolve to their own item; identity keys resolve the
 /// deterministic case; ambiguity queues reviewable candidates and only
 /// auto-merges at/above the org threshold.

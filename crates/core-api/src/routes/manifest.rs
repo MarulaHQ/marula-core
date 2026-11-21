@@ -1,5 +1,4 @@
-//! Customization-manifest export (the private build tracker U5, upgrade-compatibility-policy
-//! .md §5).
+//! Customization-manifest export (upgrade-compatibility-policy §5).
 //!
 //! Purpose: one admin-gated GET returning the org's canonical, schema-
 //! versioned [`CustomizationManifest`] — the read-only inventory of

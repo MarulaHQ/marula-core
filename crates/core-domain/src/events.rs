@@ -2129,8 +2129,8 @@ pub struct AttachmentDeleted {
 
 // --- workflow constructs (Wave 11 lane 9, migration 0056) --------------------
 
-/// `meeting_type.deleted` — a meeting type was hard deleted by an admin
-///. The endpoint refuses (typed conflict) while a
+/// `meeting_type.deleted` — a meeting type was hard deleted by an admin.
+/// The endpoint refuses (typed conflict) while a
 /// scheduling link still references the row, so this event means the row
 /// is GONE — paused templates are PATCHes, not deletes.
 #[derive(Debug, Clone, Serialize, Deserialize)]

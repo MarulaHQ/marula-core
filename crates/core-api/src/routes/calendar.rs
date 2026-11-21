@@ -335,8 +335,8 @@ pub struct DeadlineRangeQuery {
     pub assignee_id: Option<Uuid>,
 }
 
-/// GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model
-///: /calendar team mode overlays THIS instead of the
+/// GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model:
+/// /calendar team mode overlays THIS instead of the
 /// bounded page-1 tickets fetch. Alive tickets only (category not closed)
 /// whose due date falls in the window; hydrated in the row itself.
 #[utoipa::path(operation_id = "calendar_deadlines", get, path = "/api/calendar/deadlines", tag = "scheduling", security(("bearer" = [])),

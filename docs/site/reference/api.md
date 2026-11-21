@@ -259,7 +259,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `GET` | `/api/v1/calendar/day` <a id="calendar_day"></a> | GET /api/calendar/day — one local day for one user. | — |
-| `GET` | `/api/v1/calendar/deadlines` <a id="calendar_deadlines"></a> | GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model : /calendar team mode overlays THIS instead of the bounded page-1 tickets fetch. Alive tickets only (category not closed) whose due date falls in the window; hydrated in the row itself. | — |
+| `GET` | `/api/v1/calendar/deadlines` <a id="calendar_deadlines"></a> | GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model: /calendar team mode overlays THIS instead of the bounded page-1 tickets fetch. Alive tickets only (category not closed) whose due date falls in the window; hydrated in the row itself. | — |
 | `GET` | `/api/v1/calendar/team` <a id="calendar_team"></a> | GET /api/calendar/team — every org member over an absolute UTC range. | — |
 | `GET` | `/api/v1/calendar/week` <a id="calendar_week"></a> | GET /api/calendar/week — Monday-start local week for one user. | — |
 
@@ -357,7 +357,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `POST` | `/api/v1/config-items/{id}/interfaces` <a id="config_items_add_interface"></a> | POST /api/config-items/{id}/interfaces — record a NIC (ADR 0003 lifecycle rule: NICs are attributes, not their own CIs). | [CreateInterfaceRequest](#schema-createinterfacerequest) |
 | `POST` | `/api/v1/config-items/{id}/merge` <a id="config_items_merge"></a> | POST /api/config-items/{id}/merge — an explicit human merge (the queue's accept path rides this too). Audited + undoable (split). | [CiMergeRequest](#schema-cimergerequest) |
 | `GET` | `/api/v1/config-items/{id}/merges` <a id="config_items_list_merges"></a> | GET /api/config-items/{id}/merges — the item's merge audit trail. | — |
-| `POST` | `/api/v1/config-items/feed-upsert` <a id="config_items_feed_upsert"></a> | POST /api/config-items/feed-upsert — CI2: the single feeder write path . Never blind-inserts: existing (source_system, external_id) links resolve to their own item; identity keys resolve the deterministic case; ambiguity queues reviewable candidates and only auto-merges at/above the org threshold. | [FeedUpsertRequest](#schema-feedupsertrequest) |
+| `POST` | `/api/v1/config-items/feed-upsert` <a id="config_items_feed_upsert"></a> | POST /api/config-items/feed-upsert — CI2: the single feeder write path. Never blind-inserts: existing (source_system, external_id) links resolve to their own item; identity keys resolve the deterministic case; ambiguity queues reviewable candidates and only auto-merges at/above the org threshold. | [FeedUpsertRequest](#schema-feedupsertrequest) |
 | `DELETE` | `/api/v1/config-items/interfaces/{id}` <a id="config_items_delete_interface"></a> | DELETE /api/config-items/interfaces/{id} | — |
 | `GET` | `/api/v1/config-items/merge-candidates` <a id="config_items_list_candidates"></a> | GET /api/config-items/merge-candidates — the review queue. | — |
 | `POST` | `/api/v1/config-items/merge-candidates/{id}/accept` <a id="config_items_accept_candidate"></a> | POST /api/config-items/merge-candidates/{id}/accept — fold the candidate into the primary with the candidate's evidence attached. | — |

@@ -1,5 +1,4 @@
-//! Customization-manifest loader (the private build tracker U5, upgrade-compatibility-policy
-//! .md §5).
+//! Customization-manifest loader (upgrade-compatibility-policy §5).
 //!
 //! Purpose: assemble the org's canonical [`CustomizationManifest`] — every
 //! customization section in one read — with DETERMINISTIC ordering so two
