@@ -688,8 +688,12 @@ pub struct PurchaseOrderLineView {
     pub destination_class: CustodyClass,
     #[schema(value_type = Option<Uuid>)]
     pub asset_layout_id: Option<Uuid>,
+    /// Absent in a response written before the intent existed, where neither flag
+    /// existed either; both default to the value the old code implied.
+    #[serde(default)]
     pub serial_expected: bool,
     pub weight_g: Option<i32>,
+    #[serde(default)]
     pub billable: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sell_price_minor: Option<i64>,
@@ -1134,23 +1138,38 @@ fn guard_line_destination(
     Ok(())
 }
 
-/// Proves a line's asset layout belongs to this organisation and can be
-/// satisfied by the asset a receipt creates. The receipt engine passes empty
-/// fields, so a layout that requires values the purchase does not carry is
-/// refused here — naming the missing fields — rather than producing an asset
-/// that violates its own schema. Type-specific values are added on the asset
-/// surface after receipt.
-async fn validate_line_layout(
+/// Proves the records a line points at still fit it, before the line is stored.
+///
+/// * The asset layout belongs to this organisation and can be satisfied by the
+///   empty field set a receipt supplies, so a receipt cannot create an asset
+///   that violates its own schema. Type-specific values are added on the asset
+///   surface afterwards.
+/// * A serialized stock item is counted in whole units. Receipt needs exactly
+///   one serial per unit, so a fractional order could never be received or
+///   closed honestly — whichever line kind carried the item.
+async fn validate_line_references(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
+    input: &OrderLineInput,
     intent: &core_db::purchasing::LineIntent,
 ) -> ApiResult<()> {
-    let Some(layout_id) = intent.asset_layout_id else {
-        return Ok(());
-    };
-    let layout = core_db::document_layouts::get_layout(&mut *conn, org_id, layout_id).await?;
-    let empty = serde_json::json!({});
-    crate::routes::documents::validate_fields(&layout, &empty)
+    if let Some(layout_id) = intent.asset_layout_id {
+        let layout = core_db::document_layouts::get_layout(&mut *conn, org_id, layout_id).await?;
+        let empty = serde_json::json!({});
+        crate::routes::documents::validate_fields(&layout, &empty)?;
+    }
+    if input.qty_ordered_milli % 1000 != 0 {
+        if let Some(stock_item_id) = input.stock_item_id {
+            let item = core_db::stock::get_stock_item(&mut *conn, org_id, stock_item_id).await?;
+            if item.kind == "serialized" {
+                return Err(ApiError::Validation(format!(
+                    "line \"{}\" names a serialized item — it is counted in whole units, and {} milli is not a whole count",
+                    input.description, input.qty_ordered_milli
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// One line's intent, validated against the header it belongs to.
@@ -1206,7 +1225,7 @@ fn header_domain_intent(header: &OrderIntent) -> PurchaseIntent {
 }
 
 /// A line's billable flag follows its destination unless the caller stated one.
-/// `None` is "not stated" (migration 0241), so a header edit that moves the line
+/// `None` is "not stated" (migration 0242), so a header edit that moves the line
 /// into client custody recomputes the default instead of freezing a `false`.
 fn effective_billable(stated: Option<bool>, destination: CustodyClass) -> bool {
     stated.unwrap_or(destination == CustodyClass::ClientCustody)
@@ -1254,6 +1273,11 @@ async fn validate_order_intent(
             (Some(client_id), Some(ticket_client)) if client_id != ticket_client => {
                 return Err(ApiError::Validation(
                     "the ticket belongs to a different client than the purchase order".into(),
+                ));
+            }
+            (Some(_), None) => {
+                return Err(ApiError::Validation(
+                    "the ticket belongs to no client, so it cannot carry a purchase for one".into(),
                 ));
             }
             (None, Some(ticket_client)) => intent.client_id = Some(ticket_client),
@@ -1331,55 +1355,131 @@ async fn validate_existing_lines(
     Ok(())
 }
 
-/// A keyed replay hands back the body the first call produced. The fresh path
-/// withholds money from a caller without `ViewFinancials`, so a caller who has
-/// since lost the permission would otherwise receive the stored prices. The
-/// keys removed here are exactly the fields the response types skip when their
-/// value is absent, so a redacted replay has the fresh shape.
-fn redact_financial_replay(stored: Value, financial: bool) -> Value {
-    if financial {
-        return stored;
+/// Prepares a stored response for replay.
+///
+/// Two things happen before the body is decoded. A response written before the
+/// line intent existed has lines without `line_kind` or `destination_class`, and
+/// the typed views require both, so the missing fields are filled with the
+/// values the old code implied (stock line, the class the header's intent
+/// names). Then, if the caller lacks `ViewFinancials`, the money keys the fresh
+/// path would withhold are removed. Both steps map to the shapes the response
+/// types already skip when a value is absent, so a prepared replay decodes into
+/// the same struct a fresh response would.
+fn prepare_replay(stored: Value, financial: bool) -> Value {
+    let mut stored = stored;
+    upgrade_legacy_lines(&mut stored);
+    if !financial {
+        strip_financials(&mut stored);
     }
-    fn strip(value: &mut Value) {
+    stored
+}
+
+/// The class a legacy line inherited from the header. A body with no intent at
+/// all predates the intent columns, which defaulted to sale stock.
+fn legacy_destination_class(value: &Value) -> &'static str {
+    value
+        .get("intent")
+        .and_then(|intent| intent.get("acquired_for"))
+        .and_then(Value::as_str)
+        .and_then(|raw| AcquiredFor::parse(raw).ok())
+        .map(|acquired| acquired.destination_class().as_str())
+        .unwrap_or("sale_stock")
+}
+
+/// Fills the line fields a pre-intent response does not carry. Line views are
+/// recognised by `purchase_order_id`, receipt lines by `po_line_id`, and the
+/// walk reaches the same shapes under `mutation.before`/`after`.
+fn upgrade_legacy_lines(value: &mut Value) {
+    let destination = legacy_destination_class(value);
+    fn walk(value: &mut Value, destination: &str) {
         match value {
             Value::Object(map) => {
-                for key in [
-                    "unit_cost_minor",
-                    "ordered_amount_minor",
-                    "received_amount_minor",
-                    "sell_price_minor",
-                    "base_cost_minor",
-                    "base_amount_minor",
-                    "amount_minor",
-                    "fx_rate_used",
-                    "fx_rate_date",
-                    "fx_source",
-                    "basis_amount_minor",
-                    "charge_amount_minor",
-                    "cost_fx",
-                    "charge_fx",
-                    "recharge_rule",
-                    "totals",
-                    "bill",
-                    "recharges",
-                ] {
-                    map.remove(key);
+                if map.contains_key("purchase_order_id") {
+                    map.entry("line_kind")
+                        .or_insert_with(|| Value::String("stock".into()));
+                    map.entry("destination_class")
+                        .or_insert_with(|| Value::String(destination.into()));
+                }
+                if map.contains_key("po_line_id") {
+                    map.entry("destination_class")
+                        .or_insert_with(|| Value::String(destination.into()));
                 }
                 for child in map.values_mut() {
-                    strip(child);
+                    walk(child, destination);
                 }
             }
             Value::Array(items) => {
                 for item in items {
-                    strip(item);
+                    walk(item, destination);
                 }
             }
             _ => {}
         }
     }
-    let mut stored = stored;
-    strip(&mut stored);
+    walk(value, destination);
+}
+
+fn strip_financials(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            for key in [
+                "unit_cost_minor",
+                "ordered_amount_minor",
+                "received_amount_minor",
+                "sell_price_minor",
+                "base_cost_minor",
+                "base_amount_minor",
+                "amount_minor",
+                "fx_rate_used",
+                "fx_rate_date",
+                "fx_source",
+                "basis_amount_minor",
+                "charge_amount_minor",
+                "cost_fx",
+                "charge_fx",
+                "recharge_rule",
+                "totals",
+                "bill",
+                "recharges",
+            ] {
+                map.remove(key);
+            }
+            for child in map.values_mut() {
+                strip_financials(child);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                strip_financials(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// The client recorded in a stored response. A replay returns the body the first
+/// call produced, so the client it names is the one that has to be visible, not
+/// only the order's client now: an order can move from a hidden client to a
+/// visible one between the write and the retry.
+fn replay_named_client(stored: &Value) -> Option<Uuid> {
     stored
+        .get("intent")
+        .and_then(|intent| intent.get("client_id"))
+        .and_then(Value::as_str)
+        .and_then(|raw| Uuid::parse_str(raw).ok())
+}
+
+async fn assert_replay_client_visible(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    principal: &core_domain::entities::Principal,
+    stored: &Value,
+) -> ApiResult<()> {
+    if let Some(client_id) = replay_named_client(stored) {
+        crate::routes::clients::require_client_visible(&mut *conn, org_id, client_id, principal)
+            .await?;
+    }
+    Ok(())
 }
 
 /// Proves an order is still visible to this caller before a replayed response
@@ -1489,9 +1589,14 @@ async fn load_detail(
 async fn require_draft_locked(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
+    principal: &core_domain::entities::Principal,
     order_id: Uuid,
 ) -> ApiResult<PurchaseOrder> {
     let order = core_db::purchasing::lock_purchase_order(&mut *conn, org_id, order_id).await?;
+    // The order's client can be restricted, and the draft RLS policies only
+    // filter on the organisation, so the writer applies the same rule the reads
+    // and replays do.
+    assert_order_client_visible(conn, org_id, principal, order.id).await?;
     require_draft_status(order)
 }
 
@@ -2416,9 +2521,10 @@ pub async fn create_order(
         )
         .await?
         {
+            assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
             return Ok((
                 ctx,
-                MutationOutcome::Replayed(redact_financial_replay(stored, financial)),
+                MutationOutcome::Replayed(prepare_replay(stored, financial)),
             ));
         }
         let vendor = core_db::purchasing::get_vendor(&mut *ctx.tx, org_id, req.vendor_id).await?;
@@ -2468,7 +2574,7 @@ pub async fn create_order(
         for (idx, input) in req.lines.iter().enumerate() {
             let line = line_from_input(org_id, order.id, input, idx as i32).await?;
             let line_intent = line_intent_from_input(input, &intent)?;
-            validate_line_layout(&mut ctx.tx, org_id, &line_intent).await?;
+            validate_line_references(&mut ctx.tx, org_id, input, &line_intent).await?;
             core_db::purchasing::insert_po_line(&mut *ctx.tx, &line).await?;
             core_db::purchasing::set_line_intent(&mut *ctx.tx, org_id, line.id, &line_intent)
                 .await?;
@@ -2574,13 +2680,14 @@ pub async fn update_order(
         )
         .await?
         {
+            assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
             assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
             return Ok((
                 ctx,
-                MutationOutcome::Replayed(redact_financial_replay(stored, financial)),
+                MutationOutcome::Replayed(prepare_replay(stored, financial)),
             ));
         }
-        let before = require_draft_locked(&mut ctx.tx, org_id, id).await?;
+        let before = require_draft_locked(&mut ctx.tx, org_id, &authed.principal, id).await?;
         let mut order = before.clone();
         if let Some(reference) = &req.vendor_reference {
             order.vendor_reference = reference.clone();
@@ -2717,18 +2824,19 @@ pub async fn add_order_line(
         )
         .await?
         {
+            assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
             assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
             return Ok((
                 ctx,
-                MutationOutcome::Replayed(redact_financial_replay(stored, financial)),
+                MutationOutcome::Replayed(prepare_replay(stored, financial)),
             ));
         }
-        let mut order = require_draft_locked(&mut ctx.tx, org_id, id).await?;
+        let mut order = require_draft_locked(&mut ctx.tx, org_id, &authed.principal, id).await?;
         let header = core_db::purchasing::get_order_intent(&mut *ctx.tx, org_id, id).await?;
         let existing = core_db::purchasing::list_po_lines(&mut ctx.tx, org_id, id).await?;
         let line = line_from_input(org_id, id, &req.line, existing.len() as i32).await?;
         let line_intent = line_intent_from_input(&req.line, &header)?;
-        validate_line_layout(&mut ctx.tx, org_id, &line_intent).await?;
+        validate_line_references(&mut ctx.tx, org_id, &req.line, &line_intent).await?;
         core_db::purchasing::insert_po_line(&mut *ctx.tx, &line).await?;
         core_db::purchasing::set_line_intent(&mut *ctx.tx, org_id, line.id, &line_intent).await?;
         order.updated_at = chrono::Utc::now();
@@ -2830,13 +2938,14 @@ pub async fn update_order_line(
         )
         .await?
         {
+            assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
             assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
             return Ok((
                 ctx,
-                MutationOutcome::Replayed(redact_financial_replay(stored, financial)),
+                MutationOutcome::Replayed(prepare_replay(stored, financial)),
             ));
         }
-        let mut order = require_draft_locked(&mut ctx.tx, org_id, id).await?;
+        let mut order = require_draft_locked(&mut ctx.tx, org_id, &authed.principal, id).await?;
         let before = core_db::purchasing::get_po_line(&mut *ctx.tx, org_id, line_id).await?;
         if before.purchase_order_id != id {
             return Err(ApiError::Validation(
@@ -2892,7 +3001,7 @@ pub async fn update_order_line(
             billable: req.line.billable.or(before_intent.billable),
         };
         let line_intent = line_intent_from_input(&merged, &header)?;
-        validate_line_layout(&mut ctx.tx, org_id, &line_intent).await?;
+        validate_line_references(&mut ctx.tx, org_id, &merged, &line_intent).await?;
         core_db::purchasing::update_po_line(&mut *ctx.tx, &line).await?;
         core_db::purchasing::set_line_intent(&mut *ctx.tx, org_id, line_id, &line_intent).await?;
         order.updated_at = chrono::Utc::now();
@@ -2999,13 +3108,14 @@ pub async fn delete_order_line(
         )
         .await?
         {
+            assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
             assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
             return Ok((
                 ctx,
-                MutationOutcome::Replayed(redact_financial_replay(stored, financial)),
+                MutationOutcome::Replayed(prepare_replay(stored, financial)),
             ));
         }
-        let mut order = require_draft_locked(&mut ctx.tx, org_id, id).await?;
+        let mut order = require_draft_locked(&mut ctx.tx, org_id, &authed.principal, id).await?;
         let before = core_db::purchasing::get_po_line(&mut *ctx.tx, org_id, line_id).await?;
         if before.purchase_order_id != id {
             return Err(ApiError::Validation(
@@ -3157,13 +3267,14 @@ pub async fn place_order(
         )
         .await?
         {
+            assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
             assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
             return Ok((
                 ctx,
-                MutationOutcome::Replayed(redact_financial_replay(stored, financial)),
+                MutationOutcome::Replayed(prepare_replay(stored, financial)),
             ));
         }
-        let before = require_draft_locked(&mut ctx.tx, org_id, id).await?;
+        let before = require_draft_locked(&mut ctx.tx, org_id, &authed.principal, id).await?;
         let lines = core_db::purchasing::list_po_lines(&mut ctx.tx, org_id, id).await?;
         if lines.is_empty() {
             return Err(ApiError::Conflict(
@@ -3249,13 +3360,15 @@ pub async fn close_order_route(
         )
         .await?
         {
+            assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
             assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
             return Ok((
                 ctx,
-                MutationOutcome::Replayed(redact_financial_replay(stored, financial)),
+                MutationOutcome::Replayed(prepare_replay(stored, financial)),
             ));
         }
         let before = core_db::purchasing::lock_purchase_order(&mut ctx.tx, org_id, id).await?;
+        assert_order_client_visible(&mut ctx.tx, org_id, &authed.principal, before.id).await?;
         if !matches!(
             before.status,
             PurchaseOrderStatus::Received | PurchaseOrderStatus::PartiallyReceived
@@ -3353,13 +3466,15 @@ pub async fn cancel_order_route(
         )
         .await?
         {
+            assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
             assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
             return Ok((
                 ctx,
-                MutationOutcome::Replayed(redact_financial_replay(stored, financial)),
+                MutationOutcome::Replayed(prepare_replay(stored, financial)),
             ));
         }
         let before = core_db::purchasing::lock_purchase_order(&mut ctx.tx, org_id, id).await?;
+        assert_order_client_visible(&mut ctx.tx, org_id, &authed.principal, before.id).await?;
         if !matches!(
             before.status,
             PurchaseOrderStatus::Draft | PurchaseOrderStatus::Ordered
@@ -3726,10 +3841,11 @@ pub async fn receive_order(
         )
         .await?
         {
+            assert_replay_client_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
             assert_order_visible(&mut ctx.tx, org_id, &authed.principal, id).await?;
             return Ok((
                 ctx,
-                MutationOutcome::Replayed(redact_financial_replay(stored, financial)),
+                MutationOutcome::Replayed(prepare_replay(stored, financial)),
             ));
         }
         // Row lock: concurrent receipts against this PO serialize, so the
@@ -3775,12 +3891,14 @@ pub async fn receive_order(
                 &authed.principal,
             )
             .await?;
-            // The ticket can be reassigned between order and receipt. The
-            // charge would then land on another client's ticket.
+            // The ticket can be reassigned between order and receipt, and the
+            // charge would then land on another client's ticket. The row is held
+            // with a share lock until this transaction ends, so the client
+            // checked here is the client the cost line is written under.
             if let Some(ticket_id) = header.ticket_id {
-                let ticket =
-                    core_db::tickets::get_ticket(&mut *ctx.tx, org_id, ticket_id).await?;
-                if ticket.client_id != Some(client_id) {
+                let ticket_client =
+                    core_db::purchasing::lock_ticket_client(&mut ctx.tx, org_id, ticket_id).await?;
+                if ticket_client != Some(client_id) {
                     return Err(ApiError::Validation(
                         "the ticket belongs to a different client than the purchase order".into(),
                     ));
@@ -3803,9 +3921,6 @@ pub async fn receive_order(
                 header.client_id,
             )
             .await?;
-            if resolved.rule.kind != RechargeRuleKind::None && header.ticket_id.is_some() {
-                require_permission(&authed.principal, Permission::ViewFinancials)?;
-            }
             Some(resolved)
         } else {
             None
@@ -3900,9 +4015,11 @@ pub async fn receive_order(
             // goods arrive. Re-read it under a share lock and prove the empty
             // field set still satisfies it, so the insert cannot land an asset
             // that violates its own schema while a concurrent edit commits.
-            if intent.asset_layout_id.is_some() {
-                core_db::purchasing::lock_line_layout(&mut ctx.tx, org_id, &intent).await?;
-                validate_line_layout(&mut ctx.tx, org_id, &intent).await?;
+            if let Some(layout_id) = intent.asset_layout_id {
+                core_db::purchasing::lock_line_layout(&mut ctx.tx, org_id, layout_id).await?;
+                let layout =
+                    core_db::document_layouts::get_layout(&mut *ctx.tx, org_id, layout_id).await?;
+                crate::routes::documents::validate_fields(&layout, &serde_json::json!({}))?;
             }
             let serialized_item = item.as_ref().is_some_and(|i| i.kind == "serialized");
             let creates_asset = match destination {
@@ -3975,12 +4092,12 @@ pub async fn receive_order(
                     line.description, line.qty_received_milli, qty_milli, line.qty_ordered_milli
                 ));
             }
-            planned_legs = planned_legs.saturating_add(if creates_asset {
-                if serials.is_empty() {
-                    qty_milli / 1000
-                } else {
-                    serials.len() as i64
-                }
+            // One leg per named serial, whatever the destination; without
+            // serials an asset line is one leg per unit and a lot is one leg.
+            planned_legs = planned_legs.saturating_add(if !serials.is_empty() {
+                serials.len() as i64
+            } else if creates_asset {
+                qty_milli / 1000
             } else {
                 1
             });
@@ -4004,6 +4121,20 @@ pub async fn receive_order(
                 "over-receipt refused for: {} — pass allow_over_receipt=true to accept the overage",
                 over.join(", ")
             )));
+        }
+        // Only a delivery that actually lands goods in client custody writes a
+        // ticket charge. A stock-only receipt against a mixed client order needs
+        // no financial permission, and the cost writer keeps its own check for
+        // the path that does.
+        let charges_a_ticket = header.ticket_id.is_some()
+            && resolved_rule
+                .as_ref()
+                .is_some_and(|resolved| resolved.rule.kind != RechargeRuleKind::None)
+            && planned
+                .iter()
+                .any(|plan| plan.destination == CustodyClass::ClientCustody);
+        if charges_a_ticket {
+            require_permission(&authed.principal, Permission::ViewFinancials)?;
         }
 
         let now = chrono::Utc::now();
@@ -4913,6 +5044,76 @@ mod tests {
     }
 
     #[test]
+    fn a_pre_intent_replay_decodes_with_the_legacy_line_words() {
+        // A stored place-order response from before the intent view existed: no
+        // `intent`, and lines without `line_kind` or `destination_class`.
+        let stored = serde_json::json!({
+            "order": {
+                "id": "01a1fc2c-d980-767a-b327-9f650f7cb2b1",
+                "org_id": "6d657269-6469-616e-0000-000000000001",
+                "vendor_id": "6d657269-6469-616e-0000-0000000003e1",
+                "number": "PO-000004",
+                "status": "ordered",
+                "currency": "USD",
+                "vendor_reference": null,
+                "project_id": null,
+                "notes": null,
+                "ordered_at": null,
+                "expected_at": null,
+                "closed_at": null,
+                "close_kind": null,
+                "cancelled_at": null,
+                "cancel_reason": null,
+                "created_by": null,
+                "created_at": "2026-11-21T05:00:00Z",
+                "updated_at": "2026-11-21T05:00:00Z"
+            },
+            "lines": [{
+                "id": "01a1fc2c-d984-73f6-a695-c19563662c16",
+                "purchase_order_id": "01a1fc2c-d980-767a-b327-9f650f7cb2b1",
+                "stock_item_id": null,
+                "catalog_item_id": null,
+                "description": "Legacy line",
+                "qty_ordered_milli": 1000,
+                "qty_received_milli": 0,
+                "receipt_state": "pending",
+                "position": 0,
+                "created_at": "2026-11-21T05:00:00Z",
+                "updated_at": "2026-11-21T05:00:00Z"
+            }],
+            "receipts": [],
+            "mutation": {
+                "seq": 1, "version": 1, "updated_at": "2026-11-21T05:00:00Z",
+                "before": null, "after": null, "idempotency_key": null
+            }
+        });
+        let prepared = prepare_replay(stored, true);
+        let decoded: OrderMutationResponse =
+            serde_json::from_value(prepared).expect("a legacy replay must decode");
+        assert_eq!(decoded.detail.intent.acquired_for, AcquiredFor::SaleStock);
+        assert_eq!(decoded.detail.lines[0].line_kind, LineKind::Stock);
+        assert_eq!(
+            decoded.detail.lines[0].destination_class,
+            CustodyClass::SaleStock
+        );
+    }
+
+    #[test]
+    fn a_replay_names_the_client_it_was_written_for() {
+        let stored = serde_json::json!({
+            "intent": { "client_id": "6d657269-6469-616e-0000-000000000014" }
+        });
+        assert_eq!(
+            replay_named_client(&stored),
+            Some(Uuid::parse_str("6d657269-6469-616e-0000-000000000014").unwrap())
+        );
+        assert_eq!(
+            replay_named_client(&serde_json::json!({ "intent": {} })),
+            None
+        );
+    }
+
+    #[test]
     fn a_replay_without_financial_access_has_no_money() {
         let stored = serde_json::json!({
             "order": { "number": "PO-1" },
@@ -4922,7 +5123,7 @@ mod tests {
             "recharges": [{ "charge_amount_minor": 1200 }],
             "mutation": { "after": { "lines": [{ "unit_cost_minor": 1200 }] } }
         });
-        let redacted = redact_financial_replay(stored.clone(), false);
+        let redacted = prepare_replay(stored.clone(), false);
         let text = redacted.to_string();
         for needle in [
             "unit_cost_minor",
@@ -4936,7 +5137,7 @@ mod tests {
             assert!(!text.contains(needle), "{needle} survived the redaction");
         }
         assert!(text.contains("PO-1"), "non-financial fields stay");
-        assert_eq!(redact_financial_replay(stored.clone(), true), stored);
+        assert_eq!(prepare_replay(stored.clone(), true), stored);
     }
 
     #[test]

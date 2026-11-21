@@ -1122,7 +1122,7 @@ pub struct LineIntent {
     pub weight_g: Option<i32>,
     pub sell_price_minor: Option<i64>,
     /// The caller's explicit choice. `None` means "not stated", and the
-    /// effective value follows the destination class (migration 0241).
+    /// effective value follows the destination class (migration 0242).
     pub billable: Option<bool>,
 }
 
@@ -1343,6 +1343,27 @@ where
     Ok(())
 }
 
+/// Reads a ticket's client under a share lock, so a reassignment cannot commit
+/// between the check and the cost line written with it. A `FOR SHARE` lock
+/// conflicts with the update a ticket move performs, and the lock is held until
+/// this transaction ends.
+pub async fn lock_ticket_client(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    ticket_id: Uuid,
+) -> DbResult<Option<Uuid>> {
+    let row: Option<(Option<Uuid>,)> = sqlx::query_as(
+        r#"SELECT client_id FROM tickets
+            WHERE org_id = $1 AND id = $2
+            FOR SHARE"#,
+    )
+    .bind(org_id)
+    .bind(ticket_id)
+    .fetch_optional(&mut *conn)
+    .await?;
+    row.map(|(client_id,)| client_id).ok_or(DbError::NotFound)
+}
+
 /// Takes a share lock on the asset layout a line names, so the layout validated
 /// at receipt cannot gain a required field until this transaction commits. The
 /// insert that follows reads the same row, and a share lock blocks the writer
@@ -1350,11 +1371,8 @@ where
 pub async fn lock_line_layout(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
-    intent: &LineIntent,
+    layout_id: Uuid,
 ) -> DbResult<()> {
-    let Some(layout_id) = intent.asset_layout_id else {
-        return Ok(());
-    };
     sqlx::query(
         r#"SELECT 1 FROM document_layouts
             WHERE org_id = $1 AND id = $2
