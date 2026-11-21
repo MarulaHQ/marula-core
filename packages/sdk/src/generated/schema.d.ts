@@ -2958,6 +2958,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/client-loans/{id}/charges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/client-loans/{id}/charges — every charge the agreement has
+         *     produced, billed or waiting for the next run.
+         */
+        get: operations["client_loans_charges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/client-loans/{id}/return": {
         parameters: {
             query?: never;
@@ -5798,7 +5818,11 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST /api/ewaste/intakes/{id}/close — the balanced end of a receipt. */
+        /**
+         * POST /api/ewaste/intakes/{id}/close — the balanced end of a receipt.
+         * @description An optional `{"version": n}` body is checked before the close writes; a
+         *     bodyless call still works.
+         */
         post: operations["ewaste_close_intake"];
         delete?: never;
         options?: never;
@@ -13934,6 +13958,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/stock/pool": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/stock/pool — every unit in the rental pool, and whether an open
+         *     agreement holds it.
+         */
+        get: operations["stock_pool_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock/pool/commission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/stock/pool/commission — sale stock into the rental pool. */
+        post: operations["stock_pool_commission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock/pool/decommission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/stock/pool/decommission — the rental pool back into sale stock. */
+        post: operations["stock_pool_decommission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stock/receive": {
         parameters: {
             query?: never;
@@ -15785,6 +15863,61 @@ export interface paths {
          *     immutable here by design), with an audit row in the same transaction.
          */
         patch: operations["users_me_patch"];
+        trace?: never;
+    };
+    "/api/v1/vendor-rentals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/vendor-rentals. */
+        get: operations["vendor_rentals_list"];
+        put?: never;
+        /** POST /api/vendor-rentals — record what the organisation is renting in. */
+        post: operations["vendor_rentals_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vendor-rentals/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/vendor-rentals/{id}. */
+        get: operations["vendor_rentals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vendor-rentals/{id}/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/vendor-rentals/{id}/return — close the agreement with what
+         *     happened to the unit.
+         */
+        post: operations["vendor_rentals_return"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/vendors": {
@@ -17765,7 +17898,7 @@ export interface components {
          * @description Which billing rule produced a candidate line.
          * @enum {string}
          */
-        BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee" | "per_unit_base" | "per_incident" | "block_sale" | "block_drawdown" | "cap_overage" | "minimum_trueup" | "change_order" | "sla_credit" | "escalator" | "project_release";
+        BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee" | "per_unit_base" | "per_incident" | "block_sale" | "block_drawdown" | "cap_overage" | "minimum_trueup" | "change_order" | "sla_credit" | "escalator" | "project_release" | "rental";
         /**
          * @description How the project turns delivered work into money. The value rides the
          *     milestone event payload so core-billing can route without re-reading the
@@ -19427,6 +19560,12 @@ export interface components {
             client_id: string;
             entries: components["schemas"]["OverrideEntry"][];
         };
+        /**
+         * @description POST /api/ewaste/intakes/{id}/close. The body is optional: a caller that
+         *     has not read a version may close without one, and a caller that has read
+         *     the intake passes the version it saw.
+         */
+        CloseIntakeRequest: components["schemas"]["MutationParams"];
         /** @enum {string} */
         CloseKind: "full" | "short";
         CloseOrderRequest: components["schemas"]["MutationParams"];
@@ -21781,6 +21920,33 @@ export interface components {
             amount_minor?: number | null;
             /** @description Overrides the description when present. */
             description?: string | null;
+        };
+        CreateVendorRentalRequest: components["schemas"]["MutationParams"] & {
+            agreement_ref?: string | null;
+            asset?: components["schemas"]["VendorRentalAssetRequest"] | null;
+            /**
+             * Format: int64
+             * @description The rental expense per cycle, integer minor units.
+             */
+            cost_minor: number;
+            currency: string;
+            /** @description monthly | quarterly | annual. */
+            cycle: string;
+            deposit_currency?: string | null;
+            /** Format: int64 */
+            deposit_minor?: number | null;
+            /**
+             * Format: uuid
+             * @description An asset the procurement receipt already created as `rental_in`.
+             */
+            device_asset_id?: string | null;
+            end_on?: string | null;
+            notes?: string | null;
+            start_on: string;
+            /** Format: uuid */
+            vendor_id?: string | null;
+            /** @description The vendor's name when they are not in the directory. */
+            vendor_name?: string | null;
         };
         CreateVendorRequest: components["schemas"]["MutationParams"] & {
             account_number?: string | null;
@@ -27162,6 +27328,18 @@ export interface components {
             status?: string | null;
         };
         LoanReturnLineRequest: {
+            /**
+             * Format: int64
+             * @description A damage charge raised with this return. Leases only: the charge bills
+             *     through the next ordinary run under the agreement's contract.
+             */
+            damage_charge_minor?: number | null;
+            damage_note?: string | null;
+            /**
+             * @description Where the unit goes now: pool | sale_stock | refurbishment | ewaste.
+             *     Absent = back to the class it was issued from.
+             */
+            disposition?: string | null;
             /** Format: uuid */
             line_id: string;
             /** @description good | fair | damaged. */
@@ -29794,6 +29972,68 @@ export interface components {
             targets: unknown;
             /** @description True while the policy governs itself via its embedded calendar. */
             uses_embedded_calendar: boolean;
+        };
+        PoolListQuery: {
+            /** @description Only units no open agreement holds. */
+            available_only?: boolean | null;
+            /** Format: int64 */
+            limit?: number | null;
+        };
+        /** @description POST /api/stock/pool/commission or /api/stock/pool/decommission. */
+        PoolMoveRequest: components["schemas"]["MutationParams"] & {
+            /** @description good | fair | damaged. */
+            condition_grade: string;
+            data_wipe_ref?: string | null;
+            /** Format: uuid */
+            device_asset_id?: string | null;
+            note?: string | null;
+            /**
+             * Format: uuid
+             * @description One projection of the unit; exactly one of the two ids.
+             */
+            serial_id?: string | null;
+            /**
+             * @description True when the device stores data. The wipe reference is then required:
+             *     a pool move that launders a laptop with somebody's data still on it is
+             *     the one thing this leg must not do silently.
+             */
+            stores_data?: boolean;
+        };
+        PoolMoveView: {
+            condition_grade?: string | null;
+            created_at: string;
+            data_wipe_ref?: string | null;
+            /** Format: uuid */
+            device_asset_id?: string | null;
+            from_class: string;
+            /** Format: uuid */
+            movement_id: string;
+            /** Format: uuid */
+            serial_id?: string | null;
+            to_class: string;
+            /** @description serial | asset */
+            unit_kind: string;
+        };
+        PoolMutationResponse: {
+            movement: components["schemas"]["PoolMoveView"];
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description One unit in the pool, with availability derived from the agreements that
+         *     hold it.
+         */
+        PoolUnitView: {
+            available: boolean;
+            /** Format: uuid */
+            device_asset_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description The serial number, or the asset tag when the unit has no serial row. */
+            label: string;
+            /** Format: uuid */
+            stock_item_id?: string | null;
+            /** @description serial | asset */
+            unit_kind: string;
         };
         /**
          * @description Instant-first mutation response (IF2) for appointment-request writes.
@@ -32551,6 +32791,15 @@ export interface components {
         /** @enum {string} */
         ReceiptState: "pending" | "partial" | "complete" | "over";
         ReceiveLineInput: {
+            /**
+             * @description The asset a line creates is typed by the line's layout. Its values are
+             *     supplied here, at the moment the asset is created, because a purchase
+             *     order line carries none: a layout can gain a required field after the
+             *     order is placed, and the placed line is not editable. They are validated
+             *     against the layout in force inside the receipt transaction, and every
+             *     unit the line creates carries them.
+             */
+            asset_fields?: unknown;
             /** Format: uuid */
             line_id: string;
             /** Format: int64 */
@@ -32908,6 +33157,37 @@ export interface components {
              */
             html?: string | null;
             subject?: string | null;
+        };
+        RentalChargeView: {
+            /** Format: int64 */
+            amount_minor: number;
+            billed_at?: string | null;
+            /** Format: uuid */
+            contract_id: string;
+            currency: string;
+            /** Format: int64 */
+            days_billed: number;
+            description: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            invoice_id?: string | null;
+            /** Format: uuid */
+            invoice_line_id?: string | null;
+            /** @description rent | damage | loss */
+            kind: string;
+            /** Format: uuid */
+            loan_id: string;
+            /** Format: int64 */
+            period_days: number;
+            period_end: string;
+            period_start: string;
+            /** Format: uuid */
+            source_line_id?: string | null;
+            /** @description pending | billed */
+            status: string;
+            /** Format: int64 */
+            unit_amount_minor: number;
         };
         ReorderCategoriesRequest: components["schemas"]["MutationParams"] & {
             /** @description Category ids in their new display order. */
@@ -38437,6 +38717,69 @@ export interface components {
         };
         VendorMutationResponse: components["schemas"]["Vendor"] & {
             mutation: components["schemas"]["MutationMeta"];
+        };
+        VendorRentalAssetRequest: {
+            /** @description device | server | ... (free text, as on every asset). */
+            kind?: string;
+            name: string;
+            tag: string;
+        };
+        VendorRentalListQuery: {
+            /** Format: int64 */
+            limit?: number | null;
+            /** @description open | returned (absent = both). */
+            status?: string | null;
+        };
+        VendorRentalMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            rental: components["schemas"]["VendorRentalView"];
+        };
+        VendorRentalReturnRequest: components["schemas"]["MutationParams"] & {
+            /** Format: int64 */
+            damage_minor?: number | null;
+            /** Format: int64 */
+            loss_minor?: number | null;
+            lost?: boolean;
+            notes?: string | null;
+            /** @description good | fair | damaged — required unless the unit was lost. */
+            return_condition?: string | null;
+        };
+        VendorRentalView: {
+            agreement_ref?: string | null;
+            /**
+             * Format: int64
+             * @description The cycle cost in the organisation base currency, locked when it was
+             *     written. Absent when the cost is already in the base currency.
+             */
+            base_cost_minor?: number | null;
+            /** Format: int64 */
+            cost_minor: number;
+            created_at: string;
+            currency: string;
+            cycle: string;
+            /** Format: int64 */
+            damage_minor?: number | null;
+            deposit_currency?: string | null;
+            /** Format: int64 */
+            deposit_minor?: number | null;
+            /** Format: uuid */
+            device_asset_id: string;
+            end_on?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: int64 */
+            loss_minor?: number | null;
+            lost: boolean;
+            notes?: string | null;
+            return_condition?: string | null;
+            returned_at?: string | null;
+            start_on: string;
+            /** @description open | returned */
+            status: string;
+            updated_at: string;
+            /** Format: uuid */
+            vendor_id?: string | null;
+            vendor_name?: string | null;
         };
         VerdictResponse: {
             /**
@@ -44175,6 +44518,34 @@ export interface operations {
             };
         };
     };
+    client_loans_charges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RentalChargeView"][];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     client_loans_return: {
         parameters: {
             query?: never;
@@ -49696,7 +50067,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CloseIntakeRequest"];
+            };
+        };
         responses: {
             200: {
                 headers: {
@@ -66207,6 +66582,117 @@ export interface operations {
             };
         };
     };
+    stock_pool_list: {
+        parameters: {
+            query?: {
+                /** @description Only units no open agreement holds. */
+                available_only?: boolean | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolUnitView"][];
+                };
+            };
+        };
+    };
+    stock_pool_commission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolMoveRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolMutationResponse"];
+                };
+            };
+            /** @description unit not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unit not in sale stock, or held by an open agreement */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_pool_decommission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolMoveRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolMutationResponse"];
+                };
+            };
+            /** @description unit not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unit not in the pool, or held by an open agreement */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     stock_receive: {
         parameters: {
             query?: never;
@@ -70021,6 +70507,140 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendor_rentals_list: {
+        parameters: {
+            query?: {
+                /** @description open | returned (absent = both). */
+                status?: string | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorRentalView"][];
+                };
+            };
+        };
+    };
+    vendor_rentals_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateVendorRentalRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorRentalMutationResponse"];
+                };
+            };
+            /** @description vendor or asset not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the unit is not rental_in gear, or is already on an open rental */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendor_rentals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorRentalView"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendor_rentals_return: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VendorRentalReturnRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorRentalMutationResponse"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already closed, or an incomplete return */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
