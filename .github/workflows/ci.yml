@@ -77,7 +77,7 @@ jobs:
           fi
           if ! files=$(gh api \
                 "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-                --paginate --jq '.[].filename'); then
+                --paginate --jq '.[] | (.filename, (.previous_filename // empty))'); then
             echo "::warning::could not read this pull request's file list; running every job"
             exit 0
           fi
@@ -86,11 +86,15 @@ jobs:
           # match when grep exits before printf finishes, which would report
           # "no Rust" for a change that has some.
           printf '%s\n' "$files" > "$RUNNER_TEMP/changed-paths.txt"
-          # `installer/` and `desktop/` are Rust the matrix excludes, but
-          # `cargo fmt --all` still covers them, so they count. `.sqlx/` counts
-          # because the `rust` job is what proves the offline metadata is
-          # current.
-          if ! grep -qE '^(crates/|plugins/|installer/|desktop/|\.cargo/|\.sqlx/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$)' \
+          # The list is not "Rust files": it is every input the four gated jobs
+          # read. `installer/` and `desktop/` are Rust the matrix excludes, but
+          # `cargo fmt --all` still covers them. `.sqlx/` is what the `rust` job
+          # proves current. The rest came from grepping the test tree for
+          # repo-root paths it opens: `fixtures/openapi/v1/openapi.json` and
+          # `packages/sdk/openapi.json` (`golden_openapi`), `deprecations.json`
+          # (`deprecation_clock`), `deploy/pooler/pgbouncer.ini`, and
+          # `scripts/check-test-targets.mjs`, which the shard job runs.
+          if ! grep -qE '^(crates/|plugins/|installer/|desktop/|\.cargo/|\.sqlx/|fixtures/|deploy/pooler/|Cargo\.toml$|Cargo\.lock$|rust-toolchain\.toml$|deprecations\.json$|packages/sdk/openapi\.json$|scripts/check-test-targets\.mjs$)' \
                "$RUNNER_TEMP/changed-paths.txt"; then
             echo "rust=false" >> "$GITHUB_OUTPUT"
           fi
@@ -108,7 +112,7 @@ jobs:
   rust:
     name: Rust — fmt · clippy · sqlx offline cache
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: ${{ !cancelled() && !(needs.changes.result == 'success' && needs.changes.outputs.rust == 'false') }}
     # `ubuntu-24.04`, not `ubuntu-latest`. `latest` moved to Ubuntu 26.04 on
     # 2026-10-19 (actions/runner-images#14748) and is still serving several
     # builds of it. On run 43773681904 this job landed on
@@ -266,7 +270,7 @@ jobs:
   rust-tests-core-api:
     name: Rust tests — core-api shard ${{ matrix.shard }}/2
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: ${{ !cancelled() && !(needs.changes.result == 'success' && needs.changes.outputs.rust == 'false') }}
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -398,7 +402,7 @@ jobs:
   rust-tests-rest:
     name: Rust tests — workspace except core-api
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: ${{ !cancelled() && !(needs.changes.result == 'success' && needs.changes.outputs.rust == 'false') }}
     # Pinned for the reason recorded on the `rust` job: the mixed 26.04 builds,
     # and one image build behind the shared cache key. The GTK/WebKit install
     # that used to be the second reason went with `installer` excluded.
@@ -870,7 +874,7 @@ jobs:
     # name.
     name: Rust contract — deprecation clock · API conformance · golden OpenAPI
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: ${{ !cancelled() && !(needs.changes.result == 'success' && needs.changes.outputs.rust == 'false') }}
     runs-on: ubuntu-24.04
     services:
       postgres:
