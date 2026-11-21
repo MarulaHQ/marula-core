@@ -2697,7 +2697,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-purchaseorder"></a>`PurchaseOrder` | object | One purchase order header. |
 | <a id="schema-purchaseorderdeeplinks"></a>`PurchaseOrderDeeplinks` | object |  |
 | <a id="schema-purchaseorderdetail"></a>`PurchaseOrderDetail` | object |  |
-| <a id="schema-purchaseorderintentview"></a>`PurchaseOrderIntentView` | object | The header intent a client reads (plan §5.1): what the purchase is for, who it serves, how it is delivered and the recharge rule it carries. |
+| <a id="schema-purchaseorderintentview"></a>`PurchaseOrderIntentView` | object | The header intent a client reads (plan §5.1): what the purchase is for, who it serves, how it is delivered and the recharge rule it carries. The rule is money (`fixed` carries a price and a currency), |
 | <a id="schema-purchaseorderline"></a>`PurchaseOrderLine` | object | One PO line: quantity at milli precision, cost in minor units. |
 | <a id="schema-purchaseorderlineview"></a>`PurchaseOrderLineView` | object | Ledger-visible PO line (cost fields are `financial:read`-gated). |
 | <a id="schema-purchaseorderrollup"></a>`PurchaseOrderRollup` | object | The rolled-up money on a PO: ordered and received amounts in the PO currency, integer minor units. |
@@ -3202,7 +3202,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-updateknowledgetemplaterequest"></a>`UpdateKnowledgeTemplateRequest` | object |  |
 | <a id="schema-updatelabeltemplaterequest"></a>`UpdateLabelTemplateRequest` | composite |  |
 | <a id="schema-updatelayoutrequest"></a>`UpdateLayoutRequest` | composite |  |
-| <a id="schema-updateorderrequest"></a>`UpdateOrderRequest` | composite |  |
+| <a id="schema-updateorderrequest"></a>`UpdateOrderRequest` | composite | Every `Option<Option<T>>` field skips serialization when the outer option is `None`, while `Some(None)` still serializes as an explicit `null`. The idempotency fingerprint is that serialized body, so  |
 | <a id="schema-updateorgdefaultrequest"></a>`UpdateOrgDefaultRequest` | object | PUT /api/notification-org-defaults — replaces the org default ROW for one kind; the chain is user override → org default → built-in, so an untouched user's next email follows this policy. Quiet hours  |
 | <a id="schema-updatepasswordrequest"></a>`UpdatePasswordRequest` | composite |  |
 | <a id="schema-updatepreferencerequest"></a>`UpdatePreferenceRequest` | object |  |
