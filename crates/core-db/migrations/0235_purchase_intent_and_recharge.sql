@@ -47,9 +47,16 @@
 
 -- --- header intent ------------------------------------------------------------
 
+-- The client is a citation, not a foreign key. A client-scoped purchase order
+-- must keep naming its client even after that client row is gone: a foreign key
+-- with `ON DELETE SET NULL` would rewrite the order's intent on delete, and
+-- would violate the shape CHECK below before the order itself was removed. A
+-- plain id also keeps tenant erasure from depending on the order in which the
+-- cascade visits clients and orders. The write path resolves the client inside
+-- the caller's organisation before it stores it.
 ALTER TABLE purchase_orders
   ADD COLUMN acquired_for text NOT NULL DEFAULT 'sale_stock',
-  ADD COLUMN client_id uuid REFERENCES clients(id) ON DELETE SET NULL,
+  ADD COLUMN client_id uuid,
   ADD COLUMN ticket_id uuid REFERENCES tickets(id) ON DELETE SET NULL,
   ADD COLUMN ownership text,
   ADD COLUMN delivery_mode text NOT NULL DEFAULT 'to_stock',
