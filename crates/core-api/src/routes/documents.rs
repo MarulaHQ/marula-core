@@ -1250,6 +1250,33 @@ pub async fn delete_link(
     Ok(Json(serde_json::json!({ "deleted": true })))
 }
 
+/// Typed existence check for a document used as evidence by another module
+/// (e-waste intake signatures and disposal certificates, migration 0238).
+///
+/// A link target is not always a link: an e-waste line's signature and a
+/// disposition's certificate name a `documents` row through a foreign key, so
+/// the write path asks the same question `link_target_exists` answers for the
+/// link table — is this document in the caller's org? — and answers it as a
+/// typed 404 rather than a raw constraint error. The caller has already scoped
+/// the intake (and therefore its client); this only adds the document half of
+/// the tenant boundary, which a UUID alone cannot carry.
+pub(crate) async fn attached_document_exists(
+    tx: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    document_id: Uuid,
+) -> ApiResult<()> {
+    let found: Option<bool> =
+        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM documents WHERE org_id = $1 AND id = $2)")
+            .bind(org_id)
+            .bind(document_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    match found {
+        Some(true) => Ok(()),
+        _ => Err(ApiError::NotFound),
+    }
+}
+
 /// Typed existence checks for link targets (RLS-scoped).
 pub(crate) async fn link_target_exists(
     tx: &mut sqlx::PgConnection,
