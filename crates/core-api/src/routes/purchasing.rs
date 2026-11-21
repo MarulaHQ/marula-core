@@ -3222,7 +3222,7 @@ async fn create_receipt_asset(
     .await?;
     if let Some(serial) = serial {
         core_db::config_identity::refresh_identity_keys(
-            &mut *ctx.tx,
+            &mut ctx.tx,
             org_id,
             asset_id,
             &serde_json::json!({ "serial": serial }),
@@ -3483,7 +3483,7 @@ pub async fn receive_order(
         // not only where the order was created.
         if let Some(client_id) = header.client_id {
             crate::routes::clients::require_client_visible(
-                &mut *ctx.tx,
+                &mut ctx.tx,
                 org_id,
                 client_id,
                 &authed.principal,

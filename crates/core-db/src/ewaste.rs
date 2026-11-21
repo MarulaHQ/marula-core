@@ -283,7 +283,7 @@ pub struct IntakeSummary {
     pub remaining_g: i64,
 }
 
-/// Inputs --------------------------------------------------------------------
+// Inputs --------------------------------------------------------------------
 
 /// A new line on an intake.
 #[derive(Debug, Clone)]
