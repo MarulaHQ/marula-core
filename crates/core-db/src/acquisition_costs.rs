@@ -104,6 +104,10 @@ pub struct AcquisitionCost {
     pub reporting_class: String,
     pub project_id: Option<Uuid>,
     pub ticket_id: Option<Uuid>,
+    /// The client the purchase serves, copied from the order header. A
+    /// citation, like the project and ticket: it gates a restricted client's
+    /// money on every read.
+    pub client_id: Option<Uuid>,
     pub posted_ticket_expense_id: Option<Uuid>,
     pub reverses_acquisition_cost_id: Option<Uuid>,
     pub fx_rate_used: Option<String>,
@@ -185,6 +189,8 @@ pub struct ReceiptContext {
     pub order_currency: String,
     pub project_id: Option<Uuid>,
     pub ticket_id: Option<Uuid>,
+    /// The client the order serves, when it names one.
+    pub client_id: Option<Uuid>,
     pub lines: Vec<ReceiptLineBasis>,
 }
 
@@ -198,7 +204,7 @@ pub async fn receipt_context(
 ) -> DbResult<ReceiptContext> {
     let header = sqlx::query(
         r#"SELECT r.purchase_order_id, o.currency AS order_currency,
-                  o.project_id, o.ticket_id
+                  o.project_id, o.ticket_id, o.client_id
            FROM purchase_receipts r
            JOIN purchase_orders o ON o.org_id = r.org_id AND o.id = r.purchase_order_id
            WHERE r.org_id = $1 AND r.id = $2"#,
@@ -260,6 +266,7 @@ pub async fn receipt_context(
         order_currency: header.get("order_currency"),
         project_id: header.get("project_id"),
         ticket_id: header.get("ticket_id"),
+        client_id: header.get("client_id"),
         lines,
     })
 }
@@ -419,18 +426,21 @@ pub fn split_layer(
     } else {
         largest_remainder(base_total, &shares)?
     };
-    Ok(lines
-        .iter()
-        .enumerate()
-        .map(|(index, line)| AcquisitionCostAllocation {
+    let mut allocations = Vec::with_capacity(lines.len());
+    for (index, line) in lines.iter().enumerate() {
+        allocations.push(AcquisitionCostAllocation {
             id: Uuid::now_v7(),
             acquisition_cost_id: cost_id,
             receipt_line_id: line.receipt_line_id,
             allocated_minor: amounts[index],
             allocated_base_minor: if in_base { None } else { Some(bases[index]) },
-            basis_value: i64::try_from(shares[index].1).unwrap_or(i64::MAX),
-        })
-        .collect())
+            // Every basis comes from an i64 (a line amount, a quantity or a
+            // weight), so the cast cannot lose a unit; the refusal keeps that a
+            // fact rather than a silent saturation.
+            basis_value: i64::try_from(shares[index].1).map_err(|_| SplitError::Unbalanced)?,
+        });
+    }
+    Ok(allocations)
 }
 
 // --- writes ------------------------------------------------------------------
@@ -438,7 +448,8 @@ pub fn split_layer(
 const COST_COLS: &str = "id, org_id, purchase_order_id, receipt_id, kind, vendor_id, \
      vendor_reference, reference, document_date, currency, amount_minor, \
      allocation_method, allocation_rule, policy_mode, capitalised, reporting_class, \
-     project_id, ticket_id, posted_ticket_expense_id, reverses_acquisition_cost_id, \
+     project_id, ticket_id, client_id, posted_ticket_expense_id, \
+     reverses_acquisition_cost_id, \
      fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_amount_minor, \
      created_by, created_at";
 
@@ -462,6 +473,7 @@ fn cost_row(row: sqlx::postgres::PgRow) -> AcquisitionCost {
         reporting_class: row.get("reporting_class"),
         project_id: row.get("project_id"),
         ticket_id: row.get("ticket_id"),
+        client_id: row.get("client_id"),
         posted_ticket_expense_id: row.get("posted_ticket_expense_id"),
         reverses_acquisition_cost_id: row.get("reverses_acquisition_cost_id"),
         fx_rate_used: row.get("fx_rate_used"),
@@ -479,11 +491,12 @@ pub async fn insert_cost(conn: &mut PgConnection, cost: &AcquisitionCost) -> DbR
              (id, org_id, purchase_order_id, receipt_id, kind, vendor_id,
               vendor_reference, reference, document_date, currency, amount_minor,
               allocation_method, allocation_rule, policy_mode, capitalised,
-              reporting_class, project_id, ticket_id, posted_ticket_expense_id,
-              reverses_acquisition_cost_id, fx_rate_used, fx_rate_date, fx_source,
-              base_amount_minor, created_by)
+              reporting_class, project_id, ticket_id, client_id,
+              posted_ticket_expense_id, reverses_acquisition_cost_id,
+              fx_rate_used, fx_rate_date, fx_source, base_amount_minor, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                   $15, $16, $17, $18, $19, $20, $21::text::numeric, $22, $23, $24, $25)"#,
+                   $15, $16, $17, $18, $19, $20, $21::text::numeric, $22, $23, $24,
+                   $25, $26)"#,
     )
     .bind(cost.id)
     .bind(cost.org_id)
@@ -503,6 +516,7 @@ pub async fn insert_cost(conn: &mut PgConnection, cost: &AcquisitionCost) -> DbR
     .bind(&cost.reporting_class)
     .bind(cost.project_id)
     .bind(cost.ticket_id)
+    .bind(cost.client_id)
     .bind(cost.posted_ticket_expense_id)
     .bind(cost.reverses_acquisition_cost_id)
     .bind(cost.fx_rate_used.as_deref())
@@ -726,6 +740,23 @@ pub async fn has_been_reversed(conn: &mut PgConnection, org_id: Uuid, id: Uuid) 
     Ok(exists)
 }
 
+/// Whether a vendor belongs to the org. The layer cites the vendor without a
+/// foreign key, so the write path proves the id is in scope before it stores it
+/// — a foreign vendor is the same 404 as a missing one.
+pub async fn vendor_exists(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    vendor_id: Uuid,
+) -> DbResult<bool> {
+    let exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM vendors WHERE org_id = $1 AND id = $2)")
+            .bind(org_id)
+            .bind(vendor_id)
+            .fetch_one(&mut *conn)
+            .await?;
+    Ok(exists)
+}
+
 // --- the valuation read model ------------------------------------------------
 
 /// One receipt line's cost, and the layers that moved it.
@@ -938,14 +969,17 @@ pub async fn receipt_valuation(
 
 // --- the reporting-class rollup ----------------------------------------------
 
-/// Which layers a rollup counts.
-#[derive(Debug, Clone, Default)]
+/// Which layers a rollup counts, and for whom.
 pub struct RollupFilter {
     pub purchase_order_id: Option<Uuid>,
     pub project_id: Option<Uuid>,
     pub ticket_id: Option<Uuid>,
     pub from: Option<NaiveDate>,
     pub to: Option<NaiveDate>,
+    /// The caller. A layer whose client is restricted and does not name them is
+    /// left out of the totals, the same rule the ticket lists apply in SQL.
+    pub viewer_id: Uuid,
+    pub viewer_is_admin: bool,
 }
 
 /// One reporting class's total on documents dated inside the window.
@@ -968,20 +1002,26 @@ pub async fn class_rollup(
     filter: &RollupFilter,
 ) -> DbResult<Vec<CostClassTotal>> {
     let rows = sqlx::query(
-        r#"SELECT reporting_class,
+        r#"SELECT a.reporting_class,
                   COUNT(*)::bigint AS layer_count,
-                  COUNT(*) FILTER (WHERE capitalised)::bigint AS capitalised_count,
-                  COALESCE(SUM(COALESCE(base_amount_minor, amount_minor)), 0)::bigint
+                  COUNT(*) FILTER (WHERE a.capitalised)::bigint AS capitalised_count,
+                  COALESCE(SUM(COALESCE(a.base_amount_minor, a.amount_minor)), 0)::bigint
                     AS base_amount_minor
-           FROM acquisition_costs
-           WHERE org_id = $1
-             AND ($2::uuid IS NULL OR purchase_order_id = $2)
-             AND ($3::uuid IS NULL OR project_id = $3)
-             AND ($4::uuid IS NULL OR ticket_id = $4)
-             AND ($5::date IS NULL OR document_date >= $5)
-             AND ($6::date IS NULL OR document_date <= $6)
-           GROUP BY reporting_class
-           ORDER BY reporting_class"#,
+           FROM acquisition_costs a
+           WHERE a.org_id = $1
+             AND ($2::uuid IS NULL OR a.purchase_order_id = $2)
+             AND ($3::uuid IS NULL OR a.project_id = $3)
+             AND ($4::uuid IS NULL OR a.ticket_id = $4)
+             AND ($5::date IS NULL OR a.document_date >= $5)
+             AND ($6::date IS NULL OR a.document_date <= $6)
+             AND NOT EXISTS (
+               SELECT 1 FROM clients c
+                WHERE c.org_id = a.org_id AND c.id = a.client_id
+                  AND jsonb_array_length(c.restricted_to) > 0
+                  AND NOT (c.restricted_to ? $7::text)
+                  AND NOT $8)
+           GROUP BY a.reporting_class
+           ORDER BY a.reporting_class"#,
     )
     .bind(org_id)
     .bind(filter.purchase_order_id)
@@ -989,6 +1029,8 @@ pub async fn class_rollup(
     .bind(filter.ticket_id)
     .bind(filter.from)
     .bind(filter.to)
+    .bind(filter.viewer_id)
+    .bind(filter.viewer_is_admin)
     .fetch_all(&mut *conn)
     .await?;
     Ok(rows

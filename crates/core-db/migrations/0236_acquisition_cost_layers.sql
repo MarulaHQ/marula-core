@@ -131,6 +131,11 @@ CREATE TABLE acquisition_costs (
   -- later deleted, which is the money history's job.
   project_id uuid,
   ticket_id uuid,
+  -- The client the purchase ultimately serves, copied from the order header.
+  -- A citation (no foreign key) like the rest: the layer is a document and the
+  -- client row may be deleted. It exists so a restricted client's freight money
+  -- is gated on every read without walking back to the order.
+  client_id uuid,
   -- The ticket expense this layer posted, when it was expensed. One direction
   -- only (the expense cannot cite the layer: 0234 gave expenses a reporting
   -- class but no source pair).
@@ -178,6 +183,8 @@ CREATE INDEX idx_acquisition_costs_order
   ON acquisition_costs (org_id, purchase_order_id, document_date);
 CREATE INDEX idx_acquisition_costs_class
   ON acquisition_costs (org_id, reporting_class, document_date);
+CREATE INDEX idx_acquisition_costs_client
+  ON acquisition_costs (org_id, client_id) WHERE client_id IS NOT NULL;
 
 -- One reversal per layer. An index rather than a table constraint, for the
 -- same reason 0235 records for its scope rows: the key is not user input (the

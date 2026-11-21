@@ -60,9 +60,16 @@ fn commercial(action: Action) -> Permission {
 }
 
 /// A money read needs the financial permission as well as commercial view: the
-/// layer is a purchase document, and its amounts are money.
-fn require_money_read(principal: &core_domain::entities::Principal) -> ApiResult<()> {
+/// layer is a purchase document, and its amounts are money. Writes need it too,
+/// so a caller who cannot see money cannot create a charge document either —
+/// the same posture the ticket expense surface takes.
+fn require_money(principal: &core_domain::entities::Principal) -> ApiResult<()> {
     require_permission(principal, commercial(Action::View))?;
+    require_permission(principal, Permission::ViewFinancials)
+}
+
+fn require_money_write(principal: &core_domain::entities::Principal) -> ApiResult<()> {
+    require_permission(principal, commercial(Action::Edit))?;
     require_permission(principal, Permission::ViewFinancials)
 }
 
@@ -286,6 +293,50 @@ async fn insert_layer(
     Ok(())
 }
 
+/// A restricted client's freight money is hidden from a caller the client does
+/// not name, on every path that answers it.
+async fn require_layer_client_visible(
+    conn: &mut sqlx::PgConnection,
+    principal: &core_domain::entities::Principal,
+    org_id: Uuid,
+    client_id: Option<Uuid>,
+) -> ApiResult<()> {
+    if let Some(client_id) = client_id {
+        crate::routes::clients::require_client_visible(conn, org_id, client_id, principal)
+            .await
+            .map(|_client| ())?;
+    }
+    Ok(())
+}
+
+/// A stored replay is still a read of money on a ticket. Board access can have
+/// narrowed since the write, so the replay branch runs the same check the fresh
+/// path runs before it answers. A layer with no ticket needs no board check; a
+/// stored value that is not this module's own shape fails closed.
+async fn require_replay_visible(
+    conn: &mut sqlx::PgConnection,
+    principal: &core_domain::entities::Principal,
+    org_id: Uuid,
+    stored: &Value,
+) -> ApiResult<()> {
+    let ticket_id = stored
+        .get("cost")
+        .and_then(|cost| cost.get("ticket_id"))
+        .and_then(Value::as_str)
+        .and_then(|raw| Uuid::parse_str(raw).ok());
+    if let Some(ticket_id) = ticket_id {
+        crate::routes::costs::ticket_for_board_check(
+            conn,
+            principal,
+            org_id,
+            ticket_id,
+            BoardOp::WorkTicket,
+        )
+        .await?;
+    }
+    Ok(())
+}
+
 // ---- handlers --------------------------------------------------------------
 
 /// GET /api/purchase-receipts/{id}/acquisition-costs.
@@ -299,7 +350,7 @@ pub async fn list_for_receipt(
     axum::extract::Path(receipt_id): axum::extract::Path<Uuid>,
 ) -> ApiResult<Json<Vec<AcquisitionCostDetail>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_money_read(&authed.principal)?;
+    require_money(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
@@ -307,7 +358,8 @@ pub async fn list_for_receipt(
         .map_err(ApiError::from)?;
     // The receipt read is the scope proof: a missing receipt and a receipt in
     // another org answer the same 404.
-    acquisition_costs::receipt_context(&mut tx, org_id, receipt_id).await?;
+    let context = acquisition_costs::receipt_context(&mut tx, org_id, receipt_id).await?;
+    require_layer_client_visible(&mut tx, &authed.principal, org_id, context.client_id).await?;
     let layers = acquisition_costs::details_for_receipt(&mut tx, org_id, receipt_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(layers))
@@ -324,13 +376,14 @@ pub async fn get_one(
     axum::extract::Path(id): axum::extract::Path<Uuid>,
 ) -> ApiResult<Json<AcquisitionCostDetail>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_money_read(&authed.principal)?;
+    require_money(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
     let detail = acquisition_costs::detail(&mut tx, org_id, id).await?;
+    require_layer_client_visible(&mut tx, &authed.principal, org_id, detail.cost.client_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(detail))
 }
@@ -348,12 +401,14 @@ pub async fn receipt_valuation(
     axum::extract::Path(receipt_id): axum::extract::Path<Uuid>,
 ) -> ApiResult<Json<ReceiptValuation>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_money_read(&authed.principal)?;
+    require_money(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
+    let context = acquisition_costs::receipt_context(&mut tx, org_id, receipt_id).await?;
+    require_layer_client_visible(&mut tx, &authed.principal, org_id, context.client_id).await?;
     let valuation = acquisition_costs::receipt_valuation(&mut tx, org_id, receipt_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(valuation))
@@ -371,7 +426,7 @@ pub async fn class_rollup(
     axum::extract::Query(q): axum::extract::Query<CostRollupQuery>,
 ) -> ApiResult<Json<Vec<CostClassTotal>>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_money_read(&authed.principal)?;
+    require_money(&authed.principal)?;
     if let (Some(from), Some(to)) = (q.from, q.to) {
         if from > to {
             return Err(ApiError::Validation(
@@ -386,6 +441,8 @@ pub async fn class_rollup(
         ticket_id: q.ticket_id,
         from: q.from,
         to: q.to,
+        viewer_id: authed.principal.user.id,
+        viewer_is_admin: authed.principal.is_owner_or_admin(),
     };
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
@@ -412,7 +469,7 @@ pub async fn create(
     axum::extract::Json(req): axum::extract::Json<CreateAcquisitionCostRequest>,
 ) -> ApiResult<Json<AcquisitionCostMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, commercial(Action::Edit))?;
+    require_money_write(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
@@ -469,23 +526,21 @@ pub async fn create(
         )
         .await?
         {
+            require_replay_visible(&mut ctx.tx, &authed.principal, org_id, &stored).await?;
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
 
         let context = acquisition_costs::receipt_context(&mut ctx.tx, org_id, receipt_id).await?;
         if let Some(vendor_id) = req.vendor_id {
-            let exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS (SELECT 1 FROM vendors WHERE org_id = $1 AND id = $2)",
-            )
-            .bind(org_id)
-            .bind(vendor_id)
-            .fetch_one(&mut *ctx.tx)
-            .await
-            .map_err(ApiError::from)?;
-            if !exists {
+            if !acquisition_costs::vendor_exists(&mut ctx.tx, org_id, vendor_id)
+                .await
+                .map_err(ApiError::from)?
+            {
                 return Err(ApiError::NotFound);
             }
         }
+        require_layer_client_visible(&mut ctx.tx, &authed.principal, org_id, context.client_id)
+            .await?;
         let policy = core_db::purchasing::get_inventory_policy(&mut *ctx.tx, org_id)
             .await
             .map_err(ApiError::from)?;
@@ -567,6 +622,7 @@ pub async fn create(
             reporting_class,
             project_id: context.project_id,
             ticket_id: context.ticket_id,
+            client_id: context.client_id,
             posted_ticket_expense_id: expense.as_ref().map(|e| e.id),
             reverses_acquisition_cost_id: None,
             fx_rate_used: snapshot.as_ref().map(|s| s.rate_used.clone()),
@@ -679,7 +735,7 @@ pub async fn reverse(
     axum::extract::Json(req): axum::extract::Json<ReverseAcquisitionCostRequest>,
 ) -> ApiResult<Json<AcquisitionCostMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
-    require_permission(&authed.principal, commercial(Action::Edit))?;
+    require_money_write(&authed.principal)?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
 
@@ -708,6 +764,7 @@ pub async fn reverse(
         )
         .await?
         {
+            require_replay_visible(&mut ctx.tx, &authed.principal, org_id, &stored).await?;
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
 
@@ -813,6 +870,7 @@ pub async fn reverse(
             reporting_class: original.reporting_class,
             project_id: original.project_id,
             ticket_id: original.ticket_id,
+            client_id: original.client_id,
             posted_ticket_expense_id: expense.as_ref().map(|e| e.id),
             reverses_acquisition_cost_id: Some(original.id),
             fx_rate_used: snapshot.as_ref().map(|s| s.rate_used.clone()),
