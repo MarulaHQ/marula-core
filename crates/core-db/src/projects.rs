@@ -1435,7 +1435,7 @@ where
     }
 }
 
-/// The phase-burn read model (report P3): consumed approved billable
+/// The phase-burn read model: consumed approved billable
 /// minutes per phase folded against the phase's budget and CARD-priced
 /// at the linked contract's rate card (default rate fallback), computed
 /// in one query. `consumed` prices the card rate per work_type bucket
@@ -1519,7 +1519,7 @@ where
         .collect())
 }
 
-// --- billing releases (report P1/P4) ----------------------------------------
+// --- billing releases ----------------------------------------
 
 pub struct NewRelease {
     pub org_id: Uuid,

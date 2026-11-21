@@ -1,0 +1,173 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, purchase_order_id, po_line_id, receipt_line_id, client_id, ticket_id,\n                  project_id, rule_kind, rule_source, rule_markup_bps, rule_fixed_minor,\n                  rule_currency, basis_amount_minor, basis_currency,\n                  cost_fx_rate_used::text AS cost_fx_rate_used, cost_fx_rate_date,\n                  cost_fx_source, cost_base_amount_minor, charge_amount_minor,\n                  charge_currency, charge_fx_rate_used::text AS charge_fx_rate_used,\n                  charge_fx_rate_date, charge_fx_source, charge_base_amount_minor,\n                  cost_line_id, issued_at\n           FROM purchase_recharges\n           WHERE org_id = $1 AND purchase_order_id = $2\n           ORDER BY issued_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "purchase_order_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "po_line_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 3,
+        "name": "receipt_line_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 6,
+        "name": "project_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "rule_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "rule_source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 9,
+        "name": "rule_markup_bps",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 10,
+        "name": "rule_fixed_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 11,
+        "name": "rule_currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 12,
+        "name": "basis_amount_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 13,
+        "name": "basis_currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 14,
+        "name": "cost_fx_rate_used",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 15,
+        "name": "cost_fx_rate_date",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 16,
+        "name": "cost_fx_source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 17,
+        "name": "cost_base_amount_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 18,
+        "name": "charge_amount_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 19,
+        "name": "charge_currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 20,
+        "name": "charge_fx_rate_used",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 21,
+        "name": "charge_fx_rate_date",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 22,
+        "name": "charge_fx_source",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 23,
+        "name": "charge_base_amount_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 24,
+        "name": "cost_line_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 25,
+        "name": "issued_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      null,
+      true,
+      true,
+      true,
+      false,
+      false,
+      null,
+      true,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "544a28ae5f4e11fda0d6a099b24b854dcb49ff0d650a3df520ac22fd9fad3019"
+}

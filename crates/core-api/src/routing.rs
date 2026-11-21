@@ -1,4 +1,4 @@
-//! Routing service (Wave 32 lane 7): provider construction, travel
+//! Routing service: provider construction, travel
 //! estimation, and journey context assembly.
 //!
 //! Purpose: the one place that turns operator config + org policy + a

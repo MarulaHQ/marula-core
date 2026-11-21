@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id FROM device_assets WHERE org_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "51e18008ccaedcd955b32b34c80896d1f651535364da822cfc8c75b1c86a7cab"
+}

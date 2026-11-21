@@ -55,7 +55,7 @@ pub enum VizHint {
     Table,
     /// A single headline number: exactly one measure and no group-by
     /// dimension (enforced by [`ReportSpec::validate`]). Added with the card
-    /// contract (Wave 46 lane 1) so a dashboard stat and a report stat are
+    /// contract so a dashboard stat and a report stat are
     /// the same viz, not a client-side word with no server meaning.
     Stat,
 }
@@ -220,7 +220,7 @@ pub struct RunWindow {
     pub end: DateTime<Utc>,
 }
 
-/// A stored report spec (the private build tracker R3). Every member is registry-validated;
+/// A stored report spec. Every member is registry-validated;
 /// see [`ReportSpec::validate`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

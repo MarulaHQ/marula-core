@@ -2797,7 +2797,7 @@ pub async fn mint_identity_bundle_credential(
     ))
 }
 
-// --- Marketplace v2 (Wave 22): verified publishers + ratings ------------------------
+// --- Marketplace v2: verified publishers + ratings ------------------------
 
 /// Normalizes a publisher source identity: `registry://slug` verbatim;
 /// `github.com/{owner}/{repo}` collapses to `github.com/{owner}` (the

@@ -615,7 +615,7 @@ pub struct ClientCompletenessView {
 }
 
 /// GET /api/clients/{id}/completeness — backend documentation-completeness
-/// scoring (Wave 17 lane 13): the weights live SERVER-side now, replacing
+/// scoring: the weights live SERVER-side now, replacing
 /// the honest client-side metadata scoring the clients lane shipped.
 /// Same shape, same pro-ration doctrine: score = round(earned /
 /// maxKnown × 100) with null legs (leg absent) pro-rated OUT, never a

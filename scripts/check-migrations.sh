@@ -78,6 +78,11 @@ for f in "$migrations_dir"/*.sql; do
     # SELECT. PG has no ALTER POLICY for the command, so the policy is dropped
     # and recreated in the same file; it discards a rule, never rows.
     '0224_contract_clauses_read_select.sql:DROP POLICY IF EXISTS contract_clauses_read ON contract_clauses;'
+
+    # 0238: same drop-and-re-add when inventory_class_movements.source_kind
+    # gains `ewaste_intake` for a custody intake retiring a client asset. Every
+    # existing value stays admitted; no rows touched.
+    '0238_ewaste_custody.sql:DROP CONSTRAINT inventory_class_movements_source_kind_check;'
   )
   filtered="$hits"
   for entry in "${migration_backfill_allowlist[@]}"; do

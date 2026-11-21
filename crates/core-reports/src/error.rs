@@ -16,14 +16,14 @@ pub enum ReportsError {
     InvalidLimit(i64),
     /// An opaque cursor failed to decode (client error, never a panic).
     InvalidCursor,
-    /// A stored report spec violated the typed registry (the private build tracker R3):
+    /// A stored report spec violated the typed registry:
     /// unknown slug, a type mismatch between filter operand and catalog
     /// column, an aggregate applied to a non-numeric column, a shape bound
     /// (filter/measure/group-by caps), or a duplicate output name. The
     /// `field` names the spec member at fault; `reason` is the specific
     /// violation. Never carries SQL text.
     InvalidSpec { field: String, reason: String },
-    /// A card definition violated its own contract (Wave 46 lane 1): an
+    /// A card definition violated its own contract: an
     /// out-of-range window or refresh, or a shape it cannot fill statically.
     /// `field` names the card member at fault.
     InvalidCard { field: String, reason: String },

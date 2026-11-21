@@ -125,7 +125,7 @@ impl CardShape {
     }
 }
 
-/// Card width on the dashboard's twelve-column grid. The vocabulary lane 6
+/// Card width on the dashboard's twelve-column grid. The vocabulary the dashboard
 /// consumes; the CSS owns the measurement, this owns the names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]

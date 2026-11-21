@@ -169,7 +169,7 @@ pub enum AutomationCondition {
     Unassigned,
     /// Assignee is set to somebody. The complement of [`Self::Unassigned`].
     AssigneeIsSet,
-    /// CSAT surveys on resolution (Wave 34 lane 2): fires only on
+    /// CSAT surveys on resolution: fires only on
     /// `csat.response_recorded` events whose score is BELOW the threshold
     /// (strictly less — threshold 3 fires on 1 and 2). Evaluated against
     /// the event payload score, not the ticket snapshot; on any other

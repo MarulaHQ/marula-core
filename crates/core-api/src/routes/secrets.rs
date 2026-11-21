@@ -521,7 +521,7 @@ pub struct SecretFieldValue {
     pub value: String,
 }
 
-/// PATCH field entry (A5, Wave 16 lane 9): `value: null` CLEARS the
+/// PATCH field entry (A5): `value: null` CLEARS the
 /// sealed field (row deleted, audited via the record-updated event);
 /// a value rotates the sealed ciphertext.
 #[derive(Debug, Deserialize, Serialize, utoipa::ToSchema)]

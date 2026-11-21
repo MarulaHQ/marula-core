@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT stock_item_id AS \"stock_item_id!\", location_id\n             FROM stock_serials WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "stock_item_id!",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "location_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "0c250f681f24e6c8df2d8a7075d83b357d0b6fbdf22ab174b12e429f5fca3710"
+}

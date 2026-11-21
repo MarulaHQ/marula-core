@@ -306,7 +306,7 @@ pub struct Config {
     pub retrieval: core_domain::retrieval::RetrievalMode,
 }
 
-/// Which distance/duration provider the process registers (Wave 32 lane 7).
+/// Which distance/duration provider the process registers.
 /// `None` = NONE-mode: the built-in per-mile heuristic answers and
 /// suggestion-grade features stay silent.
 #[derive(Debug, Clone, PartialEq, Eq)]

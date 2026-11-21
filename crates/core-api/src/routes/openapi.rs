@@ -504,7 +504,7 @@ use utoipa::OpenApi;
         crate::routes::plugin_distribution::delete_theme_pack,
         crate::routes::plugin_distribution::list_org_skills,
         crate::routes::plugin_distribution::set_skill_enabled,
-        // Marketplace v2 (Wave 22): verified publishers + ratings
+        // Marketplace v2: verified publishers + ratings
         crate::routes::plugin_distribution::list_publishers,
         crate::routes::plugin_distribution::verify_publisher,
         crate::routes::plugin_distribution::revoke_publisher,
@@ -516,11 +516,11 @@ use utoipa::OpenApi;
         crate::routes::plugin_distribution::disable_identity_bundle,
         crate::routes::plugin_distribution::revoke_identity_bundle,
         crate::routes::plugin_distribution::mint_identity_bundle_credential,
-        // Stripe webhook receiver (Wave 22)
+        // Stripe webhook receiver
         crate::routes::stripe_webhook::receive,
-        // Transcription edge over the registered surface (Wave 22)
+        // Transcription edge over the registered surface
         crate::routes::transcription::transcribe_attachment,
-        // Ecosystem connectors + pricing feeds (Wave 22)
+        // Ecosystem connectors + pricing feeds
         crate::routes::integrations::index,
         crate::routes::integrations::install,
         crate::routes::integrations::remove,
@@ -636,7 +636,7 @@ use utoipa::OpenApi;
         crate::routes::dispatch::travel_draft_patch,
         crate::routes::dispatch::travel_draft_delete,
         crate::routes::dispatch::travel_draft_submit,
-        // dispatch v3 — routing (Wave 32 lane 7)
+        // dispatch v3 — routing
         crate::routes::routing::routing_day,
         crate::routes::routing::journey_start_get,
         crate::routes::routing::journey_start_set,
@@ -725,6 +725,9 @@ use utoipa::OpenApi;
         crate::routes::stock::ship_out,
         crate::routes::stock::on_hand,
         crate::routes::stock::consumption_velocity_route,
+        crate::routes::stock::list_pool,
+        crate::routes::stock::commission_pool,
+        crate::routes::stock::decommission_pool,
         // purchasing + vendors (Wave 32 lane 2, migration 0103)
         crate::routes::purchasing::list_vendors,
         crate::routes::purchasing::create_vendor,
@@ -748,6 +751,7 @@ use utoipa::OpenApi;
         crate::routes::purchasing::list_order_links,
         crate::routes::purchasing::create_order_link,
         crate::routes::purchasing::order_deeplinks,
+        crate::routes::purchasing::order_recharges,
         crate::routes::purchasing::get_order_bill,
         crate::routes::purchasing::record_order_bill,
         crate::routes::purchasing::post_order_bill,
@@ -771,6 +775,21 @@ use utoipa::OpenApi;
         crate::routes::loans::return_loan,
         crate::routes::loans::list_loans,
         crate::routes::loans::get_loan,
+        crate::routes::loans::list_charges,
+        crate::routes::loans::create_vendor_rental,
+        crate::routes::loans::list_vendor_rentals,
+        crate::routes::loans::get_vendor_rental,
+        crate::routes::loans::return_vendor_rental,
+        // e-waste custody (ADR 0035 decision 5, migration 0238)
+        crate::routes::ewaste::list,
+        crate::routes::ewaste::create,
+        crate::routes::ewaste::get_one,
+        crate::routes::ewaste::add_line,
+        crate::routes::ewaste::record_event,
+        crate::routes::ewaste::set_destruction,
+        crate::routes::ewaste::record_disposition,
+        crate::routes::ewaste::close_intake,
+        crate::routes::ewaste::list_dispositions,
         // label templates + label rendering + scan resolution (Wave 32 lane 5)
         crate::routes::labels::list,
         crate::routes::labels::get_one,
@@ -1470,6 +1489,12 @@ use utoipa::OpenApi;
         crate::routes::stock::OnHandQuery,
         crate::routes::stock::VelocityMutationless,
         crate::routes::stock::VelocityQuery,
+        // rental pool (ADR 0035 decision 4, migration 0237)
+        crate::routes::stock::PoolMoveRequest,
+        crate::routes::stock::PoolMoveView,
+        crate::routes::stock::PoolMutationResponse,
+        crate::routes::stock::PoolUnitView,
+        crate::routes::stock::PoolListQuery,
         // purchasing + vendors (Wave 32 lane 2, migration 0103)
         core_domain::entities::Vendor,
         core_domain::entities::VendorContact,
@@ -1501,7 +1526,13 @@ use utoipa::OpenApi;
         crate::routes::purchasing::DeleteOrderLineRequest,
         crate::routes::purchasing::CreateOrderRequest,
         crate::routes::purchasing::UpdateOrderRequest,
+        crate::routes::purchasing::OrderLinePatch,
+        crate::routes::purchasing::UpdateOrderLineRequest,
         crate::routes::purchasing::PurchaseOrderLineView,
+        crate::routes::purchasing::PurchaseOrderIntentView,
+        crate::routes::purchasing::ReceiptLineView,
+        crate::routes::purchasing::PurchaseRechargeView,
+        crate::routes::purchasing::RechargeFxView,
         crate::routes::purchasing::PurchaseReceiptView,
         crate::routes::purchasing::PurchaseOrderDetail,
         crate::routes::purchasing::OrderMutationResponse,
@@ -1552,6 +1583,32 @@ use utoipa::OpenApi;
         crate::routes::loans::ClientLoanLineView,
         crate::routes::loans::ClientLoanMutationResponse,
         crate::routes::loans::ClientLoanDetailResponse,
+        crate::routes::loans::RentalChargeView,
+        crate::routes::loans::CreateVendorRentalRequest,
+        crate::routes::loans::VendorRentalAssetRequest,
+        crate::routes::loans::VendorRentalView,
+        crate::routes::loans::VendorRentalMutationResponse,
+        crate::routes::loans::VendorRentalListQuery,
+        crate::routes::loans::VendorRentalReturnRequest,
+        // e-waste custody (ADR 0035 decision 5, migration 0238)
+        crate::routes::ewaste::IntakeLineRequest,
+        crate::routes::ewaste::CreateIntakeRequest,
+        crate::routes::ewaste::AddLineRequest,
+        crate::routes::ewaste::RecordEventRequest,
+        crate::routes::ewaste::SetDestructionRequest,
+        crate::routes::ewaste::CloseIntakeRequest,
+        crate::routes::ewaste::RecordDispositionRequest,
+        crate::routes::ewaste::ListIntakesQuery,
+        crate::routes::ewaste::ListDispositionsQuery,
+        crate::routes::ewaste::IntakeDetailResponse,
+        crate::routes::ewaste::IntakeMutationResponse,
+        core_db::ewaste::EwasteIntake,
+        core_db::ewaste::EwasteIntakeLine,
+        core_db::ewaste::EwasteDisposition,
+        core_db::ewaste::EwasteEvent,
+        core_db::ewaste::WeightBalance,
+        core_db::ewaste::PathwayWeight,
+        core_db::ewaste::IntakeSummary,
         // label templates + rendering + scan resolution (Wave 32 lane 5)
         crate::routes::labels::LabelTemplateView,
         crate::routes::day_pack::DayPackView,
@@ -1847,7 +1904,7 @@ use utoipa::OpenApi;
         core_reports::MeasureSpec,
         core_reports::Aggregate,
         core_reports::VizHint,
-        // The card contract (Wave 46 lane 1): one vocabulary for report and
+        // The card contract: one vocabulary for report and
         // dashboard cards, and the shape catalogue the authoring agent reads.
         // Only the types the wire references are registered — the refusal's
         // shape/failure classes travel as slugs on the error envelope.
@@ -2095,7 +2152,7 @@ use utoipa::OpenApi;
         core_domain::events::PluginStagedImportRefused,
         core_domain::events::PluginUpdatePending,
         core_domain::events::PluginSettingsUpdated,
-        // Marketplace v2 (Wave 22)
+        // Marketplace v2
         crate::routes::plugin_distribution::VerifyPublisherRequest,
         crate::routes::plugin_distribution::PublisherVerificationView,
         crate::routes::plugin_distribution::ListRatingsQuery,
@@ -2104,7 +2161,7 @@ use utoipa::OpenApi;
         crate::routes::plugin_distribution::RatingMineView,
         crate::routes::plugin_distribution::RatingListView,
         crate::routes::transcription::TranscriptionResponse,
-        // Ecosystem connectors schemas (Wave 22)
+        // Ecosystem connectors schemas
         crate::routes::integrations::ConnectorInstallRequest,
         crate::routes::integrations::ConnectorIndexResponse,
         crate::routes::integrations::ConnectorInstallationView,
@@ -2196,7 +2253,7 @@ use utoipa::OpenApi;
         crate::routes::dispatch::ListTravelDraftsQuery,
         crate::routes::dispatch::SubmitTravelDraftRequest,
         crate::routes::dispatch::DispatchStatusShade,
-        // dispatch v3 — routing schemas (Wave 32 lane 7)
+        // dispatch v3 — routing schemas
         crate::routes::routing::RoutingDayQuery,
         crate::routes::routing::RoutingDayView,
         crate::routes::routing::RoutingProviderStatus,
@@ -2590,6 +2647,7 @@ use utoipa::OpenApi;
         (name = "agent-platform", description = "Agent platform v1: capability registry (deny-by-default, involvement dial), versioned agent skills, IF8 proposal pipeline (approval by default)"),
         (name = "migration", description = "Migration connector (third-party tools): bulk push riding the import engine with checkpoint cursors, cursor-paged read-model pull; API-key scoped (migration:read/write), per-key rate limited"),
         (name = "purchasing", description = "Vendors, purchase orders with typed receipt states, receipts posting into the stock ledger, reseller deeplinks, and the bill → project cost rollup hook (Wave 32 lane 2)"),
+        (name = "ewaste", description = "E-waste custody: client intakes, the append-only custody ledger, dispositions with their certificates, and the weight balance"),
         (name = "rag", description = "RAG and multimodal vector namespace (ADR 0020): 768-dim passage and media chunk ingest, hybrid BM25 + exact-KNN RRF retrieval, and provable deletion receipts"),
     )
 )]
@@ -2744,6 +2802,7 @@ fn build_openapi_json() -> serde_json::Value {
         .unwrap_or_else(|_| serde_json::json!({}));
     canonicalize_paths(&mut value);
     apply_machine_surface(&mut value);
+    strip_build_history(&mut value);
     value
 }
 
@@ -2960,5 +3019,279 @@ mod scope_publication_tests {
                 }
             }
         }
+    }
+}
+
+/// The published contract carries no build history.
+///
+/// Rust doc comments record which change shipped a field, which is useful in
+/// the source and none of a client's business in the contract. The served
+/// document is the source of the OpenAPI pins, the generated SDK and the
+/// published API reference, so scrubbing it once here keeps all three clean
+/// without rewriting years of doc comments. New text is covered automatically.
+fn strip_build_history(value: &mut serde_json::Value) {
+    use serde_json::Value;
+    match value {
+        Value::Object(map) => {
+            for (key, child) in map.iter_mut() {
+                if matches!(key.as_str(), "description" | "summary") {
+                    match child {
+                        Value::String(text) => *text = scrub_build_history(text),
+                        // A schema property may itself be named `description`
+                        // and hold an object; its nested text is scrubbed too.
+                        other => strip_build_history(other),
+                    }
+                } else {
+                    strip_build_history(child);
+                }
+            }
+        }
+        Value::Array(items) => items.iter_mut().for_each(strip_build_history),
+        _ => {}
+    }
+}
+
+/// One marker that names build history rather than the contract.
+fn is_history_marker(text: &str) -> bool {
+    text.contains("Wave ")
+        || text.contains("private build tracker")
+        || text.contains("report P")
+        || text.contains("report C")
+        || text.contains("plan §")
+}
+
+fn scrub_build_history(text: &str) -> String {
+    let chars: Vec<char> = text.chars().collect();
+    let mut out: Vec<char> = Vec::with_capacity(chars.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '(' {
+            let mut depth = 0usize;
+            let mut j = i;
+            while j < chars.len() {
+                match chars[j] {
+                    '(' => depth += 1,
+                    ')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+                j += 1;
+            }
+            if j < chars.len() {
+                let inner: String = chars[i + 1..j].iter().collect();
+                if is_history_marker(&inner) {
+                    if out.last() == Some(&' ') {
+                        out.pop();
+                    }
+                    i = j + 1;
+                    continue;
+                }
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    let mut text: String = out.into_iter().collect();
+    let mut removed = false;
+    for (needle, numeric) in [
+        ("Wave ", true),
+        ("the private build tracker ", false),
+        ("private build tracker ", false),
+        ("report P", true),
+        ("report C", true),
+        ("plan §", true),
+    ] {
+        let mut guard = 0;
+        while let Some(start) = text.find(needle) {
+            guard += 1;
+            if guard > 64 {
+                break;
+            }
+            let mut end = start + needle.len();
+            let run = |end: &mut usize, extra: fn(char) -> bool| {
+                while *end < text.len() {
+                    let ch = text[*end..].chars().next().unwrap_or(' ');
+                    if ch.is_alphanumeric() || extra(ch) {
+                        *end += ch.len_utf8();
+                    } else {
+                        break;
+                    }
+                }
+            };
+            if numeric {
+                run(&mut end, |ch| matches!(ch, '.' | '-' | '/'));
+                // " lane 12", " lane `p58-x`", " §5.3", " V4", " decision 3"
+                for lead in [" lane ", " §", " V", " decision ", " item ", " F", " D"] {
+                    if text[end..].starts_with(lead) {
+                        end += lead.len();
+                        run(&mut end, |ch| matches!(ch, '.' | '-' | '`' | '/'));
+                    }
+                }
+                if text[end..].starts_with("'s ") {
+                    end += 3;
+                }
+                // A colon belongs to the marker only when it opened a sentence;
+                // mid-sentence it resumes the clause the marker interrupted.
+                let sentence_start = {
+                    let before = text[..start].trim_end();
+                    before.is_empty()
+                        || before.ends_with('.')
+                        || before.ends_with('!')
+                        || before.ends_with('?')
+                };
+                if sentence_start && text[end..].starts_with(':') {
+                    end += 1;
+                }
+            } else {
+                run(&mut end, |ch| matches!(ch, '.' | '-' | '`' | '/'));
+            }
+            // A period that ends the sentence belongs to the sentence, not to
+            // the marker, even though a version like `V1.2` keeps its dots.
+            if text[..end].ends_with('.') {
+                let next = text[end..].chars().next();
+                if next.is_none() || next.is_some_and(char::is_whitespace) {
+                    end -= 1;
+                }
+            }
+            let mut start = start;
+            // "the private build tracker R3" leaves no article behind.
+            if let Some(prefix) = text[..start].strip_suffix("the ") {
+                start = prefix.len();
+            }
+            // "since Wave 32" reads worse than "since", so drop the preposition.
+            for lead in ["since ", "before ", "after ", "from "] {
+                if let Some(prefix) = text[..start].strip_suffix(lead) {
+                    start = prefix.len();
+                }
+            }
+            // Clean up only what the removal touched: the rest of the text is
+            // Markdown, where two spaces and four-space indents are meaningful.
+            let after_first = text[end..].chars().next();
+            let after_ws = after_first.is_none_or(char::is_whitespace);
+            let before_ws = start == 0 || text[..start].ends_with(char::is_whitespace);
+            let after_punctuation = matches!(after_first, Some('.' | ',' | ';' | ':' | ')'));
+            if after_ws && before_ws {
+                // A space already separates the words on both sides, so the
+                // marker takes one of them with it instead of leaving two.
+                let mut end = end;
+                if let Some(ch) = text[end..].chars().next() {
+                    end += ch.len_utf8();
+                }
+                text.replace_range(start..end, "");
+            } else if after_ws {
+                text.replace_range(start..end, " ");
+            } else if after_punctuation && before_ws {
+                // A mid-sentence marker left its space in front of the
+                // punctuation that ends the clause: "path (x)." -> "path.".
+                let mut cut = start;
+                while cut > 0 && text[..cut].ends_with(' ') {
+                    cut -= 1;
+                }
+                text.replace_range(cut..end, "");
+            } else {
+                text.replace_range(start..end, "");
+            }
+            removed = true;
+        }
+    }
+    if !removed {
+        return text;
+    }
+    // A marker that began a sentence leaves a lowercase word behind.
+    let mut capitalise = true;
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            out.push(ch);
+            continue;
+        }
+        if capitalise && ch.is_alphabetic() {
+            out.extend(ch.to_uppercase());
+            capitalise = false;
+            continue;
+        }
+        capitalise = matches!(ch, '.' | '!' | '?');
+        out.push(ch);
+    }
+    out.trim().to_string()
+}
+
+#[cfg(test)]
+mod build_history_tests {
+    use super::*;
+
+    #[test]
+    fn parenthetical_history_is_removed_whole() {
+        assert_eq!(
+            scrub_build_history("Booked travel time (Wave 32 lane 7): it adds to the span."),
+            "Booked travel time: it adds to the span."
+        );
+        assert_eq!(
+            scrub_build_history("Stored definitions (the private build tracker R3) ride as jsonb."),
+            "Stored definitions ride as jsonb."
+        );
+        assert_eq!(
+            scrub_build_history("A release (report P1/P4) that carries the amount."),
+            "A release that carries the amount."
+        );
+    }
+
+    #[test]
+    fn inline_history_is_removed() {
+        assert_eq!(
+            scrub_build_history("Wave 41 lane 12: whether the portal shows the label."),
+            "Whether the portal shows the label."
+        );
+        assert_eq!(
+            scrub_build_history("The supported shapes. Wave 39 adds MSP pricing."),
+            "The supported shapes. Adds MSP pricing."
+        );
+        assert_eq!(
+            scrub_build_history("Nullable since Wave 32: an internal-org asset."),
+            "Nullable: an internal-org asset."
+        );
+        assert_eq!(
+            scrub_build_history("Frozen on save. Wave 9's invoice runs refuse it."),
+            "Frozen on save. Invoice runs refuse it."
+        );
+    }
+
+    #[test]
+    fn markdown_whitespace_survives_untouched_text() {
+        let code = "Example:\n\n    curl /api/v1/health";
+        assert_eq!(scrub_build_history(code), code);
+        let line_break = "First line  \nsecond line";
+        assert_eq!(scrub_build_history(line_break), line_break);
+    }
+
+    #[test]
+    fn markdown_elsewhere_survives_a_removal() {
+        let text = "The run bills daily (Wave 9).\n\n    curl /api/v1/runs";
+        assert_eq!(
+            scrub_build_history(text),
+            "The run bills daily.\n\n    curl /api/v1/runs"
+        );
+    }
+
+    #[test]
+    fn a_nested_object_under_a_description_key_is_scrubbed() {
+        let mut value = serde_json::json!({
+            "description": { "description": "Shipped in Wave 9 lane 4." }
+        });
+        strip_build_history(&mut value);
+        assert_eq!(
+            value["description"]["description"],
+            serde_json::json!("Shipped in.")
+        );
+    }
+
+    #[test]
+    fn clean_text_is_untouched() {
+        let text = "A ticket as a client sees it. Status labels are added.";
+        assert_eq!(scrub_build_history(text), text);
     }
 }

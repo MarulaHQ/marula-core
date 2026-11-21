@@ -28,7 +28,7 @@
 //! short-lived access token. The OAuth callback writes it, the poll reads it,
 //! and no response body carries it — every connection surface returns
 //! [`CalendarSyncConnectionView`], which reports presence
-//! (`has_access_token`) and never the value (Wave 55 decision 9). The outbound
+//! (`has_access_token`) and never the value. The outbound
 //! `feed_token` is the one credential a client ever sees, once, at creation or
 //! rotation.
 //!
@@ -1415,7 +1415,7 @@ mod tests {
 // IS cached there, because it is short-lived and regenerable and refreshing on
 // every poll would make the poll endpoint a proxy for the vendor's token
 // service — but it is read only by the poll: it is skipped in serialization and
-// no connection response carries it (Wave 55 decision 9).
+// no connection response carries it.
 
 /// Sealed-slot names for the two delegated providers. Namespaced under
 /// `calendar.` so they cannot collide with the `mail.*` transport slots in

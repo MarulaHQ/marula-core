@@ -407,7 +407,7 @@ async fn seed_full_org(db: &TestDb, n: u64) -> Base {
     .await
     .expect("ladder");
 
-    // report definitions (the private build tracker R3): two rows inserted OUT of name
+    // report definitions: two rows inserted OUT of name
     // order, one org-published and one private, so the section sort +
     // scope round-trip are exercised. Spec bodies are registry-valid.
     for (name, kind, body, viz, scope) in [

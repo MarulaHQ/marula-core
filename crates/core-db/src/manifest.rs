@@ -1,5 +1,4 @@
-//! Customization-manifest loader (the private build tracker U5, upgrade-compatibility-policy
-//! .md §5).
+//! Customization-manifest loader (upgrade-compatibility-policy §5).
 //!
 //! Purpose: assemble the org's canonical [`CustomizationManifest`] — every
 //! customization section in one read — with DETERMINISTIC ordering so two
@@ -429,7 +428,7 @@ async fn load_sla(conn: &mut PgConnection, org_id: Uuid) -> DbResult<ManifestSla
     })
 }
 
-// --- report definitions (the private build tracker R3) -------------------------------------------------
+// --- report definitions -------------------------------------------------
 
 /// Stored report specs are customizations-as-data: the U6 preflight must
 /// see every definition's view/viz/scope slugs and spec body so it can

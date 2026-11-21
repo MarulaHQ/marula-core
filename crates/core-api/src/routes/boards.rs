@@ -206,7 +206,7 @@ pub struct CreateStatusRequest {
 }
 
 /// GET /api/boards/{id}/statuses/usage — per-status ticket counts and
-/// automation references (Wave 41 lane 12).
+/// automation references.
 ///
 /// One read serves both the settings table's TICKETS column and the delete
 /// confirm's "12 tickets use this status" and "2 automations mention this
@@ -424,7 +424,7 @@ pub async fn update_status(
     Ok(Json(status))
 }
 
-/// What a delete with reassignment actually did (Wave 41 lane 12).
+/// What a delete with reassignment actually did.
 ///
 /// Returned instead of a bare 204 because the confirm has to say what
 /// happened, and the admin is the one who has to believe it.

@@ -1,8 +1,7 @@
 //! Boards, board statuses (semantic-category-bound), and favorites.
 //! Workflow customization v1 lives here too: the explicit per-board
 //! transition adjacency read/written through core-api only, plus board
-//! groups/favorites annotations and per-board membership roles
-//! (the private build tracker 2.11).
+//! groups/favorites annotations and per-board membership roles.
 
 use crate::{DbError, DbResult};
 use core_domain::entities::{Board, BoardFavorite, BoardGroup, BoardMember, BoardStatus};
@@ -440,7 +439,7 @@ where
         .collect())
 }
 
-// --- board groups (the private build tracker 2.11) ----------------------------------------
+// --- board groups ----------------------------------------
 
 /// Creates an org-scoped nav group; names are unique per org.
 pub async fn create_group(
@@ -600,7 +599,7 @@ pub async fn set_board_group(
     Ok(())
 }
 
-// --- per-board membership roles (the private build tracker 2.11) ---------------------------
+// --- per-board membership roles ---------------------------
 
 fn member_from_row(row: sqlx::postgres::PgRow) -> DbResult<BoardMember> {
     use sqlx::Row;
@@ -722,7 +721,7 @@ where
     Ok(row.and_then(|(r,)| BoardRole::parse(&r)))
 }
 
-/// One nav-tree entry (the private build tracker 2.11): the board plus the CALLER's
+/// One nav-tree entry: the board plus the CALLER's
 /// annotations — group assignment, favorite mark, and board role.
 #[derive(Debug, Clone)]
 pub struct BoardNavEntry {

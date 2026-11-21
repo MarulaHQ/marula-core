@@ -719,8 +719,9 @@ async fn client_loan_instantiates_asset_converges_via_dedupe_and_lease_fields() 
     assert_eq!(ledger[0]["kind"], json!("loan_return"));
     assert_eq!(ledger[0]["client_id"], json!(client_id));
 
-    // Asset-sourced lines: an existing fleet device goes out again under a
-    // past-due (non-lease) loan → overdue, and returns without a location.
+    // Asset-sourced lines: the same paired unit is issued by asset id under a
+    // past-due (non-lease) loan. It is back on its shelf, so the issue takes the
+    // shelf leg and the return must name the shelf it goes back to.
     let response = send(
         &app,
         axum::http::Method::POST,
@@ -742,10 +743,10 @@ async fn client_loan_instantiates_asset_converges_via_dedupe_and_lease_fields() 
     let second_id = second["loan"]["id"].as_str().unwrap().to_string();
     assert_eq!(second["loan"]["overdue"], json!(true));
     assert!(
-        second["lines"][0]["movement_out_id"].is_null(),
-        "no stock leg"
+        second["lines"][0]["movement_out_id"].is_string(),
+        "a paired unit issued by asset id takes its shelf leg"
     );
-    assert_eq!(second["lines"][0]["from_stock"], json!(false));
+    assert_eq!(second["lines"][0]["from_stock"], json!(true));
 
     let response = send(
         &app,
@@ -764,17 +765,22 @@ async fn client_loan_instantiates_asset_converges_via_dedupe_and_lease_fields() 
         axum::http::Method::POST,
         &format!("/api/v1/client-loans/{second_id}/return"),
         &[auth(&token)],
-        Some(json!({ "idempotency_key": Uuid::now_v7().to_string() })),
+        Some(json!({
+            "to_location_id": warehouse,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
     )
     .await;
     assert_eq!(
         response.status(),
         200,
-        "asset-sourced return needs no location"
+        "a stock-sourced asset return names the shelf"
     );
-    assert_eq!(
-        body_json(response).await["loan"]["status"],
-        json!("returned")
+    let second_return = body_json(response).await;
+    assert_eq!(second_return["loan"]["status"], json!("returned"));
+    assert!(
+        second_return["lines"][0]["movement_in_id"].is_string(),
+        "the receipt leg rides the ledger"
     );
 
     // Incomplete lease terms are a typed refusal.

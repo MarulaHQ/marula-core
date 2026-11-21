@@ -866,7 +866,7 @@ async fn a_successful_pull_mirrors_events_through_the_seam() {
     assert_eq!(again.outcome.duplicates, 1);
 }
 
-// --- the cached provider token never crosses the wire (Wave 55 decision 9) ---
+// --- the cached provider token never crosses the wire ---
 
 /// The cached token a delegated connection holds after consent. Nothing in the
 /// API may return it; a client only learns whether one exists.

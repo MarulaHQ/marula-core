@@ -1705,7 +1705,7 @@ mod tests {
                 action: DeployAction::Profiles { .. }
             })
         ));
-        // The rotation runbook verbs parse (Wave 19 lane 2).
+        // The rotation runbook verbs parse.
         assert!(matches!(
             parse(&["plugin-key", "list"]),
             Ok(Command::PluginKey {

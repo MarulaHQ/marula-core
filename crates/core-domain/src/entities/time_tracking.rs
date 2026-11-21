@@ -50,7 +50,7 @@ impl TimerSegment {
     }
 }
 
-/// Approval lifecycle of a time entry (Wave 14 lane 1): `draft` entries
+/// Approval lifecycle of a time entry: `draft` entries
 /// are still being worked on, `submitted` waits in the approver queue,
 /// `approved` entries are the only ones billing reads may consume, and
 /// `rejected` entries carry a typed rejection reason until reopened.
@@ -87,7 +87,7 @@ impl ApprovalStatus {
     }
 }
 
-/// Closed rejection vocabulary (Wave 14 lane 1): approvers reject with a
+/// Closed rejection vocabulary: approvers reject with a
 /// machine-readable reason code, never prose-only. `other` may carry the
 /// free-text explanation on the decision record.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -594,7 +594,7 @@ impl UnbillableReason {
     }
 }
 
-/// The human verification disposition of one time entry (Wave 39 V1).
+/// The human verification disposition of one time entry.
 /// `rejected` and `non_billable` demand the typed [`UnbillableReason`];
 /// the workspace badge set matches this vocabulary exactly.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -638,7 +638,7 @@ impl DispositionStatus {
     }
 }
 
-/// One verification edit on one entry's billed minutes (Wave 39 V2).
+/// One verification edit on one entry's billed minutes.
 /// Additive-ledger: the original entry row is never rewritten for
 /// billing — the run sums `(entry.minutes + Σ delta_minutes)`. The
 /// signed delta is ≤ 0 (verification can only reduce or zero); the
@@ -689,7 +689,7 @@ impl TimeEntryAdjustment {
     }
 }
 
-/// The reviewer sign-off recorded per invoice run (Wave 39 V8): the
+/// The reviewer sign-off recorded per invoice run: the
 /// close checklist a human attested before the run fired. One row per
 /// run; the run-create seam refuses an unsigned run.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -724,7 +724,7 @@ impl InvoiceRunSignoff {
     }
 }
 
-/// An org's semantic time category (Wave 39 V4). Entries key their
+/// An org's semantic time category. Entries key their
 /// `work_type` column onto `slug`; the T&M rate card keys
 /// `contract_rates.work_type` onto the same slugs. Renames change the
 /// label only — slugs are stable forever.

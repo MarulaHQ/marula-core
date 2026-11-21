@@ -948,7 +948,7 @@ pub async fn patch(
 
 /// DELETE /api/contracts/{id} — removes the contract aggregate. A typed
 /// 404 (`rls_sparse`) means the target was never visible in scope.
-/// The Wave 9 invoicing lane's billing-lock guard refuses the delete
+/// The billing-lock guard refuses the delete
 /// once invoices reference the contract (typed 409).
 ///
 /// The response is an acknowledgement, not the aggregate: deleting is a
@@ -1090,7 +1090,7 @@ pub(crate) async fn load_eval_inputs(
                 users: u.users,
             })
             .unwrap_or_default(),
-        // Wave 39 lane 4 (report P1/P4): pending milestone/fee releases
+        // Wave 39 lane 4: pending milestone/fee releases
         // on the projects that bill through this contract. Previews load
         // the same feed, so a preview agrees with the run it mirrors.
         project_releases: {

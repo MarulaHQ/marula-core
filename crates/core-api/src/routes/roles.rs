@@ -534,7 +534,7 @@ pub struct UpdateRoleRequest {
     pub instant: instant::MutationParams,
 }
 
-/// PUT /api/roles/{id} — the custom-roles EDITOR (Wave 22): updates a
+/// PUT /api/roles/{id} — the custom-roles EDITOR: updates a
 /// custom row's name and/or permission set. Builtin presets are typed
 /// refusals (rb1) — restore is the ONLY preset-matrix mutation.
 #[utoipa::path(operation_id = "roles_update", put, path = "/api/roles/{id}", tag = "org-users", security(("bearer" = [])),

@@ -2378,7 +2378,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
-    // -- meeting-type hard delete (Wave 17 lane 13) ---------------------------
+    // -- meeting-type hard delete ---------------------------
     PublishedEvent {
         event_type: types::MEETING_TYPE_DELETED,
         entity: "meeting_type",
@@ -2639,7 +2639,7 @@ pub static PUBLISHED_EVENTS: &[PublishedEvent] = &[
             }
         ),
     },
-    // -- Marketplace v2 (Wave 22): verified publishers + ratings ------------
+    // -- Marketplace v2: verified publishers + ratings ------------
     PublishedEvent {
         event_type: types::PLUGIN_PUBLISHER_VERIFIED,
         entity: "plugin_publisher_verification",

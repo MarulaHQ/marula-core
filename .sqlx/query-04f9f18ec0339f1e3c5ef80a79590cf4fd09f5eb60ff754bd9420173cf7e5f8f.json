@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT qty_milli FROM stock_levels\n                WHERE org_id = $1 AND stock_item_id = $2 AND stock_location_id = $3\n                FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "qty_milli",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "04f9f18ec0339f1e3c5ef80a79590cf4fd09f5eb60ff754bd9420173cf7e5f8f"
+}

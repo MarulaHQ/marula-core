@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id AS \"id!\" FROM client_loans\n            WHERE org_id = $1 AND id = $2 FOR NO KEY UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "8f4363695273588c13a2253bc049408b99e4358aa152cc12487c6edac471219d"
+}

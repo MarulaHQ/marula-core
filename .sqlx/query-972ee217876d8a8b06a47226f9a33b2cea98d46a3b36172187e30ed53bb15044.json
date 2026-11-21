@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT DISTINCT l.contract_id AS \"contract_id!\"\n             FROM client_loans l\n            WHERE l.org_id = $1\n              AND l.is_lease\n              AND EXISTS (\n                  SELECT 1 FROM contracts k\n                   WHERE k.org_id = l.org_id AND k.id = l.contract_id\n                     AND k.status <> 'cancelled'\n              )\n              AND l.contract_id IS NOT NULL\n              AND l.lease_cycle IS NOT NULL\n              AND l.lease_cost_minor > 0\n              AND l.lease_currency IS NOT NULL\n              AND l.out_at::date <= $3\n              AND COALESCE(l.returned_at::date, l.expected_return_at) >= $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "contract_id!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "972ee217876d8a8b06a47226f9a33b2cea98d46a3b36172187e30ed53bb15044"
+}

@@ -956,6 +956,18 @@ pub async fn upsert_serial(
     executor: &mut sqlx::PgConnection,
     serial: &StockSerial,
 ) -> DbResult<StockSerial> {
+    // The same row lock the asset receipt takes before it checks serial
+    // identity, so the two writers cannot both decide a serial is new.
+    // `FOR NO KEY UPDATE` rather than `FOR UPDATE`: a withdrawal holds the
+    // serial row and its movement's foreign key takes `FOR KEY SHARE` on this
+    // item row, which `FOR UPDATE` would block, deadlocking the two.
+    sqlx::query!(
+        "SELECT id FROM stock_items WHERE id = $1 AND org_id = $2 FOR NO KEY UPDATE",
+        serial.stock_item_id,
+        serial.org_id,
+    )
+    .fetch_optional(&mut *executor)
+    .await?;
     let row = sqlx::query_as!(
         SerialRow,
         r#"INSERT INTO stock_serials (id, org_id, stock_item_id, serial_number,

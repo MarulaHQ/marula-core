@@ -1,4 +1,4 @@
-//! Ecosystem-connector persistence (Wave 22): the VoIP call-log ingest
+//! Ecosystem-connector persistence: the VoIP call-log ingest
 //! read model + the distributor pricing-feed batches/entries/outcomes.
 //! The ConnectorInstallation CONSENT store lives in webhooks.rs.
 //! Non-purpose: connector CONFIG encryption (routes own the sealing)

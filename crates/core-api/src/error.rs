@@ -204,7 +204,7 @@ pub enum ApiError {
         /// The scanner's detail string (usually the signature name).
         detail: Option<String>,
     },
-    /// Typed 422 for a card that cannot be drawn (Wave 46 lane 1): the
+    /// Typed 422 for a card that cannot be drawn: the
     /// request carried a card contract and the run cannot fill it — no rows
     /// for a chart or table, no headers, no scalar for a stat. Kept distinct
     /// from `Validation` so a repair loop branches on `reason:
@@ -396,8 +396,8 @@ pub enum ApiError {
         /// Seconds until the current exponential-backoff lock expires.
         retry_after_secs: i64,
     },
-    /// Typed 409 for a time-entry mutation the invoicing lock refuses
-    /// (Wave 14 lane 1): once an entry is consumed by an invoice it is
+    /// Typed 409 for a time-entry mutation the invoicing lock refuses:
+    /// once an entry is consumed by an invoice it is
     /// frozen — no submit, decide, reopen, or content edit. Carries the
     /// entry id so the client can flag the exact blocked row.
     #[error("time entry is locked by invoicing")]
@@ -441,6 +441,40 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
         "uq_knowledge_ip_reservations_host" => Some((
             "ip_reservation_host_taken",
             "this host address is already reserved in that subnet",
+        )),
+        // Migration 0233: one serial names one asset and one asset names one
+        // serial. The index on stock_serials makes the ASSET unique, so a
+        // conflict there means the asset is already paired; the index on
+        // device_assets makes the SERIAL unique.
+        "uq_stock_serials_device_asset" => Some((
+            "asset_already_paired",
+            "that asset is already paired with a serial",
+        )),
+        "uq_device_assets_serial" => Some((
+            "serial_already_paired",
+            "that serial is already paired with an asset",
+        )),
+        // Migration 0237: one rent charge per agreement per period, one damage
+        // and one loss charge per loan line. Both are a run racing itself, so
+        // the conflict names the period rather than the value.
+        "uq_rental_charges_rent_period" => Some((
+            "rental_period_already_billed",
+            "that rental period is already charged for this agreement",
+        )),
+        "uq_rental_charges_line_kind" => Some((
+            "rental_charge_already_raised",
+            "a damage or loss charge already exists for that unit on this agreement",
+        )),
+        // Migration 0256: an asset-only loan line is one open agreement per
+        // unit, the same promise the serial index keeps for stock-sourced lines.
+        "uq_client_loan_open_asset" => Some((
+            "asset_already_on_loan",
+            "that unit is already on an open client agreement",
+        )),
+        // Migration 0237: a vendor's unit is promised to one agreement at a time.
+        "uq_vendor_rentals_open_asset" => Some((
+            "unit_already_rented",
+            "that unit is already on an open vendor rental",
         )),
         "quotes_number_key" => Some((
             "quote_number_taken",

@@ -489,7 +489,7 @@ pub async fn conflict_check(
     }))
 }
 
-/// Best-effort automatic travel (Wave 32 lane 7): resolves the journey
+/// Best-effort automatic travel: resolves the journey
 /// start point and the appointment's site, asks the active provider (or
 /// the built-in heuristic) for the leg, and stamps travel minutes plus
 /// provenance. A routing failure leaves the appointment untouched —

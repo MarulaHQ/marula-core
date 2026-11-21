@@ -10,7 +10,7 @@
 //! fake. Uniqueness: one pinned result per (user, kind, id); the API
 //! upserts so re-pinning is idempotent, and `uq_search_pins_result`'s
 //! violation maps to a typed conflict for the genuine concurrent race.
-//! Re-pin refresh (Wave 23 lane 1, item 6): the upsert's conflict arm
+//! Re-pin refresh: the upsert's conflict arm
 //! now REFRESHES query/parent_id/title from the live index row the
 //! caller just resolved (and the re-submitted query), so a re-pin is the
 //! explicit affordance to un-stale a snapshot; created_at keeps the
@@ -51,7 +51,7 @@ pub struct NewSearchPin<'a> {
 /// Upserts one pin by its (user, kind, id) identity and returns the
 /// resulting row.
 ///
-/// Re-pin refresh (Wave 23 lane 1, item 6): the conflict arm refreshes
+/// Re-pin refresh: the conflict arm refreshes
 /// query + parent_id + title from what the caller just resolved — the
 /// same values the INSERT arm stores, so re-pinning is exactly "make
 /// this row's snapshot current". created_at never moves (the user's

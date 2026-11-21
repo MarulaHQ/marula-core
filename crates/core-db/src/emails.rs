@@ -981,7 +981,7 @@ pub struct OutboundLedgerRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub updated_at: chrono::DateTime<chrono::Utc>,
     /// Which rung of the greeting/signature chain supplied each block for
-    /// THIS message (Wave 42), or `None` for a row written before the lane
+    /// THIS message, or `None` for a row written before the lane
     /// recorded it.
     pub greeting_source: Option<String>,
     pub signature_source: Option<String>,
@@ -1082,7 +1082,7 @@ pub struct NewOutbound {
     /// Transport label chosen from config at enqueue time.
     pub transport: String,
     /// Which rung of the resolution chain supplied the signature that went
-    /// out (Wave 42) — `None` for a message whose ledger row predates the
+    /// out — `None` for a message whose ledger row predates the
     /// lane, which the delivery view reads as `unset` rather than a guess.
     pub signature_source: Option<String>,
     /// The same for the greeting. `None` on a message that had no greeting

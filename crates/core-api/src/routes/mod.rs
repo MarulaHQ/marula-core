@@ -84,6 +84,7 @@ pub mod entitlements;
 pub mod entity_dedupe;
 pub mod event_registry;
 pub mod events;
+pub mod ewaste;
 pub mod export;
 pub mod fx;
 pub mod imports;
@@ -466,7 +467,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/portal/tickets/{id}/attachments/{attachment_id}/download"),
             get(portal::download_attachment),
         )
-        // CSAT surveys on resolution (Wave 34 lane 2): the in-app response
+        // CSAT surveys on resolution: the in-app response
         // route rides portal auth; the emailed token is scoped to the
         // caller's client on top.
         .route(
@@ -566,13 +567,13 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // The handlers read the raw bytes first and verify a timestamped HMAC
         // (Slack) or the Bot Framework token (Teams) before anything parses.
         .merge(connector_inbound::public_routes(gen))
-        // Stripe webhook receiver (Wave 22): unauthenticated by design —
+        // Stripe webhook receiver: unauthenticated by design —
         // the Stripe-Signature HMAC is the auth; the handler rejects
         // typed 403 without a valid signature or configured secret.
         .route(&rp("/webhooks/stripe"), post(stripe_webhook::receive));
 
     let protected = Router::new()
-        // Ecosystem connectors (Wave 22): Slack/Teams/Rewst/VoIP over the
+        // Ecosystem connectors: Slack/Teams/Rewst/VoIP over the
         // connector_installations consent seam. These sit behind
         // `require_auth` because every handler resolves an `AuthedUser`; a
         // route in the public block never gets one, so it answered 401 for
@@ -592,7 +593,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/connectors/voip/call-logs"),
             post(integrations::voip_ingest),
         )
-        // Distributor pricing feeds (Wave 22): immutable batches, typed
+        // Distributor pricing feeds: immutable batches, typed
         // overlay publisher.
         .route(
             &rp("/catalog/pricing-feeds"),
@@ -886,7 +887,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
                 .put(checklists::put_template)
                 .delete(checklists::delete_template),
         )
-        // custom fields / dynamic forms (the private build tracker 2.17)
+        // custom fields / dynamic forms
         .route(
             &rp("/boards/{id}/fields"),
             get(custom_fields::list_defs).post(custom_fields::create_def),
@@ -957,7 +958,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/automation-rules/{id}"),
             axum::routing::patch(sla_admin::update_rule).delete(sla_admin::delete_rule),
         )
-        // rule test-run (Wave 17 lane 13): dry-run against sampled
+        // rule test-run: dry-run against sampled
         // tickets, proposal-shaped — the editor renders the result, never
         // a fake run.
         .route(
@@ -1130,7 +1131,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/org/sign-off-consents"),
             post(sign_offs::create_consent),
         )
-        // Transcription edge (Wave 22): the ADR 0008 registered
+        // Transcription edge: the ADR 0008 registered
         // `transcription` plugin surface — audio attachments only, the
         // shared AI admission pipeline gates every call.
         .route(
@@ -1183,7 +1184,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/time-entries"),
             get(timers::list_entries).post(timers::create_entry),
         )
-        // time-entry approval workflows (Wave 14 lane 1)
+        // time-entry approval workflows
         .route(&rp("/time-entries/{id}/submit"), post(approvals::submit))
         .route(&rp("/time-entries/{id}/approvals"), get(approvals::history))
         // Wave 41 lane 8: the one-click verdict fix, on the same permission
@@ -2117,7 +2118,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/plugins/distribution/agent-skills/{id}/enabled"),
             post(plugin_distribution::set_skill_enabled),
         )
-        // Marketplace v2 (Wave 22): verified publishers + ratings —
+        // Marketplace v2: verified publishers + ratings —
         // strictly ADDITIVE over the v1 surfaces above (reads plugins:view;
         // publisher writes owner/admin; ratings any staff viewer).
         .route(
@@ -2351,7 +2352,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // project delivery extras (surface pack): change orders, portfolio,
         // pods, client updates, ticket conversion and the portal project view.
         .merge(project_delivery::routes(gen))
-        // report definitions (the private build tracker R3): stored specs as data, RBAC-
+        // report definitions: stored specs as data, RBAC-
         // scoped, instant-first write path; module owns its own router.
         .merge(report_defs::routes(gen))
         // report authoring (Wave 46 lane 3): "describe it" → a validated report
@@ -2435,6 +2436,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         .merge(config_items::routes(gen))
         .merge(entity_dedupe::routes(gen))
         .merge(dedupe::routes(gen))
+        // e-waste custody (ADR 0035 decision 5, migration 0238): an intake of
+        // client goods, the append-only custody ledger, dispositions with
+        // their certificates, and the weight balance that closes the receipt.
+        // Nothing here posts to owned stock.
+        .merge(ewaste::routes(gen))
         .merge(workflow_overrides::routes(gen))
         // dispatch connector (the private build tracker Phase 3, Wave 9 lane 9): scoped
         // machine surface — schedule reads + field-service status pushes;
@@ -2507,7 +2513,7 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/dispatch/travel-drafts/{id}/submit"),
             post(dispatch::travel_draft_submit),
         )
-        // dispatch v3 — routing (Wave 32 lane 7): day journey plans +
+        // dispatch v3 — routing: day journey plans +
         // warnings, suggestion-grade improvements, journey start points,
         // mileage reconciliation, expense-from-draft.
         .route(&rp("/dispatch/routing"), get(routing::routing_day))

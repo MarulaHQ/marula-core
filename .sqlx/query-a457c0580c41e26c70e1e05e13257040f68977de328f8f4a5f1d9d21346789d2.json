@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE purchase_orders SET\n             acquired_for = $3, client_id = $4, ticket_id = $5, ownership = $6,\n             delivery_mode = $7, recharge_rule_kind = $8, recharge_markup_bps = $9,\n             recharge_fixed_minor = $10, recharge_currency = $11, updated_at = now()\n           WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text",
+        "Int4",
+        "Int8",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "a457c0580c41e26c70e1e05e13257040f68977de328f8f4a5f1d9d21346789d2"
+}

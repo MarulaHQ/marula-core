@@ -1,4 +1,4 @@
-//! The PSP provider RESOLVER (Wave 22): org-typed settings + an env
+//! The PSP provider RESOLVER: org-typed settings + an env
 //! secret decide which [`PaymentProvider`] implementation a payment
 //! mutation uses.
 //!

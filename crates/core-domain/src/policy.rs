@@ -1504,7 +1504,7 @@ mod tests {
         }
     }
 
-    // --- board-level RBAC matrix (the private build tracker 2.11) --------------------------
+    // --- board-level RBAC matrix --------------------------
 
     use BoardOp as Op;
     use BoardRole as Role;

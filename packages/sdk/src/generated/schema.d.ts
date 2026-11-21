@@ -1264,7 +1264,7 @@ export interface paths {
          *     factor is enrolled, returns a short-lived `mfa_pending` bridge instead
          *     of tokens; POST /api/auth/mfa/verify completes it.
          * @description Answers 503 with `Retry-After` when the process's password-hash slots are
-         *     saturated (Wave 56 lane `p56-auth-bounds`) — backpressure under a burst,
+         *     saturated — backpressure under a burst,
          *     never a 500. Left out of the `utoipa` response list for the reason given
          *     on [`register`].
          */
@@ -1815,7 +1815,7 @@ export interface paths {
          *     policy, and the first user as Owner. One transaction: a half-created org
          *     can never exist.
          * @description Answers 503 with `Retry-After` when the process's password-hash slots are
-         *     saturated (Wave 56 lane `p56-auth-bounds`). The 503 is deliberately NOT in
+         *     saturated. The 503 is deliberately NOT in
          *     the `utoipa` response list: every route can answer it from the middleware
          *     layer (draining, database unreachable), the pinned OpenAPI document is
          *     regenerated only by `scripts/regen-openapi-pins.sh` against a live API, and
@@ -2651,10 +2651,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * GET /api/calendar-sync/{id}/events — the inbound mirror (the
-         *     conflict/duplicate surface Wave 14 lane 7 renders).
-         */
+        /** GET /api/calendar-sync/{id}/events — the inbound mirror. */
         get: operations["calendar_sync_events"];
         put?: never;
         post?: never;
@@ -2754,8 +2751,8 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model
-         *     (Wave 17 lane 13): /calendar team mode overlays THIS instead of the
+         * GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model:
+         *     /calendar team mode overlays THIS instead of the
          *     bounded page-1 tickets fetch. Alive tickets only (category not closed)
          *     whose due date falls in the window; hydrated in the row itself.
          */
@@ -2958,6 +2955,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/client-loans/{id}/charges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/client-loans/{id}/charges — every charge the agreement has
+         *     produced, billed or waiting for the next run.
+         */
+        get: operations["client_loans_charges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/client-loans/{id}/return": {
         parameters: {
             query?: never;
@@ -3100,7 +3117,7 @@ export interface paths {
         };
         /**
          * GET /api/clients/{id}/completeness — backend documentation-completeness
-         *     scoring (Wave 17 lane 13): the weights live SERVER-side now, replacing
+         *     scoring: the weights live SERVER-side now, replacing
          *     the honest client-side metadata scoring the clients lane shipped.
          *     Same shape, same pro-ration doctrine: score = round(earned /
          *     maxKnown × 100) with null legs (leg absent) pro-rated OUT, never a
@@ -3285,8 +3302,8 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * POST /api/config-items/feed-upsert — CI2: the single feeder write path
-         *     (lane 8's seam). Never blind-inserts: existing (source_system,
+         * POST /api/config-items/feed-upsert — CI2: the single feeder write path.
+         *     Never blind-inserts: existing (source_system,
          *     external_id) links resolve to their own item; identity keys resolve the
          *     deterministic case; ambiguity queues reviewable candidates and only
          *     auto-merges at/above the org threshold.
@@ -4034,7 +4051,7 @@ export interface paths {
         /**
          * DELETE /api/contracts/{id} — removes the contract aggregate. A typed
          *     404 (`rls_sparse`) means the target was never visible in scope.
-         *     The Wave 9 invoicing lane's billing-lock guard refuses the delete
+         *     The billing-lock guard refuses the delete
          *     once invoices reference the contract (typed 409).
          * @description The response is an acknowledgement, not the aggregate: deleting is a
          *     commercial action, not a rate read (RB2), so a commercial-delete holder
@@ -5734,6 +5751,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ewaste/dispositions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/ewaste/dispositions — the org-wide register, filterable for the
+         *     accountant handoff.
+         */
+        get: operations["ewaste_list_dispositions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/ewaste/intakes — newest receipt first, weights aggregated. */
+        get: operations["ewaste_list_intakes"];
+        put?: never;
+        /** POST /api/ewaste/intakes — instant-first (IF1/IF2). */
+        post: operations["ewaste_create_intake"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/ewaste/intakes/{id}. */
+        get: operations["ewaste_get_intake"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes/{id}/close": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/ewaste/intakes/{id}/close — the balanced end of a receipt.
+         * @description The body is optional. It may carry `version`, checked before the close
+         *     writes, and an `idempotency_key`, so a retry after a lost response replays
+         *     the stored result instead of colliding with the close it already made.
+         */
+        post: operations["ewaste_close_intake"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes/{id}/dispositions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/ewaste/intakes/{id}/dispositions — record a way out. */
+        post: operations["ewaste_record_disposition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes/{id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/ewaste/intakes/{id}/events — store, move or handoff. */
+        post: operations["ewaste_record_event"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes/{id}/lines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/ewaste/intakes/{id}/lines — add one line while the intake is open. */
+        post: operations["ewaste_add_line"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ewaste/intakes/{id}/lines/{line_id}/destruction": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/ewaste/intakes/{id}/lines/{line_id}/destruction — record the
+         *     destruction state of a data-bearing line.
+         */
+        post: operations["ewaste_set_destruction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/external-links/{id}": {
         parameters: {
             query?: never;
@@ -6012,13 +6177,13 @@ export interface paths {
          *     ticket through the SAME write paths users go through (ticket patch,
          *     comment insert, notification fan-out), emitting every corresponding
          *     domain event tagged `via_automation` so evaluators never loop.
-         * @description The subject may be ticket-less (Wave 43 lane 3): a board-scoped rule
+         * @description The subject may be ticket-less: a board-scoped rule
          *     whose envelope carried no ticket. Then the board is resolved for scope
          *     and only subject-agnostic effects (notifications) run — every
          *     ticket-writing effect skips with a warn, never fails the batch, so one
          *     bad rule can never wedge the queue.
          *
-         *     # The batch runs as the rule's author (Wave 58 lane `p58-effects-seam`)
+         *     # The batch runs as the rule's author
          *
          *     The token is one deployment-wide bearer, so before this lane the request's
          *     `org_id` was both the RLS scope and the actor: the holder of the token could
@@ -6129,8 +6294,7 @@ export interface paths {
         };
         /**
          * GET /api/invoices/{id}/document — the print-ready HTML invoice
-         *     document (print-to-PDF from any browser; v1 ships no PDF binary
-         *     output — see the private build tracker).
+         *     document.
          */
         get: operations["invoices_document"];
         put?: never;
@@ -7201,8 +7365,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * DELETE /api/meeting-types/{id} — HARD delete with audit (Wave 17 lane
-         *     13): unlike the Pause toggle (PATCH `is_active`), this removes the
+         * DELETE /api/meeting-types/{id} — HARD delete with audit: unlike the Pause toggle (PATCH `is_active`), this removes the
          *     template outright. A scheduling link still referencing the row refuses
          *     with a typed conflict (the FK RESTRICT surfaces) — pause the links
          *     FIRST or re-target them; history rows (bookings) are untouched by the
@@ -8042,7 +8205,7 @@ export interface paths {
         put?: never;
         /**
          * `POST /api/v1/orgs/{org_id}/custom-domain/verify` — run the generic DNS
-         *     verification (the private build tracker A8 (C)). The TXT token is the authority; the
+         *     verification. The TXT token is the authority; the
          *     A/CNAME leg is plausibility only.
          */
         post: operations["org_custom_domain_verify"];
@@ -10899,7 +11062,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/projects/{id}/phase-burn — the burn read model (report P3):
+         * GET /api/projects/{id}/phase-burn — the burn read model:
          *     consumed approved billable minutes and card-priced value per phase
          *     against the phase's budget, with a typed alert state: `none`, then
          *     `warn` from 80 percent, then `over` from 100 percent. Without
@@ -11535,6 +11698,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/purchase-orders/{id}/recharges": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/purchase-orders/{id}/recharges — every charge this order issued to
+         *     a client, with the rule and the FX snapshots that explain each amount.
+         */
+        get: operations["purchase_orders_recharges"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/quotes": {
         parameters: {
             query?: never;
@@ -11899,11 +12082,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * GET /api/v1/reply-snippets/{id} — fetch one snippet (cross-lane fix,
-         *     Wave 34 lane 4: the fork-on-edit flow reads the origin after forking;
-         *     the route was missing so reads 405'd).
-         */
+        /** GET /api/v1/reply-snippets/{id} — fetch one snippet. */
         get: operations["reply_snippets_get_one"];
         put?: never;
         post?: never;
@@ -12239,7 +12418,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * PUT /api/roles/{id} — the custom-roles EDITOR (Wave 22): updates a
+         * PUT /api/roles/{id} — the custom-roles EDITOR: updates a
          *     custom row's name and/or permission set. Builtin presets are typed
          *     refusals (rb1) — restore is the ONLY preset-matrix mutation.
          */
@@ -12610,7 +12789,7 @@ export interface paths {
          *     behind the same permission gate the query ran behind. One pin per
          *     (kind, id): re-pinning is idempotent AND refreshes the stored
          *     snapshot (query + title + parent) to current — the created_at stays
-         *     the original pin time (Wave 23 lane 1, item 6).
+         *     the original pin time.
          */
         post: operations["search_pins_create"];
         delete?: never;
@@ -13791,6 +13970,60 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/stock/pool": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /api/stock/pool — every unit in the rental pool, and whether an open
+         *     agreement holds it.
+         */
+        get: operations["stock_pool_list"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock/pool/commission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/stock/pool/commission — sale stock into the rental pool. */
+        post: operations["stock_pool_commission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/stock/pool/decommission": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** POST /api/stock/pool/decommission — the rental pool back into sale stock. */
+        post: operations["stock_pool_decommission"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stock/receive": {
         parameters: {
             query?: never;
@@ -14155,7 +14388,7 @@ export interface paths {
         };
         /**
          * GET /api/tickets — filtered, priority-ordered list; each row carries its
-         *     custom-field values (the private build tracker 2.17) fetched in one batched query.
+         *     custom-field values fetched in one batched query.
          *     Pagination is envelope-compatible: the body stays the plain ticket
          *     array; deep-page walks pass the opaque `cursor` query param (from the
          *     previous page's `x-next-cursor` response header) and the server resumes
@@ -14186,8 +14419,7 @@ export interface paths {
         };
         /**
          * GET /api/tickets/my-work — everything assigned to me, not closed,
-         *     across all boards, priority-then-SLA-due ordered (the unified
-         *     cross-board view from §1; the private build tracker 2.11 adds client/board annotations).
+         *     across all boards, priority-then-SLA-due ordered.
          */
         get: operations["tickets_my_work"];
         put?: never;
@@ -15636,12 +15868,67 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Wave 26 onboarding leg (b): the per-user first-run "check your profile"
+         * The per-user first-run "check your profile"
          *     step needs a self-editable name/timezone. Self-scoped: PATCH /api/v1/users/me
          *     changes ONLY the caller's own display name and timezone (email is
          *     immutable here by design), with an audit row in the same transaction.
          */
         patch: operations["users_me_patch"];
+        trace?: never;
+    };
+    "/api/v1/vendor-rentals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/vendor-rentals. */
+        get: operations["vendor_rentals_list"];
+        put?: never;
+        /** POST /api/vendor-rentals — record what the organisation is renting in. */
+        post: operations["vendor_rentals_create"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vendor-rentals/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/vendor-rentals/{id}. */
+        get: operations["vendor_rentals_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/vendor-rentals/{id}/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/vendor-rentals/{id}/return — close the agreement with what
+         *     happened to the unit.
+         */
+        post: operations["vendor_rentals_return"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/vendors": {
@@ -16066,6 +16353,8 @@ export interface components {
         AcceptObservedRequest: components["schemas"]["MutationParams"] & {
             field_key: string;
         };
+        /** @enum {string} */
+        AcquiredFor: "sale_stock" | "internal_fleet" | "rental_pool" | "vendor_rental" | "client_stocked" | "client_drop_ship" | "project_consumable" | "ewaste_service";
         ActionView: {
             /** @description `open` | `launch`. */
             kind: string;
@@ -16115,7 +16404,7 @@ export interface components {
             kind: "portal_it_manager";
         } | {
             /**
-             * @description Bulk-import runs (the private build tracker D2): the descriptor names the driving
+             * @description Bulk-import runs: the descriptor names the driving
              *     identity without pretending it row-walked — `"user:<uuid>"` for
              *     admin JWT runs, `"api-key:<key-id>""` for machine pushes. Row-level
              *     mutations still emit their ordinary domain events; the import actor
@@ -16137,7 +16426,7 @@ export interface components {
             attachment_ids?: string[];
             body: string;
             /**
-             * @description IF2 delete-on-submit (Wave 17 lane 11, §5.2): the composer autosave
+             * @description IF2 delete-on-submit: the composer autosave
              *     draft's idempotency key. When a comment with this key commits, the
              *     author's `note_drafts` row for the ticket is deleted in the SAME
              *     transaction — the draft never resurrects after submit. Absent in
@@ -16157,11 +16446,16 @@ export interface components {
             /** Format: uuid */
             stock_item_id: string;
         };
+        /** @description POST /api/ewaste/intakes/{id}/lines. */
+        AddLineRequest: components["schemas"]["IntakeLineRequest"] & components["schemas"]["MutationParams"];
         AddMemberRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             user_id: string;
         };
-        /** @description POST /purchase-orders/{id}/lines body: the line plus IF1 params. */
+        /**
+         * @description POST /purchase-orders/{id}/lines body: the line plus the instant-first
+         *     mutation parameters (version and idempotency key).
+         */
         AddOrderLineRequest: components["schemas"]["OrderLineInput"] & components["schemas"]["MutationParams"];
         AdjustRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
@@ -16549,7 +16843,7 @@ export interface components {
             /**
              * @description When set, this source is a generic M2M webhook receiver: a signed
              *     POST emits a domain-event envelope onto the outbox stream instead
-             *     of creating an alert row (Wave 43 lane 1). NULL = alert source (Wave 9).
+             *     of creating an alert row. NULL = alert source.
              */
             event_type?: string | null;
             /** Format: uuid */
@@ -16666,7 +16960,7 @@ export interface components {
         /**
          * @description A booked slot on one user's calendar, optionally tied to a ticket and
          *     client/site. `travel_minutes` is travel time booked immediately BEFORE
-         *     `starts_at` (Wave 32 lane 7): it ADDS to the appointment and occupies
+         *     `starts_at`: it ADDS to the appointment and occupies
          *     dispatch capacity (`crate::scheduling::occupied_minutes`), never
          *     replacing or shrinking the booked span. The `travel_*` fields carry
          *     the estimate's provenance so a heuristic number is never mistaken for
@@ -16688,7 +16982,7 @@ export interface components {
             /**
              * Format: uuid
              * @description Set when the booking came through a Calendly-style scheduling
-             *     link (Wave 11 lane 4); NULL for every other creation path.
+             *     link; NULL for every other creation path.
              */
             scheduling_link_id?: string | null;
             /** Format: uuid */
@@ -16787,7 +17081,7 @@ export interface components {
          */
         AppointmentStatus: "scheduled" | "in_progress" | "done" | "cancelled";
         /**
-         * @description Approval lifecycle of a time entry (Wave 14 lane 1): `draft` entries
+         * @description Approval lifecycle of a time entry: `draft` entries
          *     are still being worked on, `submitted` waits in the approver queue,
          *     `approved` entries are the only ones billing reads may consume, and
          *     `rejected` entries carry a typed rejection reason until reopened.
@@ -17274,7 +17568,7 @@ export interface components {
          *
          *     The vocabulary is closed and each variant is a whole predicate, so the
          *     editor's field/operator grammar can only offer what a saved rule can
-         *     carry. Wave 43 lane 17b widened it from equality-only to the operators
+         *     carry. Widened it from equality-only to the operators
          *     MSPs actually reach for — negation, set membership and the positive
          *     assignee test — because "priority is not P1" and "priority is any of P1,
          *     P2" had no way to be written down.
@@ -17375,15 +17669,14 @@ export interface components {
          *     org's most recent tickets (board-scoped when the rule binds a board),
          *     PROPOSAL-shaped: what WOULD match and what the actions would do. The
          *     rule editor renders the result; nothing is ever applied and no event is
-         *     emitted — a test-run writes nothing (Wave 17 lane 13 contract: the rule
-         *     editor never pretends to execute).
+         *     emitted — a test-run writes nothing.
          */
         AutomationTestRunMatch: {
             /** Format: uuid */
             assignee_id?: string | null;
             number: string;
             /**
-             * @description The ticket's priority when the run sampled it (Wave 43 lane 17b).
+             * @description The ticket's priority when the run sampled it.
              *
              *     The run is a PROPOSAL, so the useful thing to show is not only that a
              *     ticket matched but what the rule's effects WOULD change on it. Both
@@ -17536,7 +17829,7 @@ export interface components {
         };
         /**
          * @description One draft invoice-line candidate. This is a PREVIEW shape: nothing
-         *     persists until Wave 9's invoice run.
+         *     persists until invoice run.
          */
         BillingCandidateLine: {
             /**
@@ -17618,7 +17911,7 @@ export interface components {
          * @description Which billing rule produced a candidate line.
          * @enum {string}
          */
-        BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee" | "per_unit_base" | "per_incident" | "block_sale" | "block_drawdown" | "cap_overage" | "minimum_trueup" | "change_order" | "sla_credit" | "escalator" | "project_release";
+        BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee" | "per_unit_base" | "per_incident" | "block_sale" | "block_drawdown" | "cap_overage" | "minimum_trueup" | "change_order" | "sla_credit" | "escalator" | "project_release" | "rental";
         /**
          * @description How the project turns delivered work into money. The value rides the
          *     milestone event payload so core-billing can route without re-reading the
@@ -17795,7 +18088,7 @@ export interface components {
             visible_status_ids: string[];
         };
         /**
-         * @description A named, ordered nav grouping of boards within one org (the private build tracker 2.11).
+         * @description A named, ordered nav grouping of boards within one org.
          *     Groups are organization-wide; `owner_id` records who controls the group.
          */
         BoardGroup: {
@@ -17859,8 +18152,7 @@ export interface components {
             name: string;
         };
         /**
-         * @description Per-board role tier stored on `board_members` rows (migration 0019,
-         *     the private build tracker 2.11). Board roles sit BESIDE the org matrix and can only
+         * @description Per-board role tier stored on `board_members` rows. Board roles sit BESIDE the org matrix and can only
          *     narrow it — see `authorize_board_scoped`.
          * @enum {string}
          */
@@ -17881,7 +18173,7 @@ export interface components {
             board_id: string;
             category: components["schemas"]["TicketStatusCategory"];
             /**
-             * @description Wave 41 lane 12: whether the portal shows this status's own label to
+             * @description Whether the portal shows this status's own label to
              *     a client. `false` shows the semantic category word instead, so an
              *     internal label ("Escalated to L2") never reaches a client while the
              *     ticket still reports where it stands.
@@ -17906,7 +18198,7 @@ export interface components {
         };
         /**
          * @description GET /api/boards/{id}/statuses/usage — per-status ticket counts and
-         *     automation references (Wave 41 lane 12).
+         *     automation references.
          *
          *     One read serves both the settings table's TICKETS column and the delete
          *     confirm's "12 tickets use this status" and "2 automations mention this
@@ -18176,7 +18468,7 @@ export interface components {
             title?: string | null;
             /**
              * Format: int32
-             * @description Appointment-only (Wave 32 lane 7): booked travel minutes sitting
+             * @description Appointment-only: booked travel minutes sitting
              *     immediately BEFORE the appointment — the calendar renders them
              *     visually distinct from the booking block.
              */
@@ -18190,8 +18482,7 @@ export interface components {
          * @description One connection as the API returns it: the stored row minus the cached
          *     provider credential.
          *
-         *     A credential is written and never read back through a view (Wave 55
-         *     decision 9). The row's `access_token` is read by the poll and by nothing
+         *     A credential is written and never read back through a view. The row's `access_token` is read by the poll and by nothing
          *     else, so what a client gets is presence — a token is held or it is not —
          *     and never the token itself. An access token a client can read leaves the
          *     product through a screenshot, a copied log line or a support bundle, and
@@ -18533,7 +18824,7 @@ export interface components {
             span?: components["schemas"]["CardSpan"];
         };
         /**
-         * @description Card width on the dashboard's twelve-column grid. The vocabulary lane 6
+         * @description Card width on the dashboard's twelve-column grid. The vocabulary the dashboard
          *     consumes; the CSS owns the measurement, this owns the names.
          * @enum {string}
          */
@@ -18624,7 +18915,7 @@ export interface components {
             search?: string | null;
         };
         /**
-         * @description One card shape, described for the authoring agent (Wave 46 lane 1). The
+         * @description One card shape, described for the authoring agent. The
          *     prose is served, not duplicated in a prompt: a model that reads this
          *     catalogue authors against the same rules the compiler enforces.
          */
@@ -18663,8 +18954,7 @@ export interface components {
             agent_description: string;
             emits: string[];
             /**
-             * @description Whether the executor can run this node today (Wave 43 lane 20, item
-             *     C). The authoring model is told, so it does not place a node the
+             * @description Whether the executor can run this node today. The authoring model is told, so it does not place a node the
              *     validator will refuse.
              */
             executable: boolean;
@@ -18801,7 +19091,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /**
-             * @description Shared "not applicable" state (Wave 12 lane 6): server truth for the
+             * @description Shared "not applicable" state: server truth for the
              *     tasks-panel tri-state, set by the toggle endpoint in the same tx as
              *     `checked`. Mutually exclusive with `checked` (enforced at the API);
              *     N-A REQUIRED items are exempt from pre-close enforcement and derived
@@ -19280,6 +19570,12 @@ export interface components {
             client_id: string;
             entries: components["schemas"]["OverrideEntry"][];
         };
+        /**
+         * @description POST /api/ewaste/intakes/{id}/close. The body is optional: a caller that
+         *     has not read a version may close without one, and a caller that has read
+         *     the intake passes the version it saw.
+         */
+        CloseIntakeRequest: components["schemas"]["MutationParams"];
         /** @enum {string} */
         CloseKind: "full" | "short";
         CloseOrderRequest: components["schemas"]["MutationParams"];
@@ -19293,8 +19589,7 @@ export interface components {
             committed_at: string;
         };
         /**
-         * @description POST /api/tickets/{id}/checklist/complete-all request (Wave 17 lane 11
-         *     §5.3): the close gate's Option A batch — every listed item flips to
+         * @description POST /api/tickets/{id}/checklist/complete-all request: the close gate's Option A batch — every listed item flips to
          *     `checked` and each lands its auto-append note, ALL in one transaction
          *     with per-item idempotency keys (duplicate-proof at the envelope, scored
          *     as REPORTED auto notes via `workflow_meta.auto = true`).
@@ -19512,7 +19807,7 @@ export interface components {
             updated_at?: string | null;
         };
         /**
-         * @description ADR 0009 §6 (Wave 19 lane 2): the modeled connector governance
+         * @description ADR 0009 §6: the modeled connector governance
          *     profile — WHERE the connector speaks (webhook endpoints) and what it
          *     wears outward (SaaS scopes). Structured, validated DECLARATIONS, not
          *     prose: the consent screen renders them verbatim and connectors inherit
@@ -19520,7 +19815,7 @@ export interface components {
          */
         ConnectorProfile: {
             /**
-             * @description ADR 0023 Decision 3 (Wave 53 lane 2): the EGRESS allowlist a wasm
+             * @description ADR 0023 Decision 3: the EGRESS allowlist a wasm
              *     guest's `http_request` reads — profile name -> consented scopes. Each
              *     scope is `https://host[:port][/path-prefix]`; a request whose scheme is
              *     not https, whose authority is not listed, or whose path is outside the
@@ -19703,7 +19998,7 @@ export interface components {
             source_kind: string;
             source_url: string;
             /**
-             * @description §4.6 (Wave 34 lane 4) — the declarative UI-surface profile
+             * @description §4.6 — the declarative UI-surface profile
              *     (widgets / automation action kinds / report render kinds /
              *     field validators), rendered on consent verbatim so an admin
              *     consents to exactly the surfaces the plugin contributes.
@@ -20228,14 +20523,14 @@ export interface components {
         };
         /**
          * @description Lifecycle. `draft` contracts evaluate in previews (plan before
-         *     activation) but Wave 9's invoice runs will refuse them; `cancelled`
+         *     activation) but invoice runs will refuse them; `cancelled`
          *     contracts never evaluate. `ended` keeps evaluating candidates whose
          *     dates fall inside the (closed) effective window.
          * @enum {string}
          */
         ContractStatus: "draft" | "active" | "ended" | "cancelled";
         /**
-         * @description The supported commercial agreement shapes. Wave 39 adds the MSP
+         * @description The supported commercial agreement shapes. Adds the MSP
          *     relationship types beyond the original four: per-unit recurring
          *     (per-seat / per-device) and per-incident (per closed ticket) pricing.
          *     Prepaid blocks, NTE caps, minimums, and escalators ride the existing
@@ -20280,7 +20575,7 @@ export interface components {
             /**
              * @description When set, this source is a generic M2M webhook receiver that emits
              *     domain-event envelopes onto the outbox stream instead of creating
-             *     alert rows (Wave 43 lane 1). Leave NULL for the classic alert path.
+             *     alert rows. Leave NULL for the classic alert path.
              */
             event_type?: string | null;
             name: string;
@@ -20799,6 +21094,30 @@ export interface components {
             /** @description Source-system label this template belongs to (e.g. "connectwise"). */
             source_system: string;
         };
+        /** @description POST /api/ewaste/intakes. */
+        CreateIntakeRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            client_id: string;
+            /** @description The client's instruction: destroy data before disposal. */
+            data_destruction_required?: boolean;
+            document_reference?: string | null;
+            hazard_flags?: string[];
+            lines?: components["schemas"]["IntakeLineRequest"][];
+            notes?: string | null;
+            /** @description Defaults to now. */
+            received_at?: string | null;
+            received_by_name: string;
+            reference?: string | null;
+            /**
+             * Format: uuid
+             * @description The signed intake sheet held in the documents platform.
+             */
+            signature_document_id?: string | null;
+            /** Format: uuid */
+            site_id?: string | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
+        };
         CreateInterfaceRequest: {
             ips?: string[];
             is_primary?: boolean;
@@ -20813,6 +21132,13 @@ export interface components {
              * @description Restrict the run to one client's billable contracts.
              */
             client_id?: string | null;
+            /**
+             * @description Restrict the run to one currency. A run is single-currency by
+             *     construction; the selector is what lets a receivable stored under another
+             *     currency bill in a run of its own, instead of waiting for a sweep whose
+             *     regular contracts happen to share it.
+             */
+            currency?: string | null;
             /**
              * Format: int32
              * @description Payment terms for the issued invoices, in days (default 30).
@@ -20907,16 +21233,29 @@ export interface components {
             user_id?: string | null;
         };
         CreateOrderRequest: components["schemas"]["MutationParams"] & {
+            acquired_for?: components["schemas"]["AcquiredFor"] | null;
+            /**
+             * Format: uuid
+             * @description The client the purchase is made for. Required for a client purchase and
+             *     refused for anything else; derived from the ticket when a ticket is given
+             *     and the client omitted.
+             */
+            client_id?: string | null;
             /** @description Absent → the vendor's default currency. */
             currency?: string | null;
+            delivery_mode?: components["schemas"]["DeliveryMode"] | null;
             /** Format: date */
             expected_at?: string | null;
             lines?: components["schemas"]["OrderLineInput"][];
             notes?: string | null;
             /** @description Absent → generated `PO-NNNNNN` from the org sequence. */
             number?: string | null;
+            ownership?: components["schemas"]["Ownership"] | null;
             /** Format: uuid */
             project_id?: string | null;
+            recharge_rule?: components["schemas"]["RechargeRule"] | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
             /** Format: uuid */
             vendor_id: string;
             vendor_reference?: string | null;
@@ -20933,7 +21272,7 @@ export interface components {
             notes?: string | null;
             /**
              * Format: date-time
-             * @description Rotation schedule (Wave 19 lane 3): absent/null = never remide.
+             * @description Rotation schedule: absent/null = never remide.
              */
             rotate_at?: string | null;
             secret: string;
@@ -20945,7 +21284,7 @@ export interface components {
             budget_currency?: string | null;
             /**
              * Format: int64
-             * @description Wave 39 lane 4 (report C/D): the phase's billing budget and/or the
+             * @description The phase's billing budget and/or the
              *     fixed fee a COMPLETED non-milestone phase releases. Milestone
              *     phases keep using `milestone_amount_*`.
              */
@@ -20965,7 +21304,7 @@ export interface components {
             sort_order?: number;
             /**
              * Format: date
-             * @description The planned window (Wave 34 claims close-out, claim 6). Both ends
+             * @description The planned window. Both ends
              *     optional: a phase created without dates lands in the ordered list,
              *     NOT on the Gantt, and the UI says which it is. Supplying only one
              *     end is rejected at the database CHECK, because a phase with a start
@@ -21010,8 +21349,7 @@ export interface components {
         CreateProjectRequest: components["schemas"]["MutationParams"] & {
             /**
              * Format: uuid
-             * @description The contract this project bills through (Wave 39 lane 4, report
-             *     P2). Its rate card/blocks/caps price the project's T&M entries and
+             * @description The contract this project bills through. Its rate card/blocks/caps price the project's T&M entries and
              *     its runs carry the project's released milestones. Validated to
              *     belong to the same client.
              */
@@ -21190,8 +21528,7 @@ export interface components {
             name: string;
             /**
              * @description What the rule's subject is: `ticket` (default, historical) or
-             *     `board` — a rule that fires on ticket-less envelopes (Wave 43
-             *     lane 3).
+             *     `board` — a rule that fires on ticket-less envelopes.
              */
             subject_kind?: string | null;
             /** @description Domain event type, e.g. "ticket.created". */
@@ -21271,7 +21608,7 @@ export interface components {
             object_key?: string | null;
             /**
              * Format: date-time
-             * @description Rotation schedule (Wave 19 lane 3): the worker sweep reminds once
+             * @description Rotation schedule: the worker sweep reminds once
              *     past this instant (at-most-once per schedule).
              */
             rotate_at?: string | null;
@@ -21402,7 +21739,7 @@ export interface components {
             catalog_item_id?: string | null;
             currency: string;
             /**
-             * @description Wave 32 lane 3: flag the item as a tool (serialized-only, eligible
+             * @description Flag the item as a tool (serialized-only, eligible
              *     for tool checkout + kit membership).
              */
             is_tool?: boolean;
@@ -21527,7 +21864,7 @@ export interface components {
             contact_id?: string | null;
             /**
              * @description Initial custom-field values; each is validated against its
-             *     definition. REQUIRED definitions must all be present (the private build tracker 2.17).
+             *     definition. REQUIRED definitions must all be present.
              */
             custom_fields?: components["schemas"]["TicketFieldInput"][];
             /** Format: date-time */
@@ -21552,20 +21889,20 @@ export interface components {
             /**
              * Format: uuid
              * @description The ticket this entry bills through. `None` ONLY for project-scoped
-             *     entries (Wave 39 lane 4, report P5): supply `phase_id` instead and
+             *     entries: supply `phase_id` instead and
              *     the entry bills through the phase project's linked contract.
              */
             ticket_id?: string | null;
             /** @description Typed unbillable reason — required when `billable` is false (V3). */
             unbillable_reason?: string | null;
-            /** @description Category slug from the org's time taxonomy (Wave 39 V5). */
+            /** @description Category slug from the org's time taxonomy. */
             work_type?: string | null;
         };
         /** @description POST /api/dispatch/travel-drafts body. */
         CreateTravelDraftRequest: components["schemas"]["MutationParams"] & {
             /**
              * Format: uuid
-             * @description Wave 32 lane 7: the planned appointment this trip reconciles
+             * @description The planned appointment this trip reconciles
              *     against (optional — ad-hoc travel against a ticket stays legal).
              */
             appointment_id?: string | null;
@@ -21597,6 +21934,33 @@ export interface components {
             amount_minor?: number | null;
             /** @description Overrides the description when present. */
             description?: string | null;
+        };
+        CreateVendorRentalRequest: components["schemas"]["MutationParams"] & {
+            agreement_ref?: string | null;
+            asset?: components["schemas"]["VendorRentalAssetRequest"] | null;
+            /**
+             * Format: int64
+             * @description The rental expense per cycle, integer minor units.
+             */
+            cost_minor: number;
+            currency: string;
+            /** @description monthly | quarterly | annual. */
+            cycle: string;
+            deposit_currency?: string | null;
+            /** Format: int64 */
+            deposit_minor?: number | null;
+            /**
+             * Format: uuid
+             * @description An asset the procurement receipt already created as `rental_in`.
+             */
+            device_asset_id?: string | null;
+            end_on?: string | null;
+            notes?: string | null;
+            start_on: string;
+            /** Format: uuid */
+            vendor_id?: string | null;
+            /** @description The vendor's name when they are not in the directory. */
+            vendor_name?: string | null;
         };
         CreateVendorRequest: components["schemas"]["MutationParams"] & {
             account_number?: string | null;
@@ -21808,7 +22172,7 @@ export interface components {
          */
         CreditNoteStatus: "issued" | "void";
         /**
-         * @description CSAT inputs slot (Wave 34 lane 2): `available` is the honest feature
+         * @description CSAT inputs slot: `available` is the honest feature
          *     gate — true only once the org has real survey data, never fabricated
          *     from a zero-window. Scores are 1-5; "low" means score ≤ 2.
          */
@@ -21831,6 +22195,8 @@ export interface components {
             /** @description Per-field human values; a `null` value un-curates the field. */
             fields: unknown;
         };
+        /** @enum {string} */
+        CustodyClass: "sale_stock" | "internal_fleet" | "rental_in" | "rental_out" | "client_custody" | "ewaste_custody" | "tools" | "sold" | "recycled" | "destroyed" | "returned";
         /** @description Manual DNS setup instructions (the seam's none-mode), ready to render. */
         CustomDomainInstructions: {
             domain: string;
@@ -22556,7 +22922,7 @@ export interface components {
         DefinitionScope: "org" | "self";
         DeleteOrderLineRequest: components["schemas"]["MutationParams"];
         /**
-         * @description What a delete with reassignment actually did (Wave 41 lane 12).
+         * @description What a delete with reassignment actually did.
          *
          *     Returned instead of a bare 204 because the confirm has to say what
          *     happened, and the admin is the one who has to believe it.
@@ -22666,6 +23032,8 @@ export interface components {
              */
             offset?: number | null;
         };
+        /** @enum {string} */
+        DeliveryMode: "to_stock" | "drop_ship_to_client" | "to_site";
         DeliveryPage: {
             deliveries: components["schemas"]["DeliveryAttemptView"][];
             /** @description Opaque keyset cursor for the next page; absent when exhausted. */
@@ -23004,7 +23372,7 @@ export interface components {
             status: string;
         };
         /**
-         * @description The human verification disposition of one time entry (Wave 39 V1).
+         * @description The human verification disposition of one time entry.
          *     `rejected` and `non_billable` demand the typed [`UnbillableReason`];
          *     the workspace badge set matches this vocabulary exactly.
          * @enum {string}
@@ -23415,8 +23783,7 @@ export interface components {
             /**
              * Format: uuid
              * @description The rule whose effects these are. Required in practice: the rule's
-             *     recorded author is the principal the batch runs as (Wave 58 lane
-             *     `p58-effects-seam`), so a call that names no rule is refused. Optional
+             *     recorded author is the principal the batch runs as, so a call that names no rule is refused. Optional
              *     in the wire shape so "no rule" is expressible and refusable rather than
              *     a sentinel the seam guesses at.
              */
@@ -23424,7 +23791,7 @@ export interface components {
             /**
              * Format: uuid
              * @description The ticket the subject resolved to. `None` on a board-subject match
-             *     (Wave 43 lane 3) — there is no ticket to act on.
+             *      — there is no ticket to act on.
              */
             ticket_id?: string | null;
         };
@@ -23447,7 +23814,7 @@ export interface components {
          */
         EmailDirection: "inbound" | "outbound";
         /**
-         * @description The greeting and signature a composer wrote for THIS message (Wave 42).
+         * @description The greeting and signature a composer wrote for THIS message.
          *
          *     Purely additive and purely per-message: it changes what goes out with
          *     this one note and is never stored as a preference. The composer
@@ -23852,7 +24219,7 @@ export interface components {
             /** @description `act` | `pending` | `ignore` — threshold gate at read time. */
             state?: string | null;
             /**
-             * @description The server's mechanical verdicts for this entry (Wave 41 lane 8), each
+             * @description The server's mechanical verdicts for this entry, each
              *     with the one action that clears it. Empty means clean — and empty for
              *     an entry that is not visible in scope either, because RLS proves
              *     visibility by absence, never by an error.
@@ -23920,6 +24287,124 @@ export interface components {
             connection_id: string;
             events: components["schemas"]["CalendarSyncEvent"][];
         };
+        /** @description A recorded way out of custody. */
+        EwasteDisposition: {
+            certificate_reference?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: date */
+            disposed_at: string;
+            /** Format: uuid */
+            document_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            intake_id: string;
+            /** Format: uuid */
+            line_id: string;
+            partner_name?: string | null;
+            pathway: string;
+            /** Format: int64 */
+            weight_g: number;
+        };
+        /** @description One append-only custody event. */
+        EwasteEvent: {
+            /** Format: uuid */
+            actor_user_id?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            disposition_id?: string | null;
+            event_kind: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            intake_id: string;
+            /** Format: uuid */
+            line_id?: string | null;
+            location_note?: string | null;
+            notes?: string | null;
+            /** Format: date-time */
+            occurred_at: string;
+            partner_name?: string | null;
+            storage_class?: string | null;
+        };
+        /**
+         * @description A receipt of custody. The client owns the goods; the organisation holds
+         *     them.
+         */
+        EwasteIntake: {
+            /** Format: uuid */
+            client_id: string;
+            /** Format: date-time */
+            closed_at?: string | null;
+            /** Format: uuid */
+            closed_by?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            data_destruction_required: boolean;
+            document_reference?: string | null;
+            hazard_flags: string[];
+            /** Format: uuid */
+            id: string;
+            notes?: string | null;
+            /** Format: date-time */
+            received_at: string;
+            received_by_name: string;
+            /** Format: uuid */
+            received_by_user_id?: string | null;
+            reference?: string | null;
+            /** Format: uuid */
+            signature_document_id?: string | null;
+            /** Format: uuid */
+            site_id?: string | null;
+            status: string;
+            /** Format: uuid */
+            ticket_id?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description One line: a serialized unit or a lot, with its weight in integer grams. */
+        EwasteIntakeLine: {
+            category: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            created_by?: string | null;
+            data_bearing: boolean;
+            /** Format: date-time */
+            destruction_completed_at?: string | null;
+            /** Format: uuid */
+            destruction_completed_by?: string | null;
+            /** Format: uuid */
+            destruction_document_id?: string | null;
+            destruction_status: string;
+            /** Format: uuid */
+            device_asset_id?: string | null;
+            /**
+             * Format: int64
+             * @description Sum of this line's dispositions. Derived on read, never stored.
+             */
+            disposed_weight_g: number;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            intake_id: string;
+            line_kind: string;
+            lot_label?: string | null;
+            /** Format: int32 */
+            quantity: number;
+            /** Format: uuid */
+            serial_id?: string | null;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: int64 */
+            weight_g: number;
+        };
         ExpenseMutationResponse: {
             expense: components["schemas"]["TicketExpense"];
             mutation: components["schemas"]["MutationMeta"];
@@ -23949,7 +24434,7 @@ export interface components {
         ExportAsset: {
             /**
              * Format: uuid
-             * @description Nullable since Wave 32: an internal-org asset (the MSP's own
+             * @description Nullable: an internal-org asset (the MSP's own
              *     equipment) has no client.
              */
             client_id?: string | null;
@@ -25049,7 +25534,7 @@ export interface components {
             started_at: string;
             /**
              * Format: uuid
-             * @description `None` on project-scoped entries (Wave 39 lane 4): `phase_id`
+             * @description `None` on project-scoped entries: `phase_id`
              *     scopes the entry instead.
              */
             ticket_id?: string | null;
@@ -25164,7 +25649,7 @@ export interface components {
             label: string;
             notes?: string | null;
         };
-        /** @description The feeder upsert input — lane 8's seam (NinjaOne / IT Glue / Auvik). */
+        /** @description The feeder upsert input (NinjaOne / IT Glue / Auvik). */
         FeedUpsertRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             client_id: string;
@@ -25687,7 +26172,7 @@ export interface components {
              */
             artifact_kind: string;
             /**
-             * @description The credential bindings this install holds (Wave 53 lane 12): which
+             * @description The credential bindings this install holds: which
              *     profile wears which vault record, as which header. The record is named
              *     by title only — [`CredentialBindingView`] has no member that could
              *     carry a field or a value.
@@ -25759,6 +26244,69 @@ export interface components {
             name: string;
             /** Format: date */
             start_date?: string | null;
+        };
+        /** @description One intake with everything that answers "where did it go". */
+        IntakeDetailResponse: {
+            balance: components["schemas"]["WeightBalance"];
+            dispositions: components["schemas"]["EwasteDisposition"][];
+            events: components["schemas"]["EwasteEvent"][];
+            intake: components["schemas"]["EwasteIntake"];
+            lines: components["schemas"]["EwasteIntakeLine"][];
+            /**
+             * Format: int64
+             * @description The intake's write-sequence version. A client echoes it as `version` on
+             *     the next conditional write, notably the close.
+             */
+            version: number;
+        };
+        /** @description One line of a received consignment. */
+        IntakeLineRequest: {
+            category: string;
+            data_bearing?: boolean;
+            /**
+             * Format: uuid
+             * @description The client's asset this unit is, when it is in their fleet.
+             */
+            device_asset_id?: string | null;
+            /**
+             * @description serial: a unit with a stock serial, quantity one. lot: a quantity of
+             *     one category, identified by this line.
+             */
+            line_kind: string;
+            lot_label?: string | null;
+            /** Format: int32 */
+            quantity?: number;
+            /** Format: uuid */
+            serial_id?: string | null;
+            /**
+             * Format: int64
+             * @description The line's total weight in whole grams.
+             */
+            weight_g: number;
+        };
+        /** @description The intake response plus the instant-first envelope metadata (IF2). */
+        IntakeMutationResponse: components["schemas"]["IntakeDetailResponse"] & {
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description An intake as the list view sees it, with its weights aggregated in one
+         *     query rather than one query per row.
+         */
+        IntakeSummary: {
+            intake: components["schemas"]["EwasteIntake"];
+            /** Format: int64 */
+            line_count: number;
+            /** Format: int64 */
+            remaining_g: number;
+            /** Format: int64 */
+            total_in_g: number;
+            /** Format: int64 */
+            total_out_g: number;
+            /**
+             * Format: int64
+             * @description The intake's write-sequence version, for a conditional close.
+             */
+            version: number;
         };
         /** @description Per-connector link state as data (linked/unlinked + last touch). */
         IntegrationLinkStatus: {
@@ -25880,7 +26428,7 @@ export interface components {
             /** Format: date */
             period_to?: string | null;
             /**
-             * @description Client purchase-order reference (Wave 39 F): copied from the
+             * @description Client purchase-order reference: copied from the
              *     producing contract at run time so the document carries what the
              *     client's AP system matches against. TAX STAYS OUT by design —
              *     the 0036 boundary stands (tax is an accounting-export concern).
@@ -26055,7 +26603,7 @@ export interface components {
             run: components["schemas"]["InvoiceRun"];
         };
         /**
-         * @description The reviewer sign-off recorded per invoice run (Wave 39 V8): the
+         * @description The reviewer sign-off recorded per invoice run: the
          *     close checklist a human attested before the run fired. One row per
          *     run; the run-create seam refuses an unsigned run.
          */
@@ -26632,6 +27180,8 @@ export interface components {
             /** Format: uuid */
             template_id: string;
         };
+        /** @enum {string} */
+        LineKind: "stock" | "serialized_unit" | "asset" | "rental_unit" | "service" | "pass_through";
         LinkBeginResponse: {
             authorize_url: string;
         };
@@ -26696,6 +27246,27 @@ export interface components {
              */
             semantic_class?: string | null;
         };
+        /** @description GET /api/ewaste/dispositions. */
+        ListDispositionsQuery: {
+            /** Format: uuid */
+            client_id?: string | null;
+            cursor_created_at?: string | null;
+            /**
+             * Format: date
+             * @description Keyset cursor: the three fields of the last row on the previous page.
+             *     Pass all three or none.
+             */
+            cursor_disposed_at?: string | null;
+            /** Format: uuid */
+            cursor_id?: string | null;
+            /** Format: date */
+            from?: string | null;
+            /** Format: int64 */
+            limit?: number | null;
+            pathway?: string | null;
+            /** Format: date */
+            to?: string | null;
+        };
         ListEntityCandidatesQuery: {
             /** @description contact | client */
             kind?: string | null;
@@ -26711,6 +27282,19 @@ export interface components {
             ticket_id?: string | null;
             /** Format: uuid */
             user_id?: string | null;
+        };
+        /** @description GET /api/ewaste/intakes. */
+        ListIntakesQuery: {
+            /** Format: uuid */
+            client_id?: string | null;
+            /** Format: uuid */
+            cursor_id?: string | null;
+            /** @description Keyset cursor: the last row's `received_at` and `id`, together. */
+            cursor_received_at?: string | null;
+            /** Format: int64 */
+            limit?: number | null;
+            /** @description open | closed. */
+            status?: string | null;
         };
         ListOrdersQuery: {
             /** Format: uuid */
@@ -26781,6 +27365,18 @@ export interface components {
             status?: string | null;
         };
         LoanReturnLineRequest: {
+            /**
+             * Format: int64
+             * @description A damage charge raised with this return. Leases only: the charge bills
+             *     through the next ordinary run under the agreement's contract.
+             */
+            damage_charge_minor?: number | null;
+            damage_note?: string | null;
+            /**
+             * @description Where the unit goes now: pool | sale_stock | refurbishment | ewaste.
+             *     Absent = back to the class it was issued from.
+             */
+            disposition?: string | null;
             /** Format: uuid */
             line_id: string;
             /** @description good | fair | damaged. */
@@ -26875,8 +27471,7 @@ export interface components {
             name: string;
             /**
              * @description What the rule's subject is: `ticket` (the historical default) or
-             *     `board` — a rule that fires on ticket-less envelopes (Wave 43
-             *     lane 3). Absent from a pre-lane manifest, so it defaults.
+             *     `board` — a rule that fires on ticket-less envelopes. Absent from a pre-lane manifest, so it defaults.
              */
             subject_kind?: string;
             /** @description Domain event type from the envelope, e.g. `ticket.created`. */
@@ -26981,7 +27576,7 @@ export interface components {
             trigger_kind: string;
         };
         /**
-         * @description One stored report definition (the private build tracker R3). The spec body rides as its
+         * @description One stored report definition. The spec body rides as its
          *     stored jsonb document (`{filters, group_by, measures}`) exactly like
          *     custom-field `config` — the registry-validated view/viz slugs travel as
          *     their own fields so a preflight can flag deprecated constructs without
@@ -27045,7 +27640,7 @@ export interface components {
              */
             boards: components["schemas"]["ManifestBoard"][];
             /**
-             * @description Per-client workflow overrides (Wave 12 lane 5): every client-scoped
+             * @description Per-client workflow overrides: every client-scoped
              *     override of the org workflow defaults, rows verbatim. The override
              *     registry (`core_domain::workflow_overrides`) is the closed key set;
              *     the preflight must see which constructs each client's rows reference
@@ -27059,15 +27654,14 @@ export interface components {
              */
             custom_fields: components["schemas"]["ManifestCustomField"][];
             /**
-             * @description Stored report definitions (the private build tracker R3): registry-validated specs
+             * @description Stored report definitions: registry-validated specs
              *     over the versioned read-model views. Covered so the upgrade
              *     preflight (U6) can flag any definition whose `kind`/spec columns
              *     reference deprecated view or column constructs (policy §5).
              */
             report_definitions: components["schemas"]["ManifestReportDefinition"][];
             /**
-             * @description Role rows (Wave 13 lane 6, RB1 — ADR 0004: role rows are
-             *     customizations-as-data covered by U5/U6 like any other section).
+             * @description Role rows.
              *     This section is the ORG-OWNED rows only: custom roles and forked
              *     copies (including forked presets with their origin tag). Shipped
              *     preset rows are default state, not customization — they stay
@@ -27082,7 +27676,7 @@ export interface components {
             /** @description SLA configuration: calendars and policies with escalation ladders. */
             sla: components["schemas"]["ManifestSla"];
             /**
-             * @description Ticket type/category/subcategory trees (Wave 11 lane 3).
+             * @description Ticket type/category/subcategory trees.
              *     Classification-only (§5): exported so the preflight sees the full
              *     classification surface; retired rows INCLUDED (tickets may still
              *     reference them). Categories are flat — `parent_id` reconstructs
@@ -27593,7 +28187,7 @@ export interface components {
             work_type?: string | null;
         };
         /**
-         * @description One cross-board my-work queue row (the private build tracker 2.11): the ticket plus the
+         * @description One cross-board my-work queue row: the ticket plus the
          *     annotations the Today screen renders per the mockup.
          */
         MyWorkItem: {
@@ -27714,8 +28308,7 @@ export interface components {
              */
             emits: string[];
             /**
-             * @description Whether the executor can actually apply this node today (Wave 43
-             *     lane 20, item C). A palette should gray out a node whose flag is
+             * @description Whether the executor can actually apply this node today. A palette should gray out a node whose flag is
              *     false: `WorkflowDocument::validate` refuses to save one.
              */
             executable: boolean;
@@ -27937,17 +28530,65 @@ export interface components {
             user_id?: string | null;
         };
         OrderLineInput: {
+            /**
+             * Format: uuid
+             * @description The asset layout a receipt for this line should instantiate.
+             */
+            asset_layout_id?: string | null;
+            /** @description Absent → true when the line lands in client custody. */
+            billable?: boolean | null;
             /** Format: uuid */
             catalog_item_id?: string | null;
             description: string;
+            destination_class?: components["schemas"]["CustodyClass"] | null;
+            line_kind?: components["schemas"]["LineKind"] | null;
             /** Format: int32 */
             position?: number | null;
             /** Format: int64 */
             qty_ordered_milli: number;
+            /** Format: int64 */
+            sell_price_minor?: number | null;
+            /** @description Absent → true for a `serialized_unit` line, false otherwise. */
+            serial_expected?: boolean | null;
             /** Format: uuid */
             stock_item_id?: string | null;
             /** Format: int64 */
             unit_cost_minor: number;
+            /** Format: int32 */
+            weight_g?: number | null;
+        };
+        /**
+         * @description One line's PATCH body. Every nullable field is tri-state: absent leaves the
+         *     stored value alone, `null` clears it (an inherited destination, a cleared
+         *     layout, an inherited billable flag), and a value sets it. The plain option is
+         *     for the fields that cannot be cleared.
+         *
+         *     `skip_serializing_if` keeps an omitted field out of the idempotency
+         *     fingerprint while `null` still serializes, so "leave" and "clear" cannot
+         *     share a key.
+         */
+        OrderLinePatch: {
+            /** Format: uuid */
+            asset_layout_id?: string | null;
+            billable?: boolean | null;
+            /** Format: uuid */
+            catalog_item_id?: string | null;
+            description?: string | null;
+            destination_class?: components["schemas"]["CustodyClass"] | null;
+            line_kind?: components["schemas"]["LineKind"] | null;
+            /** Format: int32 */
+            position?: number | null;
+            /** Format: int64 */
+            qty_ordered_milli?: number | null;
+            /** Format: int64 */
+            sell_price_minor?: number | null;
+            serial_expected?: boolean | null;
+            /** Format: uuid */
+            stock_item_id?: string | null;
+            /** Format: int64 */
+            unit_cost_minor?: number | null;
+            /** Format: int32 */
+            weight_g?: number | null;
         };
         OrderMutationResponse: components["schemas"]["PurchaseOrderDetail"] & {
             mutation: components["schemas"]["MutationMeta"];
@@ -28178,7 +28819,7 @@ export interface components {
             not_ready_reason?: string | null;
             /**
              * @description The org's own greeting — what opens mail the workspace sends to its
-             *     staff, and the fallback for a member with none (Wave 42).
+             *     staff, and the fallback for a member with none.
              */
             org_greeting: string;
             postmark_base_url: string;
@@ -28266,6 +28907,8 @@ export interface components {
              */
             user_id: string;
         };
+        /** @enum {string} */
+        Ownership: "owned" | "leased" | "rented";
         PackRuleView: {
             active: boolean;
             /** Format: uuid */
@@ -28315,7 +28958,7 @@ export interface components {
             org_id: string;
             /**
              * Format: date-time
-             * @description Operator-scheduled rotation due date (Wave 19 lane 3); the worker
+             * @description Operator-scheduled rotation due date; the worker
              *     sweep reminds once past it (durable at-most-once marker on the
              *     row in the DB; the entities carry no sweep housekeeping).
              */
@@ -28497,7 +29140,7 @@ export interface components {
             budget_currency?: string | null;
             /**
              * Format: int64
-             * @description Wave 39 lane 4: tri-state budget/fee updates on the phase's
+             * @description Tri-state budget/fee updates on the phase's
              *     billing record (`Some(Some(v))` sets, `Some(None)` clears,
              *     `None` = no change; `clear_*` drops the whole record when both
              *     fields would be empty).
@@ -28537,7 +29180,7 @@ export interface components {
             /**
              * Format: uuid
              * @description `Some(Some(v))` links the contract; `Some(None)` unlinks;
-             *     `None` = no change (Wave 39 lane 4, report P2).
+             *     `None` = no change.
              */
             billing_contract_id?: string | null;
             billing_method?: components["schemas"]["BillingMethod"] | null;
@@ -28631,7 +29274,7 @@ export interface components {
             title?: string | null;
             /**
              * Format: uuid
-             * @description Classification (Wave 11 lane 3): `"type_id": null` clears,
+             * @description Classification: `"type_id": null` clears,
              *     an id sets (the node must exist in this org and not be retired),
              *     an absent member leaves it untouched. Purely descriptive: behavior
              *     binds to the semantic categories, never these trees.
@@ -28673,6 +29316,12 @@ export interface components {
             is_default?: boolean | null;
             name?: string | null;
             spec?: unknown;
+        };
+        /** @description Weight moved by one pathway. */
+        PathwayWeight: {
+            pathway: string;
+            /** Format: int64 */
+            weight_g: number;
         };
         PauseTimerRequest: {
             /** @description Optional reason, preserved on the segment forever. */
@@ -28742,7 +29391,7 @@ export interface components {
         /**
          * @description The burn read model for one phase: consumed minutes priced against the
          *     project's linked contract versus the contracted budget, with a typed
-         *     alert state (report P3). Amounts are in the budget's currency.
+         *     alert state. Amounts are in the budget's currency.
          */
         PhaseBurn: {
             /** @description Typed alert: `none` under budget, `warn` past 80%, `over` past 100%. */
@@ -29059,7 +29708,7 @@ export interface components {
             verification_id?: string | null;
         };
         /**
-         * @description Marketplace v2 verified-publisher registry row (Wave 22). A
+         * @description Marketplace v2 verified-publisher registry row. A
          *     publisher is a NORMALIZED SOURCE IDENTITY; verification is per-org
          *     (this org vouches this publisher), admin-curated, and additive over
          *     the v1 distribution formats.
@@ -29238,7 +29887,7 @@ export interface components {
             staged_item_id: string;
         };
         /**
-         * @description Wave 34 lane 4 (§4.6): the modeled UI-surface profile a WASM manifest
+         * @description (§4.6): the modeled UI-surface profile a WASM manifest
          *     may declare — dashboard/ticket-pane WIDGETS, automation ACTION KINDS,
          *     report RENDER KINDS, and custom-field VALIDATORS. Everything here is
          *     DECLARATIVE: closed render/effect vocabularies plus JSON-Schema
@@ -29252,7 +29901,7 @@ export interface components {
             /** @description JSON-Schema validators for board custom fields. */
             field_validators?: components["schemas"]["SurfaceFieldValidator"][];
             /**
-             * @description Wave 43 lane 4 (ADR 0017 §3, §5): READ nodes, the only kind that
+             * @description (ADR 0017 §3, §5): READ nodes, the only kind that
              *     lets a workflow FETCH from an external system. Every entry carries
              *     its own guardrails; there is no default that weakens them.
              */
@@ -29260,7 +29909,7 @@ export interface components {
             /** @description Render kinds contributed to the report builder. */
             render_kinds?: components["schemas"]["SurfaceRenderKind"][];
             /**
-             * @description Wave 43 lane 4 (ADR 0017 §3): TRIGGER sources the plugin
+             * @description (ADR 0017 §3): TRIGGER sources the plugin
              *     contributes — the event type a rule can fire on. This is the half
              *     of the `automation_action` symmetry that was missing: a plugin
              *     could contribute an action but never a trigger.
@@ -29390,6 +30039,73 @@ export interface components {
             targets: unknown;
             /** @description True while the policy governs itself via its embedded calendar. */
             uses_embedded_calendar: boolean;
+        };
+        PoolListQuery: {
+            /** @description Only units no open agreement holds. */
+            available_only?: boolean | null;
+            /**
+             * Format: int64
+             * @description Page size, at least 1 (absent or out of range is clamped).
+             */
+            limit?: number | null;
+        };
+        /** @description POST /api/stock/pool/commission or /api/stock/pool/decommission. */
+        PoolMoveRequest: components["schemas"]["MutationParams"] & {
+            /** @description good | fair | damaged. */
+            condition_grade: string;
+            data_wipe_ref?: string | null;
+            /** Format: uuid */
+            device_asset_id?: string | null;
+            note?: string | null;
+            /**
+             * Format: uuid
+             * @description One projection of the unit; exactly one of the two ids.
+             */
+            serial_id?: string | null;
+            /**
+             * @description Whether the device stores data. The caller must answer: an omitted value
+             *     is not "no data", it is an unasked question, and the schema has no
+             *     unit-level field to fall back on. A true answer requires the wipe
+             *     reference, because a pool move that launders a laptop with somebody's
+             *     data still on it is the one thing this leg must not do silently.
+             */
+            stores_data?: boolean | null;
+        };
+        PoolMoveView: {
+            condition_grade?: string | null;
+            created_at: string;
+            data_wipe_ref?: string | null;
+            /** Format: uuid */
+            device_asset_id?: string | null;
+            from_class: string;
+            /** Format: uuid */
+            movement_id: string;
+            /** Format: uuid */
+            serial_id?: string | null;
+            to_class: string;
+            /** @description serial | asset */
+            unit_kind: string;
+        };
+        PoolMutationResponse: {
+            movement: components["schemas"]["PoolMoveView"];
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        /**
+         * @description One unit in the pool, with availability derived from the agreements that
+         *     hold it.
+         */
+        PoolUnitView: {
+            available: boolean;
+            /** Format: uuid */
+            device_asset_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** @description The serial number, or the asset tag when the unit has no serial row. */
+            label: string;
+            /** Format: uuid */
+            stock_item_id?: string | null;
+            /** @description serial | asset */
+            unit_kind: string;
         };
         /**
          * @description Instant-first mutation response (IF2) for appointment-request writes.
@@ -29801,7 +30517,7 @@ export interface components {
             offset?: number;
         };
         /**
-         * @description A ticket as a CLIENT sees it (Wave 41 lane 12).
+         * @description A ticket as a CLIENT sees it.
          *
          *     The ticket fields are flattened exactly as they were, so the portal client
          *     keeps reading the same keys; two status fields are added. `status_label`
@@ -30114,8 +30830,7 @@ export interface components {
         Project: {
             /**
              * Format: uuid
-             * @description The contract this project bills through (Wave 39 lane 4, report
-             *     P2): its rate card, blocks, and caps price the project's T&M work.
+             * @description The contract this project bills through: its rate card, blocks, and caps price the project's T&M work.
              *     `None` = non-billable or not linked. The link validates in the
              *     app layer (same client, active-or-draft contract).
              */
@@ -30156,7 +30871,7 @@ export interface components {
             updated_at: string;
         };
         /**
-         * @description One released milestone (report P1/P4): the durable record that a
+         * @description One released milestone: the durable record that a
          *     completed milestone or fixed-fee phase released its amount to the
          *     invoicing pipeline. `pending` rows bill on the first run that reaches
          *     the window; the run flips them `billed` with the consuming invoice,
@@ -30294,7 +31009,7 @@ export interface components {
             sort_order: number;
             /**
              * Format: date
-             * @description The phase's PLANNED window (Wave 34 claims close-out, claim 6).
+             * @description The phase's PLANNED window.
              *
              *     Both ends are nullable and that is the honest state rather than a
              *     compromise: most real projects have phases nobody has dated yet, and
@@ -30309,8 +31024,7 @@ export interface components {
             updated_at: string;
         };
         /**
-         * @description A phase's billing budget and/or fixed-fee record (Wave 39 lane 4,
-         *     report P3/P4). One optional row per phase: `budget_minor` is the
+         * @description A phase's billing budget and/or fixed-fee record. One optional row per phase: `budget_minor` is the
          *     contracted denominator the burn math consumes (T&M phases), and
          *     `fee_minor` is the fixed fee a completed NON-milestone phase releases
          *     (milestone phases carry their own amount on the phase row).
@@ -30780,10 +31494,43 @@ export interface components {
         };
         PurchaseOrderDetail: {
             bill?: components["schemas"]["PurchaseBill"] | null;
+            /**
+             * @description Present for every response written since the intent existed; a stored
+             *     replay from before it defaults to the legacy header words.
+             */
+            intent?: components["schemas"]["PurchaseOrderIntentView"];
             lines: components["schemas"]["PurchaseOrderLineView"][];
             order: components["schemas"]["PurchaseOrder"];
             receipts: components["schemas"]["PurchaseReceiptView"][];
+            /**
+             * @description Recharges this order issued. Withheld entirely without
+             *     `financial:read`, like `totals`.
+             */
+            recharges?: components["schemas"]["PurchaseRechargeView"][] | null;
             totals?: components["schemas"]["PurchaseOrderRollup"] | null;
+        };
+        /**
+         * @description The header intent a client reads: what the purchase is for, who it serves,
+         *     how it is delivered and the recharge rule it carries. The rule is
+         *     money (`fixed` carries a price and a currency), so it obeys the same
+         *     `ViewFinancials` gate the totals do.
+         *
+         *     `Default` is the shape a stored response written before this view existed
+         *     deserializes into: an order that named none of the new words, which is what
+         *     the migration's column defaults say. Keyed replays are retained, so that
+         *     legacy payload still has to answer.
+         */
+        PurchaseOrderIntentView: {
+            acquired_for: components["schemas"]["AcquiredFor"];
+            /** Format: uuid */
+            client_id?: string | null;
+            delivery_mode: components["schemas"]["DeliveryMode"];
+            ownership?: components["schemas"]["Ownership"] | null;
+            /** Format: uuid */
+            project_id?: string | null;
+            recharge_rule?: components["schemas"]["RechargeRule"] | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
         };
         /** @description One PO line: quantity at milli precision, cost in minor units. */
         PurchaseOrderLine: {
@@ -30815,12 +31562,23 @@ export interface components {
         /** @description Ledger-visible PO line (cost fields are `financial:read`-gated). */
         PurchaseOrderLineView: {
             /** Format: uuid */
+            asset_layout_id?: string | null;
+            billable?: boolean;
+            /** Format: uuid */
             catalog_item_id?: string | null;
             /** Format: date-time */
             created_at: string;
             description: string;
+            destination_class: components["schemas"]["CustodyClass"];
             /** Format: uuid */
             id: string;
+            /**
+             * @description What this line buys and where it lands. The destination is
+             *     the resolved one — the line's own when it named a class, the header's
+             *     otherwise — so a client reads what will happen rather than two words it
+             *     has to combine.
+             */
+            line_kind: components["schemas"]["LineKind"];
             /** Format: int64 */
             ordered_amount_minor?: number | null;
             /** Format: int32 */
@@ -30834,12 +31592,21 @@ export interface components {
             receipt_state: components["schemas"]["ReceiptState"];
             /** Format: int64 */
             received_amount_minor?: number | null;
+            /** Format: int64 */
+            sell_price_minor?: number | null;
+            /**
+             * @description Absent in a response written before the intent existed, where neither flag
+             *     existed either; both default to the value the old code implied.
+             */
+            serial_expected?: boolean;
             /** Format: uuid */
             stock_item_id?: string | null;
             /** Format: int64 */
             unit_cost_minor?: number | null;
             /** Format: date-time */
             updated_at: string;
+            /** Format: int32 */
+            weight_g?: number | null;
         };
         /**
          * @description The rolled-up money on a PO: ordered and received amounts in the PO
@@ -30857,13 +31624,14 @@ export interface components {
          * @description One row of the order list: the order itself plus its own totals.
          *
          *     The order fields are flattened, so this is the order's old wire shape plus
-         *     a `totals` key — a client that ignores the new key keeps working, and one
-         *     that reads it stops needing a request per order to know what an order is
-         *     worth. `totals` is `null` for a caller without `ViewFinancials`, which is
-         *     the same gate the detail endpoint's totals obey: the list never leaks money
-         *     the detail page would hide.
+         *     `totals` and `intent` keys — a client that ignores the new keys keeps
+         *     working, and one that reads them stops needing a request per order to know
+         *     what an order buys or what it is worth. `totals` is `null` for a caller
+         *     without `ViewFinancials`, which is the same gate the detail endpoint's
+         *     totals obey: the list never leaks money the detail page would hide.
          */
         PurchaseOrderSummary: components["schemas"]["PurchaseOrder"] & {
+            intent?: components["schemas"]["PurchaseOrderIntentView"];
             totals?: components["schemas"]["PurchaseOrderRollup"] | null;
         };
         /** @description One receipt document: goods that landed at a location against a PO. */
@@ -30907,11 +31675,50 @@ export interface components {
             receipt_id: string;
         };
         /**
-         * @description A receipt document with its traceability lines (each stamps the
-         *     lane-1 ledger `movement_id` it posted).
+         * @description A receipt document with its traceability lines (each stamps the consequence
+         *     it produced: a ledger movement, an asset, or neither for a client lot).
          */
         PurchaseReceiptView: components["schemas"]["PurchaseReceipt"] & {
-            lines: components["schemas"]["PurchaseReceiptLine"][];
+            lines: components["schemas"]["ReceiptLineView"][];
+        };
+        /**
+         * @description One issued recharge. The resolved rule, the basis it was applied to, both
+         *     currencies and both FX snapshots travel together because an issued recharge is
+         *     never recomputed.
+         */
+        PurchaseRechargeView: {
+            /** Format: int64 */
+            basis_amount_minor: number;
+            basis_currency: string;
+            /** Format: int64 */
+            charge_amount_minor: number;
+            charge_currency: string;
+            charge_fx?: components["schemas"]["RechargeFxView"] | null;
+            /** Format: uuid */
+            client_id?: string | null;
+            cost_fx?: components["schemas"]["RechargeFxView"] | null;
+            /** Format: uuid */
+            cost_line_id?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            issued_at: string;
+            /** Format: uuid */
+            po_line_id: string;
+            /** Format: uuid */
+            project_id?: string | null;
+            /** Format: uuid */
+            purchase_order_id: string;
+            /** Format: uuid */
+            receipt_line_id: string;
+            rule: components["schemas"]["RechargeRule"];
+            /**
+             * @description `purchase_order | ticket | project | client | organisation` — the rung
+             *     that supplied the rule.
+             */
+            rule_source: string;
+            /** Format: uuid */
+            ticket_id?: string | null;
         };
         /**
          * @description The checkpoint cursor of a push session: what the server has committed
@@ -31097,7 +31904,7 @@ export interface components {
             /**
              * @description OMITTED (vs explicit empty) keeps the existing row's tags — a
              *     re-seal without a capabilities payload must not silently wipe the
-             *     capability enforcement data (Wave 18 lane 2b, item 4).
+             *     capability enforcement data.
              */
             capabilities?: string[] | null;
             /** Format: int32 */
@@ -31239,7 +32046,7 @@ export interface components {
             from_address?: string | null;
             from_name?: string | null;
             logo_url?: string | null;
-            /** @description The org's own greeting (Wave 42). */
+            /** @description The org's own greeting. */
             org_greeting?: string | null;
             postmark_base_url?: string | null;
             reply_to?: string | null;
@@ -31249,7 +32056,7 @@ export interface components {
             ses_region?: string | null;
             signature?: string | null;
             /**
-             * @description `allowed` | `org_locked` (Wave 42). Absent leaves the policy alone,
+             * @description `allowed` | `org_locked`. Absent leaves the policy alone,
              *     so an older client that does not know the key cannot reset it.
              */
             signature_policy?: string | null;
@@ -32036,6 +32843,16 @@ export interface components {
              */
             min_interval_secs: number;
         };
+        /**
+         * @description One receipt line's consequence, as the routing engine resolved it. The
+         *     destination class and the asset a line created are what let a reader follow
+         *     the chain from the purchase order to the unit the receipt created.
+         */
+        ReceiptLineView: components["schemas"]["PurchaseReceiptLine"] & {
+            destination_class: components["schemas"]["CustodyClass"];
+            /** Format: uuid */
+            device_asset_id?: string | null;
+        };
         ReceiptMutationResponse: {
             mutation: components["schemas"]["MutationMeta"];
             order: components["schemas"]["PurchaseOrderDetail"];
@@ -32044,6 +32861,16 @@ export interface components {
         /** @enum {string} */
         ReceiptState: "pending" | "partial" | "complete" | "over";
         ReceiveLineInput: {
+            /**
+             * @description The asset a line creates is typed by the line's layout. Its values are
+             *     supplied here, at the moment the asset is created, because a purchase
+             *     order line carries none: a layout can gain a required field after the
+             *     order is placed, and the placed line is not editable. They are validated
+             *     against the layout in force inside the receipt transaction, and every
+             *     unit the line creates carries them. An absent field stays out of the
+             *     idempotency fingerprint; an explicit `{}` is a different request.
+             */
+            asset_fields?: unknown;
             /** Format: uuid */
             line_id: string;
             /** Format: int64 */
@@ -32093,7 +32920,7 @@ export interface components {
              * Format: uuid
              * @description Optional ticket anchor. A return/restock of parts from a job carries
              *     the ticket so the movement lands on that ticket's timeline instead of
-             *     forcing a detour through the stock surfaces (Wave 32 lane 6).
+             *     forcing a detour through the stock surfaces.
              */
             ticket_id?: string | null;
             /**
@@ -32103,6 +32930,33 @@ export interface components {
              */
             unit_cost_minor?: number | null;
         };
+        RechargeFxView: {
+            /** Format: int64 */
+            base_amount_minor: number;
+            /** Format: date */
+            rate_date: string;
+            rate_used: string;
+            source: string;
+        };
+        /**
+         * @description The recharge rule in force for one line. The resolved rule is stored beside
+         *     the charge it produced, so a later policy change cannot rewrite an issued
+         *     recharge. All money is integer minor units and the percentage is basis
+         *     points, never a float.
+         */
+        RechargeRule: {
+            currency?: string | null;
+            /** Format: int64 */
+            fixed_minor?: number | null;
+            kind: components["schemas"]["RechargeRuleKind"];
+            /**
+             * Format: int32
+             * @description `markup_bps` only: 2000 = 20% above cost. 0 means at cost.
+             */
+            markup_bps?: number | null;
+        };
+        /** @enum {string} */
+        RechargeRuleKind: "at_cost" | "markup_bps" | "fixed" | "none";
         ReconciliationQuery: {
             /**
              * Format: date-time
@@ -32172,6 +33026,48 @@ export interface components {
             amount_minor?: number | null;
             bill_number?: string | null;
             currency?: string | null;
+        };
+        /** @description POST /api/ewaste/intakes/{id}/dispositions. */
+        RecordDispositionRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description Required for recycled, destroyed and transferred_to_partner: a
+             *     certificate reference or an attached document.
+             */
+            certificate_reference?: string | null;
+            disposed_at: string;
+            /** Format: uuid */
+            document_id?: string | null;
+            /** Format: uuid */
+            line_id: string;
+            /** @description Required for recycled and transferred_to_partner. */
+            partner_name?: string | null;
+            /**
+             * @description recycled | destroyed | resold | returned_to_client |
+             *     transferred_to_partner.
+             */
+            pathway: string;
+            /**
+             * Format: int64
+             * @description Whole grams; a unit line must carry its full weight.
+             */
+            weight_g: number;
+        };
+        /** @description POST /api/ewaste/intakes/{id}/events — store, move or handoff. */
+        RecordEventRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description store | move | handoff. Intake and disposition events are written by
+             *     the records that produce them.
+             */
+            event_kind: string;
+            /** Format: uuid */
+            line_id?: string | null;
+            location_note?: string | null;
+            notes?: string | null;
+            occurred_at?: string | null;
+            /** @description Required for handoff. */
+            partner_name?: string | null;
+            /** @description Required for store, move and handoff. */
+            storage_class?: string | null;
         };
         RecordPaymentRequest: components["schemas"]["MutationParams"] & {
             /**
@@ -32332,6 +33228,37 @@ export interface components {
              */
             html?: string | null;
             subject?: string | null;
+        };
+        RentalChargeView: {
+            /** Format: int64 */
+            amount_minor: number;
+            billed_at?: string | null;
+            /** Format: uuid */
+            contract_id: string;
+            currency: string;
+            /** Format: int64 */
+            days_billed: number;
+            description: string;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            invoice_id?: string | null;
+            /** Format: uuid */
+            invoice_line_id?: string | null;
+            /** @description rent | damage | loss */
+            kind: string;
+            /** Format: uuid */
+            loan_id: string;
+            /** Format: int64 */
+            period_days: number;
+            period_end: string;
+            period_start: string;
+            /** Format: uuid */
+            source_line_id?: string | null;
+            /** @description pending | billed */
+            status: string;
+            /** Format: int64 */
+            unit_amount_minor: number;
         };
         ReorderCategoriesRequest: components["schemas"]["MutationParams"] & {
             /** @description Category ids in their new display order. */
@@ -32647,7 +33574,7 @@ export interface components {
             window_days: number;
         };
         /**
-         * @description A stored report spec (the private build tracker R3). Every member is registry-validated;
+         * @description A stored report spec. Every member is registry-validated;
          *     see [`ReportSpec::validate`].
          */
         ReportSpec: {
@@ -32758,8 +33685,7 @@ export interface components {
          *     (typed read model; the raw row never carries the label).
          *
          *     A label is a READ OF THE TARGET, so it is present only when the
-         *     caller's own gate for the target's module passed (Wave 55 decision 3:
-         *     `design/qa-p55-link-labels`). A denied target keeps the link row and
+         *     caller's own gate for the target's module passed. A denied target keeps the link row and
          *     carries no title.
          */
         ResolvedLink: components["schemas"]["DocumentLink"] & {
@@ -33566,7 +34492,7 @@ export interface components {
         };
         /**
          * @description Workload mix over APPROVED time entries only — drafts and rejected
-         *     entries are never scorecard truth (Wave 14 lane-1 approval contract).
+         *     entries are never scorecard truth (approval contract).
          */
         ScorecardWorkload: {
             /** Format: int64 */
@@ -33737,7 +34663,7 @@ export interface components {
             value: string;
         };
         /**
-         * @description PATCH field entry (A5, Wave 16 lane 9): `value: null` CLEARS the
+         * @description PATCH field entry (A5): `value: null` CLEARS the
          *     sealed field (row deleted, audited via the record-updated event);
          *     a value rotates the sealed ciphertext.
          */
@@ -33846,7 +34772,7 @@ export interface components {
             org_id?: string | null;
             /**
              * Format: date-time
-             * @description Operator-scheduled rotation due date (Wave 19 lane 3) — additive
+             * @description Operator-scheduled rotation due date — additive
              *     on 0078's record shape; the worker sweep reminds once past it.
              */
             rotate_at?: string | null;
@@ -33964,8 +34890,7 @@ export interface components {
             otel_metrics?: string | null;
             tempo?: string | null;
             /**
-             * @description Uptime Kuma's status-page UI (Wave 34 claims close-out: the section
-             *     2 observability row that had not shipped). Same link-out shape as
+             * @description Uptime Kuma's status-page UI. Same link-out shape as
              *     Grafana — a standalone operator UI in the observability profile
              *     that Marula never reads from, so the pane can only offer the link
              *     and never report on it.
@@ -34075,7 +35000,7 @@ export interface components {
         SetChecklistItemRequest: components["schemas"]["MutationParams"] & {
             checked: boolean;
             /**
-             * @description Shared not-applicable state (Wave 12 lane 6): `true` marks the item
+             * @description Shared not-applicable state: `true` marks the item
              *     N-A as ORG-WIDE server truth and clears the checkmark (the states
              *     are mutually exclusive; checked semantics are untouched for callers
              *     that omit it — legacy payloads default to `false` and behave
@@ -34084,7 +35009,7 @@ export interface components {
              */
             na?: boolean;
             /**
-             * @description Server-composed ledger reason (Wave 17 lane 11, §5.1): MANDATORY
+             * @description Server-composed ledger reason: MANDATORY
              *     (non-empty, ≤2000 chars) when this call sets N-A (na: true) or
              *     reverses a terminal state (reopen); ignored for plain checks. The
              *     reason text lands in the ledger as the auto-appended internal note
@@ -34101,7 +35026,7 @@ export interface components {
              */
             domain: string;
         };
-        /** @description POST response: exactly the three fields the private build tracker A8 (B) names. */
+        /** @description POST response: exactly the three fields the DNS check reports. */
         SetCustomDomainResponse: {
             domain: string;
             instructions: components["schemas"]["CustomDomainInstructions"];
@@ -34114,6 +35039,16 @@ export interface components {
              *     must not create a cycle (typed 422 names the offending edge).
              */
             depends_on: string[];
+        };
+        /** @description POST /api/ewaste/intakes/{id}/lines/{line_id}/destruction. */
+        SetDestructionRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * Format: uuid
+             * @description The destruction certificate, when there is one to attach.
+             */
+            document_id?: string | null;
+            /** @description pending | completed | not_required. */
+            status: string;
         };
         SetEmailVerifiedRequest: {
             /** @description true = admin-stamped verification; false = revokes the stamp. */
@@ -35006,12 +35941,12 @@ export interface components {
              */
             session_id?: string | null;
             /**
-             * @description Typed unbillable reason (Wave 39 V3) — required by validation
+             * @description Typed unbillable reason — required by validation
              *     when `billable` is false.
              */
             unbillable_reason?: string | null;
             /**
-             * @description Category slug (Wave 39 V5): keys onto the org's time_categories
+             * @description Category slug: keys onto the org's time_categories
              *     taxonomy; additive — legacy clients omit it and the entry stays
              *     honestly unclassified.
              */
@@ -35130,7 +36065,7 @@ export interface components {
             /** @description Label shown in the automations editor. */
             label: string;
             /**
-             * @description A2 (Wave 43 lane 13, `p43-node-registry`): what the action
+             * @description A2: what the action
              *     RETURNS. Before this field a workflow could call a plugin action
              *     but could not use what came back, which made a plugin node a
              *     dead end for every downstream condition and reference.
@@ -35171,7 +36106,7 @@ export interface components {
             schema: unknown;
         };
         /**
-         * @description One declared READ node (Wave 43 lane 4, ADR 0017 §5).
+         * @description One declared READ node (ADR 0017 §5).
          *
          *     `automation_action` is write-shaped, so before this kind a workflow
          *     could not FETCH from an external system at all — which is exactly the
@@ -35205,7 +36140,7 @@ export interface components {
              */
             id: string;
             /**
-             * @description A2 (Wave 43 lane 13): repeating-safety. False by default — a read
+             * @description A2: repeating-safety. False by default — a read
              *     is rate-capped precisely because a loop over devices is cheap to
              *     write, and retrying one is the same loop.
              */
@@ -35241,7 +36176,7 @@ export interface components {
          */
         SurfaceSlot: "dashboard" | "ticket_pane";
         /**
-         * @description One declared TRIGGER source (Wave 43 lane 4, ADR 0017 §3): the event
+         * @description One declared TRIGGER source (ADR 0017 §3): the event
          *     type a plugin emits, which a rule can then fire on.
          *
          *     The trigger is a DECLARATION, not a dispatcher. It names the type it
@@ -35807,7 +36742,7 @@ export interface components {
             id: string;
             /**
              * Format: uuid
-             * @description Merge marker (Wave 11 lane 9): the survivor this ticket folded
+             * @description Merge marker: the survivor this ticket folded
              *     into, when it was absorbed by a merge. The row stays queryable
              *     (doctrine #9) but is closed and never re-opened.
              */
@@ -35827,7 +36762,7 @@ export interface components {
             title: string;
             /**
              * Format: uuid
-             * @description Classification (Wave 11 lane 3; read-view exposure Wave 12 lane 6):
+             * @description Classification:
              *     the org taxonomy nodes carried on the ticket. PATCH accepts them;
              *     the read view now returns them so ticket detail can display the
              *     current classification. Purely descriptive — classification-only
@@ -35890,8 +36825,7 @@ export interface components {
             /** Format: date-time */
             updated_at?: string | null;
             /**
-             * @description Server-composed workflow-note provenance (Wave 17 lane 11,
-             *     migration 0080): `{kind, auto, item_ids}` on notes the server
+             * @description Server-composed workflow-note provenance: `{kind, auto, item_ids}` on notes the server
              *     appended for task-state transitions; NULL/unsent for every
              *     user-written note. Machine marking lives HERE, never in body text
              *     (spoofable, unqueryable). Additive-only contract: absent keys
@@ -36030,7 +36964,7 @@ export interface components {
             /** Format: uuid */
             client_id?: string | null;
             /**
-             * @description Keyset cursor (Wave 15 lane 3): the opaque `x-next-cursor` value
+             * @description Keyset cursor: the opaque `x-next-cursor` value
              *     from the previous page's last row. Resumes the ranked list
              *     strictly after that row — deep pages stop paying O(offset) scan
              *     cost (docs/perf.md F2). When present, `offset` is ignored.
@@ -36047,7 +36981,7 @@ export interface components {
             offset?: number;
             priority?: components["schemas"]["Priority"] | null;
             /**
-             * @description Comma-separated tag ids (Wave 11 lane 9): AND semantics — tickets
+             * @description Comma-separated tag ids: AND semantics — tickets
              *     must carry every listed tag.
              */
             tags?: string | null;
@@ -36203,7 +37137,7 @@ export interface components {
         TicketWithFields: components["schemas"]["Ticket"] & {
             custom_fields: components["schemas"]["TicketCustomFieldValue"][];
             /**
-             * @description The ticket's site zone, when the site names one (Wave 50 lane T2).
+             * @description The ticket's site zone, when the site names one.
              *
              *     The record-zone chain is site → org default → UTC, and the server ships
              *     the site's raw value only: the org default is the registry setting
@@ -36236,7 +37170,7 @@ export interface components {
          */
         TimeApprovalAction: "submitted" | "approved" | "rejected" | "reopened" | "fixed";
         /**
-         * @description An org's semantic time category (Wave 39 V4). Entries key their
+         * @description An org's semantic time category. Entries key their
          *     `work_type` column onto `slug`; the T&M rate card keys
          *     `contract_rates.work_type` onto the same slugs. Renames change the
          *     label only — slugs are stable forever.
@@ -36356,7 +37290,7 @@ export interface components {
             /**
              * Format: uuid
              * @description The ticket this entry bills through. `None` ONLY on project-scoped
-             *     entries (Wave 39 lane 4, report P5): the entry scopes to
+             *     entries: the entry scopes to
              *     [`phase_id`](Self::phase_id) instead and bills through the phase
              *     project's linked contract — project work pays without a ticket
              *     detour. Exactly one of (ticket_id, phase_id) is present; the DB
@@ -36378,7 +37312,7 @@ export interface components {
             work_type?: string | null;
         };
         /**
-         * @description One verification edit on one entry's billed minutes (Wave 39 V2).
+         * @description One verification edit on one entry's billed minutes.
          *     Additive-ledger: the original entry row is never rewritten for
          *     billing — the run sums `(entry.minutes + Σ delta_minutes)`. The
          *     signed delta is ≤ 0 (verification can only reduce or zero); the
@@ -36458,7 +37392,7 @@ export interface components {
             ticket?: components["schemas"]["TimeEntryTicketRef"] | null;
             /**
              * @description The zone the person who did the work was in when they did it — the
-             *     record's clock for this entry (Wave 50 lane T2). The approver reads
+             *     record's clock for this entry. The approver reads
              *     their own clock in the row; this is the one the member logged against,
              *     and it is what the daily totals are grouped by. Absent when the member
              *     row is gone.
@@ -36479,7 +37413,7 @@ export interface components {
             title: string;
         };
         /**
-         * @description Closed rejection vocabulary (Wave 14 lane 1): approvers reject with a
+         * @description Closed rejection vocabulary: approvers reject with a
          *     machine-readable reason code, never prose-only. `other` may carry the
          *     free-text explanation on the decision record.
          * @enum {string}
@@ -36826,7 +37760,7 @@ export interface components {
         TravelDraftView: {
             /**
              * Format: uuid
-             * @description Wave 32 lane 7: the planned appointment this trip reconciles
+             * @description The planned appointment this trip reconciles
              *     against, when linked.
              */
             appointment_id?: string | null;
@@ -36841,7 +37775,7 @@ export interface components {
             ended_at: string;
             /**
              * Format: uuid
-             * @description Wave 32 lane 7: the expense this draft's mileage produced, once
+             * @description The expense this draft's mileage produced, once
              *     reimbursed.
              */
             expense_id?: string | null;
@@ -36863,8 +37797,7 @@ export interface components {
             vehicle: string;
         };
         /**
-         * @description The resolved journey start point a travel estimate ran from (Wave 32
-         *     lane 7). Snapshotted onto the appointment so the estimate stays
+         * @description The resolved journey start point a travel estimate ran from. Snapshotted onto the appointment so the estimate stays
          *     explainable after the start point or the site changes.
          */
         TravelOrigin: {
@@ -37283,12 +38216,31 @@ export interface components {
             icon?: string;
             name: string;
         };
+        /**
+         * @description PATCH /api/purchase-orders/{id}/lines/{line_id} body: the patch plus the
+         *     instant-first mutation parameters.
+         */
+        UpdateOrderLineRequest: components["schemas"]["OrderLinePatch"] & components["schemas"]["MutationParams"];
+        /**
+         * @description Every `Option<Option<T>>` field skips serialization when the outer option is
+         *     `None`, while `Some(None)` still serializes as an explicit `null`. The
+         *     idempotency fingerprint is that serialized body, so "keep this value" and
+         *     "clear it" cannot share a key.
+         */
         UpdateOrderRequest: components["schemas"]["MutationParams"] & {
+            acquired_for?: components["schemas"]["AcquiredFor"] | null;
+            /** Format: uuid */
+            client_id?: string | null;
+            delivery_mode?: components["schemas"]["DeliveryMode"] | null;
             /** Format: date */
             expected_at?: string | null;
             notes?: string | null;
+            ownership?: components["schemas"]["Ownership"] | null;
             /** Format: uuid */
             project_id?: string | null;
+            recharge_rule?: components["schemas"]["RechargeRule"] | null;
+            /** Format: uuid */
+            ticket_id?: string | null;
             vendor_reference?: string | null;
         };
         /**
@@ -37316,7 +38268,7 @@ export interface components {
             notes?: string | null;
             /**
              * Format: date-time
-             * @description Rotation schedule (Wave 19 lane 3): absent = keep; null = clear;
+             * @description Rotation schedule: absent = keep; null = clear;
              *     instant = set (stamps last_rotated_at in the same write).
              */
             rotate_at?: string | null;
@@ -37343,7 +38295,7 @@ export interface components {
             consent_diff: components["schemas"]["ConsentDiffView"];
             /**
              * @description The credential bindings this consent would CLEAR, by profile name
-             *     (Wave 53 lane 12).
+             *     .
              *
              *     `outbound_scopes` is manifest-declared, so the same profile name in the
              *     next version can allowlist a different host. A binding that outlived
@@ -37454,7 +38406,7 @@ export interface components {
             conditions?: unknown;
             enabled?: boolean | null;
             name?: string | null;
-            /** @description Replaces the subject declaration (Wave 43 lane 3). */
+            /** @description Replaces the subject declaration. */
             subject_kind?: string | null;
             trigger_event?: string | null;
         };
@@ -37495,7 +38447,7 @@ export interface components {
             fields?: components["schemas"]["SecretFieldValuePatch"][];
             /**
              * Format: date-time
-             * @description Rotation schedule (Wave 19 lane 3): absent = keep; null = clear;
+             * @description Rotation schedule: absent = keep; null = clear;
              *     instant = set (stamps last_rotated_at in the same write).
              */
             rotate_at?: string | null;
@@ -37535,7 +38487,7 @@ export interface components {
         UpdateStatusRequest: {
             category?: components["schemas"]["TicketStatusCategory"] | null;
             /**
-             * @description Wave 41 lane 12: whether the portal shows this status's own label to a
+             * @description Whether the portal shows this status's own label to a
              *     client. Absent = unchanged.
              */
             client_visible?: boolean | null;
@@ -37838,6 +38790,73 @@ export interface components {
         VendorMutationResponse: components["schemas"]["Vendor"] & {
             mutation: components["schemas"]["MutationMeta"];
         };
+        VendorRentalAssetRequest: {
+            /** @description device | server | ... (free text, as on every asset). */
+            kind?: string;
+            name: string;
+            tag: string;
+        };
+        VendorRentalListQuery: {
+            /**
+             * Format: int64
+             * @description Page size. Must be at least 1; absent uses the module limit and larger
+             *     values are capped. A value below 1 is a 422.
+             */
+            limit?: number | null;
+            /** @description open | returned (absent = both). */
+            status?: string | null;
+        };
+        VendorRentalMutationResponse: {
+            mutation: components["schemas"]["MutationMeta"];
+            rental: components["schemas"]["VendorRentalView"];
+        };
+        VendorRentalReturnRequest: components["schemas"]["MutationParams"] & {
+            /** Format: int64 */
+            damage_minor?: number | null;
+            /** Format: int64 */
+            loss_minor?: number | null;
+            lost?: boolean;
+            notes?: string | null;
+            /** @description good | fair | damaged — required unless the unit was lost. */
+            return_condition?: string | null;
+        };
+        VendorRentalView: {
+            agreement_ref?: string | null;
+            /**
+             * Format: int64
+             * @description The cycle cost in the organisation base currency, locked when it was
+             *     written. Absent when the cost is already in the base currency.
+             */
+            base_cost_minor?: number | null;
+            /** Format: int64 */
+            cost_minor: number;
+            created_at: string;
+            currency: string;
+            cycle: string;
+            /** Format: int64 */
+            damage_minor?: number | null;
+            deposit_currency?: string | null;
+            /** Format: int64 */
+            deposit_minor?: number | null;
+            /** Format: uuid */
+            device_asset_id: string;
+            end_on?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: int64 */
+            loss_minor?: number | null;
+            lost: boolean;
+            notes?: string | null;
+            return_condition?: string | null;
+            returned_at?: string | null;
+            start_on: string;
+            /** @description open | returned */
+            status: string;
+            updated_at: string;
+            /** Format: uuid */
+            vendor_id?: string | null;
+            vendor_name?: string | null;
+        };
         VerdictResponse: {
             /**
              * @description False when the ledger had already recorded this fire (idempotent
@@ -37941,8 +38960,7 @@ export interface components {
             /**
              * Format: uuid
              * @description Stable grouping key: the ticket id, or the phase id for
-             *     project-scoped entries (Wave 39 lane 4 gave entries a second
-             *     parent, so a phase group has no ticket number).
+             *     project-scoped entries.
              */
             group_id: string;
             /** @description Human label: ticket number, else "Project / phase". */
@@ -38158,6 +39176,20 @@ export interface components {
             paused_at?: string | null;
             paused_reason?: string | null;
             url: string;
+        };
+        /**
+         * @description The intake's weight accounting: everything received, everything that has a
+         *     pathway, and what is left. `remaining_g` must reach zero before the intake
+         *     closes.
+         */
+        WeightBalance: {
+            by_pathway: components["schemas"]["PathwayWeight"][];
+            /** Format: int64 */
+            remaining_g: number;
+            /** Format: int64 */
+            total_in_g: number;
+            /** Format: int64 */
+            total_out_g: number;
         };
         /**
          * @description WIP-cap patch input (0089): `Default` (field absent) = unchanged;
@@ -43561,6 +44593,34 @@ export interface operations {
             };
         };
     };
+    client_loans_charges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RentalChargeView"][];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     client_loans_return: {
         parameters: {
             query?: never;
@@ -48945,6 +50005,347 @@ export interface operations {
             };
             /** @description per-user connection cap reached; reconnect later */
             429: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_list_dispositions: {
+        parameters: {
+            query?: {
+                client_id?: string | null;
+                pathway?: string | null;
+                from?: string | null;
+                to?: string | null;
+                limit?: number | null;
+                /**
+                 * @description Keyset cursor: the three fields of the last row on the previous page.
+                 *     Pass all three or none.
+                 */
+                cursor_disposed_at?: string | null;
+                cursor_created_at?: string | null;
+                cursor_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EwasteDisposition"][];
+                };
+            };
+        };
+    };
+    ewaste_list_intakes: {
+        parameters: {
+            query?: {
+                /** @description open | closed. */
+                status?: string | null;
+                client_id?: string | null;
+                limit?: number | null;
+                /** @description Keyset cursor: the last row's `received_at` and `id`, together. */
+                cursor_received_at?: string | null;
+                cursor_id?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeSummary"][];
+                };
+            };
+        };
+    };
+    ewaste_create_intake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateIntakeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeMutationResponse"];
+                };
+            };
+            /** @description client, site, ticket or document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description idempotency key reused or intake reference taken */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description line rejected */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_get_intake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeDetailResponse"];
+                };
+            };
+            /** @description intake not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_close_intake: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["CloseIntakeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeMutationResponse"];
+                };
+            };
+            /** @description intake not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description weight remains, destruction pending, or already closed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_record_disposition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordDispositionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeMutationResponse"];
+                };
+            };
+            /** @description intake, line or document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description destruction pending, weight overdraw, unit already disposed, or intake closed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown pathway or missing certificate/partner */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_record_event: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordEventRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeMutationResponse"];
+                };
+            };
+            /** @description intake or its client not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the intake is closed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unknown event kind or missing storage class */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_add_line: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AddLineRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeMutationResponse"];
+                };
+            };
+            /** @description intake or its client not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the intake is closed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    ewaste_set_destruction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+                line_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetDestructionRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IntakeMutationResponse"];
+                };
+            };
+            /** @description intake, line or document not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the intake is closed or the line is not data-bearing */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -60089,7 +61490,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["AddOrderLineRequest"];
+                "application/json": components["schemas"]["UpdateOrderLineRequest"];
             };
         };
         responses: {
@@ -60248,6 +61649,41 @@ export interface operations {
             };
             /** @description serial numbers inconsistent with the received quantity */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    purchase_orders_recharges: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseRechargeView"][];
+                };
+            };
+            /** @description the caller cannot read financials */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description order not visible in scope */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -65266,6 +66702,118 @@ export interface operations {
             };
         };
     };
+    stock_pool_list: {
+        parameters: {
+            query?: {
+                /** @description Only units no open agreement holds. */
+                available_only?: boolean | null;
+                /** @description Page size, at least 1 (absent or out of range is clamped). */
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolUnitView"][];
+                };
+            };
+        };
+    };
+    stock_pool_commission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolMoveRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolMutationResponse"];
+                };
+            };
+            /** @description unit not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unit not in sale stock, or held by an open agreement */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_pool_decommission: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PoolMoveRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PoolMutationResponse"];
+                };
+            };
+            /** @description unit not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description unit not in the pool, or held by an open agreement */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     stock_receive: {
         parameters: {
             query?: never;
@@ -66143,14 +67691,14 @@ export interface operations {
                 category?: components["schemas"]["TicketStatusCategory"] | null;
                 priority?: components["schemas"]["Priority"] | null;
                 /**
-                 * @description Comma-separated tag ids (Wave 11 lane 9): AND semantics — tickets
+                 * @description Comma-separated tag ids: AND semantics — tickets
                  *     must carry every listed tag.
                  */
                 tags?: string | null;
                 limit?: number;
                 offset?: number;
                 /**
-                 * @description Keyset cursor (Wave 15 lane 3): the opaque `x-next-cursor` value
+                 * @description Keyset cursor: the opaque `x-next-cursor` value
                  *     from the previous page's last row. Resumes the ranked list
                  *     strictly after that row — deep pages stop paying O(offset) scan
                  *     cost (docs/perf.md F2). When present, `offset` is ignored.
@@ -69080,6 +70628,151 @@ export interface operations {
                 };
             };
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendor_rentals_list: {
+        parameters: {
+            query?: {
+                /** @description open | returned (absent = both). */
+                status?: string | null;
+                /**
+                 * @description Page size. Must be at least 1; absent uses the module limit and larger
+                 *     values are capped. A value below 1 is a 422.
+                 */
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorRentalView"][];
+                };
+            };
+            /** @description validation failure (limit below 1) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendor_rentals_create: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateVendorRentalRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorRentalMutationResponse"];
+                };
+            };
+            /** @description vendor or asset not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the unit is not rental_in gear, or is already on an open rental */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendor_rentals_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorRentalView"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    vendor_rentals_return: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["VendorRentalReturnRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VendorRentalMutationResponse"];
+                };
+            };
+            /** @description not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description already closed, or an incomplete return */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

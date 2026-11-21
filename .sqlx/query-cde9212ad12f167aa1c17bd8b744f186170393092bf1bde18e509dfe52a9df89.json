@@ -1,0 +1,46 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT landed_cost_mode, recharge_rule_kind, recharge_markup_bps,\n                  recharge_fixed_minor, recharge_currency\n           FROM orgs WHERE id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "landed_cost_mode",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "recharge_rule_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "recharge_markup_bps",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "recharge_fixed_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 4,
+        "name": "recharge_currency",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "cde9212ad12f167aa1c17bd8b744f186170393092bf1bde18e509dfe52a9df89"
+}

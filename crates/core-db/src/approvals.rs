@@ -1,4 +1,4 @@
-//! Time-entry approval workflows (Wave 14 lane 1): submit → decide →
+//! Time-entry approval workflows: submit → decide →
 //! approve/reject over the `approval_*` columns on `time_entries`, with an
 //! append-only decision trail in `time_entry_approvals` (per-entry
 //! monotonic `seq`).

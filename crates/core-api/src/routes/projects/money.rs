@@ -52,7 +52,7 @@ impl PhaseBurnView {
     }
 }
 
-/// GET /api/projects/{id}/phase-burn — the burn read model (report P3):
+/// GET /api/projects/{id}/phase-burn — the burn read model:
 /// consumed approved billable minutes and card-priced value per phase
 /// against the phase's budget, with a typed alert state: `none`, then
 /// `warn` from 80 percent, then `over` from 100 percent. Without

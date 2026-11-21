@@ -114,6 +114,15 @@ pub fn routes(gen: ApiGeneration) -> Router<AppState> {
             post(set_thresholds_route),
         )
         .route(&format!("{base}/stock/receive"), post(receive))
+        .route(&format!("{base}/stock/pool"), get(list_pool))
+        .route(
+            &format!("{base}/stock/pool/commission"),
+            post(commission_pool),
+        )
+        .route(
+            &format!("{base}/stock/pool/decommission"),
+            post(decommission_pool),
+        )
         .route(&format!("{base}/stock/consume"), post(consume))
         .route(&format!("{base}/stock/adjust"), post(adjust))
         .route(&format!("{base}/stock/transfer"), post(transfer))
@@ -1435,6 +1444,7 @@ pub async fn archive_item(
 /// Shared leg body: claim → item load → ledger append + consequence →
 /// low-stock notification + events + audit → instant record. One commit
 /// per call; the traceability row is written exactly once.
+#[allow(clippy::too_many_arguments)]
 async fn ledger_apply(
     state: AppState,
     extensions: Extensions,
@@ -1443,6 +1453,12 @@ async fn ledger_apply(
     key: Option<String>,
     m: core_domain::entities::StockMovement,
     serial_number: Option<String>,
+    // `sale_side_serial` is the unit a sale-side withdrawal takes out, when
+    // there is one. The custody recheck runs in this transaction, against a
+    // locked row, so a commission that lands between a preflight read and the
+    // write cannot be missed. Pool issue and the other legs pass None: a `loan`
+    // movement is allowed to move a `rental_out` unit.
+    sale_side_serial: Option<Uuid>,
 ) -> ApiResult<Json<MovementMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
@@ -1496,6 +1512,28 @@ async fn ledger_apply(
                     movement.fx_source = Some(snap.source);
                     movement.base_cost_minor = Some(snap.base_amount_minor);
                 }
+            }
+        }
+
+        // A withdrawal takes a unit out of saleable stock, and a pool unit is
+        // not saleable. Lock the serial here, in the writing transaction, and
+        // read its class under that lock: the class-movement trigger takes the
+        // same row lock, so a commission either commits before this read or
+        // waits for this write.
+        if let Some(serial_id) = sale_side_serial {
+            let class = sqlx::query_scalar!(
+                r#"SELECT custody_class AS "custody_class!" FROM stock_serials
+                    WHERE org_id = $1 AND id = $2 FOR UPDATE"#,
+                org_id,
+                serial_id
+            )
+            .fetch_optional(&mut *ctx.tx)
+            .await?;
+            if class.as_deref() == Some("rental_out") {
+                return Err(ApiError::Conflict(
+                    "that unit is in the rental pool; decommission it before withdrawing it as sale stock"
+                        .into(),
+                ));
             }
         }
 
@@ -1688,6 +1726,7 @@ pub async fn receive(
         req.instant.idempotency_key.clone(),
         movement,
         serial_number,
+        None,
     )
     .await
 }
@@ -1780,6 +1819,7 @@ pub async fn consume(
         req.instant.idempotency_key.clone(),
         movement,
         None,
+        req.serial_id,
     )
     .await
 }
@@ -1855,6 +1895,7 @@ pub async fn adjust(
         req.instant.idempotency_key.clone(),
         movement,
         None,
+        None,
     )
     .await
 }
@@ -1916,6 +1957,7 @@ pub async fn transfer(
         fingerprint,
         req.instant.idempotency_key.clone(),
         movement,
+        None,
         None,
     )
     .await
@@ -1988,6 +2030,7 @@ pub async fn ship_out(
         key,
         movement,
         None,
+        req.serial_id,
     )
     .await
 }
@@ -2092,9 +2135,14 @@ pub async fn on_hand(
         org_id,
         q.item_id,
         q.location_id,
-        q.limit.unwrap_or(LIST_LIMIT).min(LIST_LIMIT),
+        q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
     )
     .await?;
+
+    // `stock_levels` is the one definition of saleable quantity: a pool unit is
+    // taken off the shelf's quantity when it is commissioned and put back when
+    // it is decommissioned, so the read and the write agree and a pool unit is
+    // never subtracted twice.
 
     let mut items: std::collections::HashMap<Uuid, (String, String, String)> =
         std::collections::HashMap::new();
@@ -2179,7 +2227,7 @@ pub async fn consumption_velocity_route(
         &mut tx,
         org_id,
         window_days.clamp(1, 365) as i32,
-        q.limit.unwrap_or(LIST_LIMIT).min(LIST_LIMIT),
+        q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
     )
     .await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -2245,7 +2293,7 @@ pub async fn item_movements(
         &mut tx,
         authed.principal.user.org_id,
         id,
-        q.limit.unwrap_or(LIST_LIMIT).min(LIST_LIMIT),
+        q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
     )
     .await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -2297,7 +2345,7 @@ pub async fn ticket_movements(
         &mut tx,
         authed.principal.user.org_id,
         id,
-        q.limit.unwrap_or(LIST_LIMIT).min(LIST_LIMIT),
+        q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
     )
     .await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -2341,7 +2389,7 @@ pub async fn item_serials(
         id,
         q.location_id,
         q.status.as_deref(),
-        q.limit.unwrap_or(LIST_LIMIT).min(LIST_LIMIT),
+        q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
     )
     .await?;
     tx.commit().await.map_err(ApiError::from)?;
@@ -2381,4 +2429,357 @@ impl From<core_domain::entities::StockSerial> for StockSerialView {
             updated_at: s.updated_at,
         }
     }
+}
+
+// --- the rental pool -----------------------------------------------------------
+//
+// Owned rental gear is its own class (ADR 0035 §4.1). These two legs are class
+// movements, not quantity movements: commission takes a sale-stock unit out of
+// saleable quantity and puts it in the pool, decommission puts it back. The
+// ledger trigger does the refusing — a unit on an open client agreement, vendor
+// rental, tool checkout or ticket cannot move — so the route only has to name
+// the unit, the grade, and the wipe evidence when the device stores data.
+
+/// POST /api/stock/pool/commission or /api/stock/pool/decommission.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct PoolMoveRequest {
+    /// One projection of the unit; exactly one of the two ids.
+    #[serde(default)]
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub serial_id: Option<Uuid>,
+    #[serde(default)]
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub device_asset_id: Option<Uuid>,
+    /// good | fair | damaged.
+    pub condition_grade: String,
+    /// Whether the device stores data. The caller must answer: an omitted value
+    /// is not "no data", it is an unasked question, and the schema has no
+    /// unit-level field to fall back on. A true answer requires the wipe
+    /// reference, because a pool move that launders a laptop with somebody's
+    /// data still on it is the one thing this leg must not do silently.
+    pub stores_data: Option<bool>,
+    #[serde(default)]
+    pub data_wipe_ref: Option<String>,
+    #[serde(default)]
+    pub note: Option<String>,
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct PoolMoveView {
+    #[schema(value_type = uuid::Uuid)]
+    pub movement_id: Uuid,
+    /// serial | asset
+    pub unit_kind: String,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub serial_id: Option<Uuid>,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub device_asset_id: Option<Uuid>,
+    pub from_class: String,
+    pub to_class: String,
+    pub condition_grade: Option<String>,
+    #[schema(nullable = true)]
+    pub data_wipe_ref: Option<String>,
+    #[schema(value_type = String)]
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PoolMutationResponse {
+    pub movement: PoolMoveView,
+    pub mutation: instant::MutationMeta,
+}
+
+/// One unit in the pool, with availability derived from the agreements that
+/// hold it.
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct PoolUnitView {
+    /// serial | asset
+    pub unit_kind: String,
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    /// The serial number, or the asset tag when the unit has no serial row.
+    pub label: String,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub stock_item_id: Option<Uuid>,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub device_asset_id: Option<Uuid>,
+    pub available: bool,
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
+pub struct PoolListQuery {
+    /// Only units no open agreement holds.
+    #[serde(default)]
+    pub available_only: Option<bool>,
+    /// Page size, at least 1 (absent or out of range is clamped).
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+fn pool_unit_from_request(req: &PoolMoveRequest) -> ApiResult<core_db::loans::PoolUnit> {
+    match (req.serial_id, req.device_asset_id) {
+        (Some(id), None) => Ok(core_db::loans::PoolUnit {
+            side: core_db::loans::UnitSide::Serial,
+            id,
+        }),
+        (None, Some(id)) => Ok(core_db::loans::PoolUnit {
+            side: core_db::loans::UnitSide::Asset,
+            id,
+        }),
+        _ => Err(ApiError::Validation(
+            "name exactly one unit: serial_id or device_asset_id".into(),
+        )),
+    }
+}
+
+/// POST /api/stock/pool/commission — sale stock into the rental pool.
+#[utoipa::path(
+    operation_id = "stock_pool_commission",
+    post,
+    path = "/api/stock/pool/commission",
+    tag = "commercial",
+    security(("bearer" = [])),
+    request_body = PoolMoveRequest,
+    responses(
+        (status = 200, body = PoolMutationResponse),
+        (status = 404, description = "unit not visible in scope"),
+        (status = 409, description = "unit not in sale stock, or held by an open agreement"),
+        (status = 422, description = "validation failure")
+    )
+)]
+pub async fn commission_pool(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: Extensions,
+    axum::extract::Json(req): axum::extract::Json<PoolMoveRequest>,
+) -> ApiResult<Json<PoolMutationResponse>> {
+    pool_apply(state, extensions, "commission", true, req).await
+}
+
+/// POST /api/stock/pool/decommission — the rental pool back into sale stock.
+#[utoipa::path(
+    operation_id = "stock_pool_decommission",
+    post,
+    path = "/api/stock/pool/decommission",
+    tag = "commercial",
+    security(("bearer" = [])),
+    request_body = PoolMoveRequest,
+    responses(
+        (status = 200, body = PoolMutationResponse),
+        (status = 404, description = "unit not visible in scope"),
+        (status = 409, description = "unit not in the pool, or held by an open agreement"),
+        (status = 422, description = "validation failure")
+    )
+)]
+pub async fn decommission_pool(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: Extensions,
+    axum::extract::Json(req): axum::extract::Json<PoolMoveRequest>,
+) -> ApiResult<Json<PoolMutationResponse>> {
+    pool_apply(state, extensions, "decommission", false, req).await
+}
+
+async fn pool_apply(
+    state: AppState,
+    extensions: Extensions,
+    op: &'static str,
+    commission: bool,
+    req: PoolMoveRequest,
+) -> ApiResult<Json<PoolMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    // Same pair every other stock mutation path requires: the module action
+    // plus the stock movement permission. A pool leg is a stock write.
+    require_permission(&authed.principal, commercial(Action::Edit))?;
+    require_permission(&authed.principal, Permission::MoveStock)?;
+    let unit = pool_unit_from_request(&req)?;
+    let grade = req.condition_grade.trim();
+    if !core_domain::entities::is_valid_return_condition(grade) {
+        return Err(ApiError::Validation(
+            "condition_grade must be one of: good, fair, damaged".into(),
+        ));
+    }
+    let wipe = req
+        .data_wipe_ref
+        .as_deref()
+        .map(str::trim)
+        .filter(|w| !w.is_empty());
+    // An omitted answer is not a "no". The system has no unit-level data-bearing
+    // field to check, so the operator's answer is the only signal there is, and
+    // it has to be given on every pool move.
+    let Some(stores_data) = req.stores_data else {
+        return Err(ApiError::Validation(
+            "answer stores_data on a pool move: true or false decides whether the unit needs wipe evidence"
+                .into(),
+        ));
+    };
+    if stores_data && wipe.is_none() {
+        return Err(ApiError::Validation(
+            "a device that stores data needs its wipe evidence before it moves".into(),
+        ));
+    }
+    if wipe.is_some_and(|w| w.chars().count() > 200) {
+        return Err(ApiError::Validation(
+            "data_wipe_ref must be at most 200 characters".into(),
+        ));
+    }
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    // The key is claimed on the movement family, and a commission and a
+    // decommission are different operations against it: the fingerprint carries
+    // the op so reusing a key across the two is a key-reuse refusal, not a
+    // replay of the other operation's answer.
+    let fingerprint = serde_json::json!({ "op": op, "request": &req });
+    let key = req.instant.idempotency_key.clone();
+    let core_req = core_db::loans::PoolMoveRequest {
+        unit,
+        condition_grade: grade.to_string(),
+        data_wipe_ref: wipe.map(str::to_string),
+        note: req.note.clone(),
+    };
+
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "inventory_class_movement",
+                entity_id: None,
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let movement = if commission {
+            core_db::loans::commission_to_pool(&mut ctx.tx, org_id, user_id, &core_req).await
+        } else {
+            core_db::loans::decommission_from_pool(&mut ctx.tx, org_id, user_id, &core_req).await
+        }
+        .map_err(|e| instant::mutation_scope_err(ApiError::from(e)))?;
+
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "inventory_class_movement",
+                entity_id: movement.id,
+                // A pool move creates its movement row; there is no prior
+                // version of this id for `If-Match` to guard. The version token
+                // therefore guards nothing here and is not consulted: a replay
+                // is the idempotency key's job, and the unit itself is guarded
+                // by the class trigger, not by an ETag.
+                version: None,
+            },
+        )
+        .await?;
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: Actor::Human(user_id),
+                action: format!("stock.pool_{op}"),
+                entity_type: Some("inventory_class_movement".into()),
+                entity_id: Some(movement.id.to_string()),
+                detail: serde_json::json!({
+                    "unit_kind": movement.unit_kind,
+                    "serial_id": movement.serial_id,
+                    "device_asset_id": movement.device_asset_id,
+                    "from_class": movement.from_class,
+                    "to_class": movement.to_class,
+                    "condition_grade": movement.condition_grade,
+                    "data_wipe_ref": movement.data_wipe_ref,
+                }),
+                ip: None,
+                occurred_at: Utc::now(),
+            },
+        )
+        .await?;
+        let view = PoolMoveView {
+            movement_id: movement.id,
+            unit_kind: movement.unit_kind.clone(),
+            serial_id: movement.serial_id,
+            device_asset_id: movement.device_asset_id,
+            from_class: movement.from_class.clone(),
+            to_class: movement.to_class.clone(),
+            condition_grade: Some(movement.condition_grade.clone()),
+            data_wipe_ref: movement.data_wipe_ref.clone(),
+            created_at: movement.created_at,
+        };
+        // The replay payload is the response body without `mutation` (the
+        // framework injects that), so a same-key retry deserializes back into
+        // `PoolMutationResponse` instead of failing on a missing `movement`.
+        let payload = serde_json::json!({ "movement": &view });
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "inventory_class_movement",
+                entity_id: movement.id,
+                op,
+                seq: write_seq,
+                before: None,
+                after: serde_json::to_value(&view).unwrap_or(Value::Null),
+                updated_at: movement.created_at,
+                key: key.as_deref(),
+                payload: &payload,
+                provenance: Default::default(),
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(PoolMutationResponse {
+                movement: view,
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+    Ok(Json(outcome.into_response()?))
+}
+
+/// GET /api/stock/pool — every unit in the rental pool, and whether an open
+/// agreement holds it.
+#[utoipa::path(
+    operation_id = "stock_pool_list",
+    get,
+    path = "/api/stock/pool",
+    tag = "commercial",
+    security(("bearer" = [])),
+    params(PoolListQuery),
+    responses((status = 200, body = [PoolUnitView]))
+)]
+pub async fn list_pool(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: Extensions,
+    axum::extract::Query(q): axum::extract::Query<PoolListQuery>,
+) -> ApiResult<Json<Vec<PoolUnitView>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, commercial(Action::View))?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let rows = core_db::loans::list_pool_units(
+        &mut tx,
+        org_id,
+        q.available_only == Some(true),
+        q.limit.unwrap_or(LIST_LIMIT).clamp(1, LIST_LIMIT),
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| PoolUnitView {
+                unit_kind: r.unit_kind,
+                id: r.id,
+                label: r.label,
+                stock_item_id: r.stock_item_id,
+                device_asset_id: r.device_asset_id,
+                available: r.available,
+            })
+            .collect(),
+    ))
 }

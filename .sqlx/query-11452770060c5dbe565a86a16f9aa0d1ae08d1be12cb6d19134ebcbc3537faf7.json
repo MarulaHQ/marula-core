@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT custody_class AS \"custody_class!\" FROM stock_serials\n                    WHERE org_id = $1 AND id = $2 FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "custody_class!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "11452770060c5dbe565a86a16f9aa0d1ae08d1be12cb6d19134ebcbc3537faf7"
+}

@@ -1,4 +1,4 @@
-//! `core-routing` — the distance/duration provider seam (Wave 32 lane 7).
+//! `core-routing` — the distance/duration provider seam.
 //!
 //! Purpose: one capability-generic boundary between Marula's scheduling
 //! math and ANY distance/duration API. Providers are pluggable through a

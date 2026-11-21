@@ -1,4 +1,4 @@
-//! CSAT surveys on resolution (Wave 34 lane 2) — portal response flow over
+//! CSAT surveys on resolution — portal response flow over
 //! the REAL core-api router.
 //!
 //! Purpose: pin the single-use token contract end to end — view never

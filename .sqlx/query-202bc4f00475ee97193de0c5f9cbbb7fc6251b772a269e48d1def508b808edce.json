@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT client_id FROM tickets\n            WHERE org_id = $1 AND id = $2\n            FOR SHARE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "client_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true
+    ]
+  },
+  "hash": "202bc4f00475ee97193de0c5f9cbbb7fc6251b772a269e48d1def508b808edce"
+}

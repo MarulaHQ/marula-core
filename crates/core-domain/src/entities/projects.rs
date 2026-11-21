@@ -510,7 +510,7 @@ pub struct ProjectPhaseBudget {
 
 /// The burn read model for one phase: consumed minutes priced against the
 /// project's linked contract versus the contracted budget, with a typed
-/// alert state (report P3). Amounts are in the budget's currency.
+/// alert state. Amounts are in the budget's currency.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct PhaseBurn {
@@ -559,7 +559,7 @@ impl std::fmt::Display for PhaseBurnAlert {
     }
 }
 
-/// One released milestone (report P1/P4): the durable record that a
+/// One released milestone: the durable record that a
 /// completed milestone or fixed-fee phase released its amount to the
 /// invoicing pipeline. `pending` rows bill on the first run that reaches
 /// the window; the run flips them `billed` with the consuming invoice,

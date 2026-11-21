@@ -779,7 +779,7 @@ pub struct CatalogView {
     pub filterable: Vec<CatalogColumn>,
 }
 
-/// One card shape, described for the authoring agent (Wave 46 lane 1). The
+/// One card shape, described for the authoring agent. The
 /// prose is served, not duplicated in a prompt: a model that reads this
 /// catalogue authors against the same rules the compiler enforces.
 #[derive(Debug, Serialize, ToSchema)]
@@ -1079,7 +1079,7 @@ pub struct RunSpecRequest {
     /// Page size, clamped to [1, 500].
     #[serde(default)]
     pub limit: Option<i64>,
-    /// Optional card contract (Wave 46 lane 1): when present, the run is
+    /// Optional card contract: when present, the run is
     /// checked as a CARD and a card that cannot be drawn is a typed 422
     /// rather than an empty envelope. Absent means a plain report run, which
     /// is allowed to return zero rows.
@@ -1346,7 +1346,7 @@ mod catalog_tests {
 
     /// The catalogue is what the authoring agent reads, so it must describe
     /// every shape the renderer can be handed, name every viz the registry
-    /// accepts, and carry the size vocabulary lane 6 picks from. A shape
+    /// accepts, and carry the size vocabulary the dashboard picks from. A shape
     /// missing here is a shape the model cannot choose.
     #[test]
     fn the_card_catalogue_describes_every_shape_and_viz() {

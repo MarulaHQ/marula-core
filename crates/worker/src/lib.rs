@@ -478,7 +478,7 @@ pub async fn run(
         });
     }
 
-    // CSAT surveys on resolution (Wave 34 lane 2): ticket.closed → policy
+    // CSAT surveys on resolution: ticket.closed → policy
     // (send-on-resolve, per-client interval, quiet hours) → core-api-rendered
     // tokenized mail. Disabled cleanly when no internal token is configured.
     let csat_alive = Arc::new(AtomicBool::new(true));

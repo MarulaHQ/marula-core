@@ -825,7 +825,7 @@ pub struct OutboundSettingsView {
     pub reply_to: String,
     pub signature: String,
     /// The org's own greeting — what opens mail the workspace sends to its
-    /// staff, and the fallback for a member with none (Wave 42).
+    /// staff, and the fallback for a member with none.
     pub org_greeting: String,
     /// `allowed` | `org_locked`: whether members may sign with their own
     /// details. The UI renders a locked org's state rather than a disabled
@@ -1059,10 +1059,10 @@ pub struct PutOutboundSettingsRequest {
     pub reply_to: Option<String>,
     #[serde(default)]
     pub signature: Option<String>,
-    /// The org's own greeting (Wave 42).
+    /// The org's own greeting.
     #[serde(default)]
     pub org_greeting: Option<String>,
-    /// `allowed` | `org_locked` (Wave 42). Absent leaves the policy alone,
+    /// `allowed` | `org_locked`. Absent leaves the policy alone,
     /// so an older client that does not know the key cannot reset it.
     #[serde(default)]
     pub signature_policy: Option<String>,
@@ -1245,7 +1245,7 @@ pub struct DeliveryLedgerRow {
     pub created_at: String,
     pub updated_at: String,
     /// Which rung of the greeting/signature chain supplied each block for
-    /// THIS message (Wave 42), as the wire name plus the wording an admin
+    /// THIS message, as the wire name plus the wording an admin
     /// reads. `None` is a row written before the lane recorded it, and it
     /// renders as "none" rather than a guess.
     pub greeting_source: Option<EmailSourceView>,

@@ -184,7 +184,7 @@ pub fn render(kind: TemplateKind, text: &str, ctx: &RenderContext) -> Result<Str
     render_with(text, variables_for_kind(kind), kind.as_str(), ctx)
 }
 
-/// The SIGNATURE vocabulary (Wave 42). A signature identifies the person
+/// The SIGNATURE vocabulary. A signature identifies the person
 /// who wrote the message, so it gets the sender's own row and nothing
 /// else: no ticket, no client, no contact.
 ///
