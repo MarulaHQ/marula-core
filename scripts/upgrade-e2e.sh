@@ -43,10 +43,15 @@ INSTALL_DIR=$(cd "$INSTALL_DIR" && pwd)
 INSTALL_ARGS=(--dir "$INSTALL_DIR" --images registry --profile split --apply --allow-unfit)
 
 core_api_image() {
-  # The container the stack is running right now, addressed by compose's own
-  # label rather than by a project name this script would have to guess.
+  # The container the stack is running right now, addressed by the labels compose
+  # puts on it. The project is filtered too: the installer pins
+  # COMPOSE_PROJECT_NAME=marula (`plan.rs`'s COMPOSE_PROJECT, and
+  # install-offline.sh exports it), and a runner or host that also runs another
+  # project's core-api must not have that container mistaken for this one.
   local id
-  id=$(docker ps -q --filter label=com.docker.compose.service=core-api | head -1)
+  id=$(docker ps -q \
+    --filter label=com.docker.compose.project=marula \
+    --filter label=com.docker.compose.service=core-api | head -1)
   [ -n "$id" ] || return 1
   docker inspect -f '{{.Image}}' "$id"
 }
