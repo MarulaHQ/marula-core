@@ -152,6 +152,11 @@ where
 /// layout's schema by the API layer (outside the org tx). `scope`
 /// (migration 0103) is 'client' or 'internal_org'; internal-org rows
 /// carry `client_id` NULL (the DB CHECK ties the pair together).
+///
+/// Ownership is left to the column default (`owned`); callers that already
+/// know the final ownership must use [`create_asset_with_ownership`], because
+/// the custody class is derived at insert and a post-insert patch would be a
+/// silent class change.
 #[allow(clippy::too_many_arguments)]
 pub async fn create_asset<'e, E>(
     executor: E,
@@ -170,10 +175,42 @@ pub async fn create_asset<'e, E>(
 where
     E: sqlx::Executor<'e, Database = Postgres>,
 {
+    create_asset_with_ownership(
+        executor, org_id, id, client_id, scope, site_id, tag, name, kind, status, layout_id,
+        fields, None,
+    )
+    .await
+}
+
+/// Creates an asset with the ownership the row is actually bought under. The
+/// migration 0232 insert trigger derives `custody_class` from `scope` and
+/// `ownership`, so writing the final ownership in this statement is what makes
+/// a rented-in asset land in `rental_in` instead of the owned default. There is
+/// no second unit and no post-insert class update.
+#[allow(clippy::too_many_arguments)]
+pub async fn create_asset_with_ownership<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    id: Uuid,
+    client_id: Option<Uuid>,
+    scope: &str,
+    site_id: Option<Uuid>,
+    tag: &str,
+    name: &str,
+    kind: &str,
+    status: &str,
+    layout_id: Option<Uuid>,
+    fields: &serde_json::Value,
+    ownership: Option<&str>,
+) -> DbResult<DeviceAsset>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
     let row = sqlx::query(&format!(
         r#"INSERT INTO device_assets
-             (id, org_id, client_id, scope, site_id, tag, name, kind, status, layout_id, fields)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+             (id, org_id, client_id, scope, site_id, tag, name, kind, status, layout_id, fields,
+              ownership)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, COALESCE($12, 'owned'))
            RETURNING {ASSET_COLUMNS}"#
     ))
     .bind(id)
@@ -187,6 +224,7 @@ where
     .bind(status)
     .bind(layout_id)
     .bind(fields)
+    .bind(ownership)
     .fetch_one(executor)
     .await?;
     Ok(row_to_asset(row))
@@ -271,6 +309,13 @@ pub struct AssetLifecyclePatch {
     pub useful_life_months: Option<i32>,
     pub salvage_value_minor: Option<i64>,
     pub depreciation_rate_bps: Option<i32>,
+    /// When true, an ownership change that moves the derived custody class
+    /// writes a class movement before the row is patched. The assets route sets
+    /// this; callers that record the class transition themselves (procurement)
+    /// leave it false so the movement is written once, with its own source and
+    /// reason. A false here never permits a silent in-place class update: the
+    /// column still cannot change except through the movement trigger.
+    pub record_class_movement: bool,
 }
 
 impl AssetLifecyclePatch {
@@ -296,15 +341,64 @@ impl AssetLifecyclePatch {
     }
 }
 
-pub async fn update_asset_lifecycle<'e, E>(
-    executor: E,
+pub async fn update_asset_lifecycle(
+    conn: &mut sqlx::PgConnection,
     org_id: Uuid,
     id: Uuid,
     p: &AssetLifecyclePatch,
-) -> DbResult<DeviceAsset>
-where
-    E: sqlx::Executor<'e, Database = Postgres>,
-{
+) -> DbResult<DeviceAsset> {
+    // One lock for the read and the write: two concurrent patches must not both
+    // read the same class and each write a movement from it.
+    let current = sqlx::query(
+        "SELECT scope, ownership, custody_class FROM device_assets \
+          WHERE org_id = $1 AND id = $2 FOR UPDATE",
+    )
+    .bind(org_id)
+    .bind(id)
+    .fetch_optional(&mut *conn)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    let scope: String = current.try_get("scope")?;
+    let ownership: String = current.try_get("ownership")?;
+    let custody_class: String = current.try_get("custody_class")?;
+
+    // An ownership change moves the derived class. That is a movement row, not
+    // a column edit: the 0232 trigger applies it and its open-agreement guard
+    // refuses a unit that is out.
+    if let Some(next_ownership) = p.ownership.as_deref() {
+        if p.record_class_movement && next_ownership != ownership {
+            let from = core_domain::entities::CustodyClass::parse(&custody_class)
+                .map_err(|e| DbError::Corrupt(e.to_string()))?;
+            if from.is_terminal() {
+                return Err(DbError::Conflict(format!(
+                    "an asset in {} does not change custody class",
+                    from.as_str()
+                )));
+            }
+            let to = core_domain::entities::custody_class_for_asset(&scope, next_ownership)
+                .map_err(|e| DbError::Conflict(e.to_string()))?;
+            if to != from {
+                sqlx::query(
+                    r#"INSERT INTO inventory_class_movements
+                         (id, org_id, unit_kind, device_asset_id, from_class, to_class, reason,
+                          source_kind, source_id)
+                       VALUES ($1, $2, 'asset', $3, $4, $5, $6, 'device_asset', $3)"#,
+                )
+                .bind(Uuid::now_v7())
+                .bind(org_id)
+                .bind(id)
+                .bind(from.as_str())
+                .bind(to.as_str())
+                .bind(format!(
+                    "ownership changed from {ownership} to {next_ownership}"
+                ))
+                .execute(&mut *conn)
+                .await
+                .map_err(map_class_guard)?;
+            }
+        }
+    }
+
     let row = sqlx::query(&format!(
         r#"UPDATE device_assets SET
              ownership = COALESCE($3, ownership),
@@ -349,8 +443,21 @@ where
     .bind(p.useful_life_months)
     .bind(p.salvage_value_minor)
     .bind(p.depreciation_rate_bps)
-    .fetch_optional(executor)
+    .fetch_optional(&mut *conn)
     .await?
     .ok_or(DbError::NotFound)?;
     Ok(row_to_asset(row))
+}
+
+/// The class-movement trigger raises `P0001` with a sentence naming the unit
+/// and the reason it cannot move (an open loan, a checkout, a ticket). The
+/// asset is the caller's own, so the sentence is safe to hand back as a typed
+/// 409 instead of a generic database failure.
+fn map_class_guard(e: sqlx::Error) -> DbError {
+    if let sqlx::Error::Database(db) = &e {
+        if db.code().as_deref() == Some("P0001") {
+            return DbError::Conflict(db.message().to_string());
+        }
+    }
+    DbError::Sql(e)
 }
