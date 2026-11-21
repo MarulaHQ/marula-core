@@ -274,15 +274,14 @@ jobs:
       # pull request never receives repository secrets, and sccache with an
       # endpoint but no credentials fails every compile.
       #
-      # Windows is excluded on evidence, not caution. Wrapping rustc there fails
-      # to build `plugin-host`: its rustc arguments carry one
-      # `-L dependency=<target>/build/<crate>/<hash>/out` per dependency that has
-      # a build script, 38,438 characters in total, and the wrapper's re-spawn of
-      # rustc crosses the kernel's command-line limit — "os error 206: The
-      # filename or extension is too long" (run 44842337560). A shorter
-      # CARGO_TARGET_DIR would give back roughly 10k of those characters; that is
-      # a follow-up, not something to land on a release pipeline untested.
-      RUSTC_WRAPPER: ${{ secrets.R2_ACCESS_KEY_ID != '' && matrix.os != 'windows' && 'sccache' || '' }}
+      # Windows only works with the short CARGO_TARGET_DIR below. Its kernel caps
+      # a command line at 32,767 characters, and `plugin-host` spends 50 of them
+      # on the checkout path in each of its 311
+      # `-L dependency=<target>/build/<crate>/<hash>/out` arguments — 38,438 in
+      # total, which sccache's re-spawn of rustc cannot pass ("os error 206: The
+      # filename or extension is too long", run 44842337560). `D:/t` returns
+      # 9,641 of those characters.
+      RUSTC_WRAPPER: ${{ secrets.R2_ACCESS_KEY_ID != '' && 'sccache' || '' }}
       SCCACHE_BUCKET: marula-ci-sccache
       SCCACHE_ENDPOINT: https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com
       SCCACHE_REGION: auto
@@ -301,6 +300,11 @@ jobs:
       # trade is that a tag starts cold the first time, which is what a release
       # build already was.
       SCCACHE_S3_KEY_PREFIX: sccache/release-${{ matrix.os }}-${{ matrix.arch }}-${{ github.ref_type == 'tag' && 'release' || 'preview' }}
+      # Windows only, and it exists to make the wrapper above fit: the checkout
+      # costs `D:/t` nothing. Every other platform states its default explicitly
+      # rather than leaving the variable empty, because an empty CARGO_TARGET_DIR
+      # is not "unset" to cargo, it is a path.
+      CARGO_TARGET_DIR: ${{ matrix.os == 'windows' && 'D:/t' || format('{0}/target', github.workspace) }}
       APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
       APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
@@ -336,9 +340,8 @@ jobs:
 
       # Pinned to the same version ci.yml uses. The action has no default
       # version: without it, the cached binary floats independently of the
-      # action pin. Not installed on Windows, which does not wrap.
+      # action pin.
       - uses: mozilla-actions/sccache-action@fc920bf0ec8de6ee65d409111f7ec508035751ba # v0.0.11
-        if: matrix.os != 'windows'
         with:
           version: "v0.19.0"
 
@@ -350,10 +353,8 @@ jobs:
       # `tauri bundle`, and neither needs a cache credential in its environment.
       - name: Build the CLI
         env:
-          # Empty on Windows, which does not wrap: no step needs a bucket
-          # credential it cannot use.
-          AWS_ACCESS_KEY_ID: ${{ matrix.os != 'windows' && secrets.R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ matrix.os != 'windows' && secrets.R2_SECRET_ACCESS_KEY || '' }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: cargo build --release -p marula-core-cli
 
       - name: Build the installer front-end
@@ -374,14 +375,12 @@ jobs:
 
       - name: Build the installer app
         env:
-          # Empty on Windows, which does not wrap: no step needs a bucket
-          # credential it cannot use.
-          AWS_ACCESS_KEY_ID: ${{ matrix.os != 'windows' && secrets.R2_ACCESS_KEY_ID || '' }}
-          AWS_SECRET_ACCESS_KEY: ${{ matrix.os != 'windows' && secrets.R2_SECRET_ACCESS_KEY || '' }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: cargo build --release --manifest-path installer/Cargo.toml
 
       - name: sccache stats
-        if: always() && matrix.os != 'windows'
+        if: always()
         # Diagnostic only: a missing or unhappy sccache must not turn a green
         # release build red after the fact. The action's own post step reports
         # the same numbers at the end of the job; this puts them next to the
