@@ -27,6 +27,10 @@
 # `one-line` starts where a reader starts: the URL in the README, run as printed.
 # The other two unpack an archive first, so neither would notice a redirect that
 # serves the wrong script or a URL that stopped existing.
+#
+# `upgrade` is the fourth: it installs the previous release, then installs this one
+# over it with the same `--dir`, because the installer is also the upgrade path and
+# nothing checked that a second run replaces the first rather than refusing.
 
 name: Install E2E
 
@@ -43,6 +47,10 @@ on:
         description: "Runner label to install on"
         type: string
         default: ubuntu-24.04
+      from:
+        description: "Release to upgrade from, without the leading v. Default: the newest published release older than the target, with a Linux archive"
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -390,6 +398,199 @@ jobs:
             url="https://getmarula.com/install/v${VERSION}/linux"
           fi
           scripts/one-line-e2e.sh "$url" "${RUNNER_TEMP}/marula-one-line" "$VERSION"
+
+      - name: What was running, when it fails
+        if: failure()
+        shell: bash
+        run: |
+          docker ps -a --format 'table {{.Names}}\t{{.Image}}\t{{.Status}}' || true
+          for name in $(docker ps -aq); do
+            echo "::group::$(docker inspect -f '{{.Name}}' "$name")"
+            docker logs --tail 60 "$name" 2>&1 || true
+            echo "::endgroup::"
+          done
+  # The upgrade path. The installer is what a user runs to move versions, so this
+  # leg installs one release, installs the next over the same directory, and
+  # checks that the running image actually changed — an installer that left the
+  # old container alone would still answer /readyz.
+  upgrade:
+    name: Upgrade ${{ inputs.from && format('v{0}', inputs.from) || 'the previous release' }} to ${{ github.event.inputs.version || github.event.release.tag_name }} on Linux
+    if: ${{ !github.event.release.prerelease }}
+    runs-on: ${{ github.event.inputs.runner || 'ubuntu-24.04' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Resolve the two versions
+        id: versions
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RAW_VERSION: ${{ github.event.inputs.version || github.event.release.tag_name }}
+          RAW_FROM: ${{ inputs.from }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          to="${RAW_VERSION#v}"
+          if ! printf '%s' "$to" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$to' is not a release version"
+            exit 1
+          fi
+          # Compare dotted versions as numbers. `sort -V` is GNU-only, and the
+          # repository also publishes 0.10.0-style versions where a string
+          # comparison would order "0.9.0" after "0.10.0".
+          version_lt() {
+            local -a a b
+            local i
+            IFS=. read -r -a a <<<"$1"
+            IFS=. read -r -a b <<<"$2"
+            for i in 0 1 2; do
+              if (( 10#${a[i]} < 10#${b[i]} )); then return 0; fi
+              if (( 10#${a[i]} > 10#${b[i]} )); then return 1; fi
+            done
+            return 1
+          }
+
+          if [ -n "${RAW_FROM:-}" ]; then
+            from="${RAW_FROM#v}"
+            if ! printf '%s' "$from" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+              echo "::error::'$from' is not a release version"
+              exit 1
+            fi
+            # A named release is held to the same rules as a discovered one. A
+            # draft or a prerelease is not a predecessor anyone installs, and a
+            # release with no Linux archive would fail in the download step with
+            # a message about a missing file rather than about a wrong pair.
+            if ! meta=$(gh api "repos/${GH_REPO}/releases/tags/v${from}" \
+              --jq '[.draft, .prerelease, ([.assets[].name] | join(","))] | @tsv'); then
+              echo "::error::could not read release v${from}: $meta"
+              exit 1
+            fi
+            IFS=$'\t' read -r is_draft is_prerelease named_assets <<<"$meta"
+            if [ "$is_draft" = "true" ] || [ "$is_prerelease" = "true" ]; then
+              echo "::error::v${from} is a draft or a prerelease: this leg tests an upgrade between published releases"
+              exit 1
+            fi
+            case ",${named_assets}," in
+              *",marula-${from}-linux-x64.tar.gz,"*) ;;
+              *)
+                echo "::error::v${from} carries no marula-${from}-linux-x64.tar.gz asset"
+                exit 1
+                ;;
+            esac
+          else
+            # The highest published release strictly older than the target that
+            # carries a Linux archive: 0.5.0 never published, and an earlier tag
+            # with no assets is not something anyone can install.
+            #
+            # `--paginate` walks the whole history and returns each release with
+            # its assets, so a page limit cannot hide the predecessor and a
+            # failed lookup cannot read as "this release has no archive".
+            # Drafts, prereleases and the `desktop-v*` releases are filtered
+            # here; a prerelease sitting between the target and its stable
+            # predecessor is stepped over rather than selected and refused.
+            if ! releases=$(gh api --paginate \
+              "repos/${GH_REPO}/releases?per_page=100" \
+              --jq '.[] | select((.draft | not) and (.prerelease | not)) | [.tag_name, ([.assets[].name] | join(","))] | @tsv'); then
+              echo "::error::could not list the published releases: $releases"
+              exit 1
+            fi
+            from=""
+            while IFS=$'\t' read -r tag asset_list; do
+              [ -n "$tag" ] || continue
+              candidate="${tag#v}"
+              # A server release, not a desktop one and not a codename.
+              [[ "$candidate" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || continue
+              # Strictly older: the list's order is by creation time, not
+              # version, so a patch cut after a newer release must not be
+              # mistaken for one above the target.
+              version_lt "$candidate" "$to" || continue
+              case ",${asset_list}," in
+                *",marula-${candidate}-linux-x64.tar.gz,"*) ;;
+                *) continue ;;
+              esac
+              if [ -z "$from" ] || version_lt "$from" "$candidate"; then
+                from="$candidate"
+              fi
+            done <<<"$releases"
+            if [ -z "$from" ]; then
+              echo "::notice::no published release older than v${to} carries a Linux archive, so there is no upgrade pair to test"
+              echo "skip=1" >>"$GITHUB_OUTPUT"
+              exit 0
+            fi
+          fi
+          if ! printf '%s' "$from" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::'$from' is not a release version"
+            exit 1
+          fi
+          # A named `from` that is not older would run this leg as a downgrade or a
+          # reinstall and still pass, which is not the thing it claims to test.
+          if ! version_lt "$from" "$to"; then
+            echo "::error::'v${from}' is not older than 'v${to}': this leg tests an upgrade"
+            exit 1
+          fi
+          echo "from=$from" >>"$GITHUB_OUTPUT"
+          echo "to=$to" >>"$GITHUB_OUTPUT"
+          echo "upgrade pair: v${from} -> v${to}"
+
+      - name: Fetch and verify both releases
+        if: ${{ steps.versions.outputs.skip != '1' }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          FROM: ${{ steps.versions.outputs.from }}
+          TO: ${{ steps.versions.outputs.to }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for v in "$FROM" "$TO"; do
+            mkdir -p "dist/$v"
+            gh release download "v${v}" --repo "$GH_REPO" --dir "dist/$v" \
+              --pattern "marula-${v}-linux-x64.tar.gz" \
+              --pattern "SHA256SUMS-linux-x64" \
+              --pattern "SHA256SUMS-linux-x64.sig"
+            ssh-keygen -Y verify \
+              -f release-keys/allowed_signers \
+              -I releases@getmarula.com \
+              -n file \
+              -s "dist/$v/SHA256SUMS-linux-x64.sig" \
+              < "dist/$v/SHA256SUMS-linux-x64"
+            (cd "dist/$v" && sha256sum -c "SHA256SUMS-linux-x64")
+            tar -xzf "dist/$v/marula-${v}-linux-x64.tar.gz" -C "dist/$v"
+          done
+
+      - name: Make room for the stack
+        if: ${{ steps.versions.outputs.skip != '1' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc \
+            /opt/hostedtoolcache/CodeQL
+          docker image prune --all --force >/dev/null 2>&1 || true
+          df -h /
+
+      - name: Log in to Docker Hardened Images
+        if: ${{ steps.versions.outputs.skip != '1' && env.DHI_USER != '' }}
+        env:
+          DHI_USER: ${{ secrets.DOCKER_USERNAME }}
+        uses: docker/login-action@v4
+        with:
+          registry: dhi.io
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PAT_TOKEN }}
+
+      - name: Install the older release, then upgrade over it
+        if: ${{ steps.versions.outputs.skip != '1' }}
+        env:
+          FROM: ${{ steps.versions.outputs.from }}
+          TO: ${{ steps.versions.outputs.to }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/upgrade-e2e.sh \
+            "dist/${FROM}/marula-${FROM}-linux-x64" \
+            "dist/${TO}/marula-${TO}-linux-x64" \
+            "${RUNNER_TEMP}/marula-upgrade"
 
       - name: What was running, when it fails
         if: failure()
