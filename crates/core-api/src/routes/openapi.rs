@@ -790,6 +790,13 @@ use utoipa::OpenApi;
         crate::routes::ewaste::record_disposition,
         crate::routes::ewaste::close_intake,
         crate::routes::ewaste::list_dispositions,
+        // acquisition cost layers (ADR 0035 decision 3, migration 0258)
+        crate::routes::acquisition_costs::list_for_receipt,
+        crate::routes::acquisition_costs::create,
+        crate::routes::acquisition_costs::get_one,
+        crate::routes::acquisition_costs::reverse,
+        crate::routes::acquisition_costs::receipt_valuation,
+        crate::routes::acquisition_costs::class_rollup,
         // label templates + label rendering + scan resolution (Wave 32 lane 5)
         crate::routes::labels::list,
         crate::routes::labels::get_one,
@@ -1609,6 +1616,17 @@ use utoipa::OpenApi;
         core_db::ewaste::WeightBalance,
         core_db::ewaste::PathwayWeight,
         core_db::ewaste::IntakeSummary,
+        // acquisition cost layers (ADR 0035 decision 3, migration 0258)
+        crate::routes::acquisition_costs::CreateAcquisitionCostRequest,
+        crate::routes::acquisition_costs::ReverseAcquisitionCostRequest,
+        crate::routes::acquisition_costs::CostRollupQuery,
+        crate::routes::acquisition_costs::AcquisitionCostMutationResponse,
+        core_db::acquisition_costs::AcquisitionCost,
+        core_db::acquisition_costs::AcquisitionCostAllocation,
+        core_db::acquisition_costs::AcquisitionCostDetail,
+        core_db::acquisition_costs::CostClassTotal,
+        core_db::acquisition_costs::ReceiptLineValuation,
+        core_db::acquisition_costs::ReceiptValuation,
         // label templates + rendering + scan resolution (Wave 32 lane 5)
         crate::routes::labels::LabelTemplateView,
         crate::routes::day_pack::DayPackView,
@@ -2648,6 +2666,7 @@ use utoipa::OpenApi;
         (name = "migration", description = "Migration connector (third-party tools): bulk push riding the import engine with checkpoint cursors, cursor-paged read-model pull; API-key scoped (migration:read/write), per-key rate limited"),
         (name = "purchasing", description = "Vendors, purchase orders with typed receipt states, receipts posting into the stock ledger, reseller deeplinks, and the bill → project cost rollup hook (Wave 32 lane 2)"),
         (name = "ewaste", description = "E-waste custody: client intakes, the append-only custody ledger, dispositions with their certificates, and the weight balance"),
+        (name = "acquisition-costs", description = "Acquisition cost layers: freight, duty, brokerage, insurance and handling split over a receipt's lines, FX locked per document, a receipt's valuation, and the reporting-class rollup. Append-only; a correction is a reversal layer"),
         (name = "rag", description = "RAG and multimodal vector namespace (ADR 0020): 768-dim passage and media chunk ingest, hybrid BM25 + exact-KNN RRF retrieval, and provable deletion receipts"),
     )
 )]
