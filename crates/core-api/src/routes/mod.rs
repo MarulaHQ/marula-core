@@ -37,6 +37,7 @@
 //! literal paths.
 
 pub mod accounting_export;
+pub mod acquisition_costs;
 pub mod agent_platform;
 pub mod ai_policy;
 pub mod alerts;
@@ -2441,6 +2442,11 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
         // their certificates, and the weight balance that closes the receipt.
         // Nothing here posts to owned stock.
         .merge(ewaste::routes(gen))
+        // Acquisition cost layers (ADR 0035 decision 3, migration 0236): the
+        // charge documents that arrive after the goods, their split over a
+        // receipt's lines, and the two reads — a receipt's valuation and the
+        // reporting-class rollup. Append-only; a correction is a new layer.
+        .merge(acquisition_costs::routes(gen))
         .merge(workflow_overrides::routes(gen))
         // dispatch connector (the private build tracker Phase 3, Wave 9 lane 9): scoped
         // machine surface — schedule reads + field-service status pushes;
