@@ -467,6 +467,13 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
         )),
         // Migration 0256: an asset-only loan line is one open agreement per
         // unit, the same promise the serial index keeps for stock-sourced lines.
+        // A layer is reversed once. The reversal path locks the original
+        // first; this arm is the second belt, so a racing pair gets a typed
+        // conflict rather than a raw constraint error.
+        "uq_acquisition_costs_reversal" => Some((
+            "layer_already_reversed",
+            "that layer has already been reversed",
+        )),
         "uq_client_loan_open_asset" => Some((
             "asset_already_on_loan",
             "that unit is already on an open client agreement",

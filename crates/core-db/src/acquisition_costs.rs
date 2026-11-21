@@ -344,10 +344,10 @@ pub fn allocation_basis(
                     receipt_line_id: line.receipt_line_id,
                     description: line.description.clone(),
                 })?;
-                i128::from(
-                    core_domain::entities::line_amount_minor(line.qty_milli, i64::from(weight))
-                        .map_err(|_| SplitError::EmptyBasis("weight"))?,
-                )
+                // Grams times milli-units, kept exact: rounding each line to a
+                // whole unit first would move the ratio between two light
+                // lines, and the freight would land on the wrong one.
+                i128::from(line.qty_milli) * i128::from(weight)
             }
             _ => return Err(SplitError::EmptyBasis("basis")),
         };
@@ -495,8 +495,13 @@ fn cost_row(row: sqlx::postgres::PgRow) -> AcquisitionCost {
     }
 }
 
-pub async fn insert_cost(conn: &mut PgConnection, cost: &AcquisitionCost) -> DbResult<()> {
-    sqlx::query(
+/// Inserts the layer and answers the `created_at` the database stored, so a
+/// mutation response and a later read report the same creation time.
+pub async fn insert_cost(
+    conn: &mut PgConnection,
+    cost: &AcquisitionCost,
+) -> DbResult<DateTime<Utc>> {
+    let created_at = sqlx::query_scalar!(
         r#"INSERT INTO acquisition_costs
              (id, org_id, purchase_order_id, receipt_id, kind, vendor_id,
               vendor_reference, reference, document_date, currency, amount_minor,
@@ -506,38 +511,39 @@ pub async fn insert_cost(conn: &mut PgConnection, cost: &AcquisitionCost) -> DbR
               fx_rate_used, fx_rate_date, fx_source, base_amount_minor, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                    $15, $16, $17, $18, $19, $20, $21, $22::text::numeric, $23, $24,
-                   $25, $26)"#,
+                   $25, $26)
+           RETURNING created_at"#,
+        cost.id,
+        cost.org_id,
+        cost.purchase_order_id,
+        cost.receipt_id,
+        &cost.kind,
+        cost.vendor_id,
+        cost.vendor_reference.as_deref(),
+        &cost.reference,
+        cost.document_date,
+        &cost.currency,
+        cost.amount_minor,
+        &cost.allocation_method,
+        &cost.allocation_rule,
+        &cost.policy_mode,
+        cost.capitalised,
+        &cost.reporting_class,
+        cost.project_id,
+        cost.ticket_id,
+        cost.client_id,
+        cost.posted_ticket_expense_id,
+        cost.reverses_acquisition_cost_id,
+        cost.fx_rate_used.as_deref(),
+        cost.fx_rate_date,
+        cost.fx_source.as_deref(),
+        cost.base_amount_minor,
+        cost.created_by,
     )
-    .bind(cost.id)
-    .bind(cost.org_id)
-    .bind(cost.purchase_order_id)
-    .bind(cost.receipt_id)
-    .bind(&cost.kind)
-    .bind(cost.vendor_id)
-    .bind(cost.vendor_reference.as_deref())
-    .bind(&cost.reference)
-    .bind(cost.document_date)
-    .bind(&cost.currency)
-    .bind(cost.amount_minor)
-    .bind(&cost.allocation_method)
-    .bind(&cost.allocation_rule)
-    .bind(&cost.policy_mode)
-    .bind(cost.capitalised)
-    .bind(&cost.reporting_class)
-    .bind(cost.project_id)
-    .bind(cost.ticket_id)
-    .bind(cost.client_id)
-    .bind(cost.posted_ticket_expense_id)
-    .bind(cost.reverses_acquisition_cost_id)
-    .bind(cost.fx_rate_used.as_deref())
-    .bind(cost.fx_rate_date)
-    .bind(cost.fx_source.as_deref())
-    .bind(cost.base_amount_minor)
-    .bind(cost.created_by)
-    .execute(&mut *conn)
+    .fetch_one(&mut *conn)
     .await
     .map_err(guard_error)?;
-    Ok(())
+    Ok(created_at)
 }
 
 /// Inserts a whole split in one statement, which is what the migration's
@@ -617,6 +623,27 @@ pub async fn insert_classed_expense(
 }
 
 // --- reads -------------------------------------------------------------------
+
+/// The same read, holding the row: two reversals of one layer must not both
+/// pass the "has it been reversed" check.
+/// The column list is the one shared `COST_COLS` fragment, so this read stays a
+/// runtime query: the macro would need that list written out twice.
+pub async fn get_cost_for_update(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    id: Uuid,
+) -> DbResult<AcquisitionCost> {
+    let sql = format!(
+        "SELECT {COST_COLS} FROM acquisition_costs WHERE org_id = $1 AND id = $2 FOR UPDATE"
+    );
+    let row = sqlx::query(&sql)
+        .bind(org_id)
+        .bind(id)
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or(DbError::NotFound)?;
+    Ok(cost_row(row))
+}
 
 pub async fn get_cost(
     conn: &mut PgConnection,
@@ -891,24 +918,13 @@ pub async fn receipt_valuation(
         entry.count += 1;
     }
 
-    let totals = sqlx::query(
-        r#"SELECT
-             COALESCE(SUM(COALESCE(base_amount_minor, amount_minor))
-                      FILTER (WHERE capitalised), 0)::bigint AS capitalised_total,
-             COALESCE(SUM(COALESCE(base_amount_minor, amount_minor))
-                      FILTER (WHERE NOT capitalised), 0)::bigint AS expensed_total
-           FROM acquisition_costs
-           WHERE org_id = $1 AND receipt_id = $2"#,
-    )
-    .bind(org_id)
-    .bind(receipt_id)
-    .fetch_one(&mut *conn)
-    .await?;
-
+    // The totals ARE the shares: a second query would read a different snapshot
+    // under Read Committed, and a layer committed between the two would appear
+    // in one figure and not the other.
     let mut lines = Vec::with_capacity(context.lines.len());
     let mut receipt_cost_total: i64 = 0;
-    let mut capitalised_total: i64 = 0;
-    let mut expensed_total: i64 = 0;
+    let capitalised_total: i64 = shares.values().map(|s| s.capitalised).sum();
+    let expensed_total: i64 = shares.values().map(|s| s.expensed).sum();
     let mut basis_total: i64 = 0;
     let mut uncosted = 0i64;
 
@@ -929,21 +945,22 @@ pub async fn receipt_valuation(
         let share = shares.get(&line.receipt_line_id);
         let capitalised_line = share.map(|s| s.capitalised).unwrap_or(0);
         let expensed_line = share.map(|s| s.expensed).unwrap_or(0);
-        let basis = match receipt_cost_base {
-            Some(cost) => Some(cost + capitalised_line),
-            None => {
-                uncosted += 1;
-                None
-            }
-        };
+        let basis =
+            match receipt_cost_base {
+                Some(cost) => Some(cost.checked_add(capitalised_line).ok_or_else(|| {
+                    DbError::Corrupt("receipt basis exceeds the money range".into())
+                })?),
+                None => {
+                    uncosted += 1;
+                    None
+                }
+            };
         if let Some(cost) = receipt_cost_base {
             receipt_cost_total += cost;
         }
         if let Some(total) = basis {
             basis_total += total;
         }
-        capitalised_total += capitalised_line;
-        expensed_total += expensed_line;
         lines.push(ReceiptLineValuation {
             receipt_line_id: line.receipt_line_id,
             po_line_id: line.po_line_id,
@@ -970,8 +987,8 @@ pub async fn receipt_valuation(
         capitalised_base_minor: capitalised_total,
         expensed_base_minor: expensed_total,
         basis_total_base_minor: basis_total,
-        capitalised_layer_total_base_minor: totals.get("capitalised_total"),
-        expensed_layer_total_base_minor: totals.get("expensed_total"),
+        capitalised_layer_total_base_minor: capitalised_total,
+        expensed_layer_total_base_minor: expensed_total,
         uncosted_line_count: uncosted,
     })
 }
@@ -1053,6 +1070,24 @@ pub async fn class_rollup(
         .collect())
 }
 
+/// The layer that posted this ticket expense, when one did. An expense a layer
+/// posted is that layer's posting: it is corrected by reversing the layer, not
+/// by editing or deleting the expense behind it.
+pub async fn layer_for_expense(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    expense_id: Uuid,
+) -> DbResult<Option<Uuid>> {
+    let layer = sqlx::query_scalar!(
+        "SELECT id FROM acquisition_costs WHERE org_id = $1 AND posted_ticket_expense_id = $2",
+        org_id,
+        expense_id,
+    )
+    .fetch_optional(&mut *conn)
+    .await?;
+    Ok(layer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1116,14 +1151,31 @@ mod tests {
     fn weight_allocation_multiplies_grams_by_quantity() {
         let a = Uuid::from_u128(1);
         let b = Uuid::from_u128(2);
-        // 1 unit at 900g vs 3 units at 100g: 900 vs 300, so 750/250.
+        // 1 unit at 900g vs 3 units at 100g: the basis is milli-units times
+        // grams (900 000 vs 300 000), and the ratio is what splits 750/250.
         let lines = vec![line(a, 1000, 100, Some(900)), line(b, 3000, 100, Some(100))];
         let shares = allocation_basis(&lines, "weight").expect("basis");
-        assert_eq!(shares, vec![(a, 900), (b, 300)]);
+        assert_eq!(shares, vec![(a, 900_000), (b, 300_000)]);
         let split =
             split_layer(Uuid::now_v7(), "USD", 1000, 1000, "USD", &lines, "weight").expect("split");
         assert_eq!(split[0].allocated_minor, 750);
         assert_eq!(split[1].allocated_minor, 250);
+    }
+
+    #[test]
+    fn weight_allocation_keeps_a_fractional_unit_exact() {
+        let a = Uuid::from_u128(1);
+        let b = Uuid::from_u128(2);
+        // A quarter unit of a 1 g part against a quarter unit of a 3 g part.
+        // Rounding each line to a whole unit first would give 0 and 1, putting
+        // the whole charge on the second line.
+        let lines = vec![line(a, 250, 100, Some(1)), line(b, 250, 100, Some(3))];
+        let shares = allocation_basis(&lines, "weight").expect("basis");
+        assert_eq!(shares, vec![(a, 250), (b, 750)]);
+        let split =
+            split_layer(Uuid::now_v7(), "USD", 100, 100, "USD", &lines, "weight").expect("split");
+        assert_eq!(split[0].allocated_minor, 25);
+        assert_eq!(split[1].allocated_minor, 75);
     }
 
     #[test]

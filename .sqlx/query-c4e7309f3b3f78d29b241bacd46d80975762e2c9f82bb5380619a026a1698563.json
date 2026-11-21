@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO purchase_order_lines (id, org_id, purchase_order_id, description, qty_ordered_milli, unit_cost_minor, stock_item_id) VALUES ($1, $2, $3, 'Widget', 1000, 1000, $4)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "c4e7309f3b3f78d29b241bacd46d80975762e2c9f82bb5380619a026a1698563"
+}

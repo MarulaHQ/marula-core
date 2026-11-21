@@ -6,9 +6,6 @@
 -- could never be erased. The exemption every append-only table from 0232 on
 -- carries fixes it: a DELETE passes only when the parent org row is already
 -- gone. Direct deletes still raise, and an UPDATE always raises.
---
--- Found by the W76-3 acceptance fixture, whose first step records a rate before
--- it records a layer.
 
 CREATE OR REPLACE FUNCTION fx_rates_immutable() RETURNS trigger
 LANGUAGE plpgsql AS $$

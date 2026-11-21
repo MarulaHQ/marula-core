@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO acquisition_costs\n             (id, org_id, purchase_order_id, receipt_id, kind, vendor_id,\n              vendor_reference, reference, document_date, currency, amount_minor,\n              allocation_method, allocation_rule, policy_mode, capitalised,\n              reporting_class, project_id, ticket_id, client_id,\n              posted_ticket_expense_id, reverses_acquisition_cost_id,\n              fx_rate_used, fx_rate_date, fx_source, base_amount_minor, created_by)\n           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,\n                   $15, $16, $17, $18, $19, $20, $21, $22::text::numeric, $23, $24,\n                   $25, $26)\n           RETURNING created_at",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Uuid",
+        "Text",
+        "Text",
+        "Date",
+        "Text",
+        "Int8",
+        "Text",
+        "Text",
+        "Text",
+        "Bool",
+        "Text",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Date",
+        "Text",
+        "Int8",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "23a0b8c849eae0549f36dc8436852b2f2400107148848d2aefd67062f0f6c435"
+}

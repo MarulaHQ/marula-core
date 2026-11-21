@@ -305,14 +305,14 @@ async fn insert_layer(
     ctx: &mut org_tx::OrgTx<'_>,
     cost: &AcquisitionCost,
     allocations: &[AcquisitionCostAllocation],
-) -> ApiResult<()> {
-    acquisition_costs::insert_cost(&mut ctx.tx, cost)
+) -> ApiResult<DateTime<Utc>> {
+    let created_at = acquisition_costs::insert_cost(&mut ctx.tx, cost)
         .await
         .map_err(ApiError::from)?;
     acquisition_costs::insert_allocations(&mut ctx.tx, cost.org_id, cost.id, allocations)
         .await
         .map_err(ApiError::from)?;
-    Ok(())
+    Ok(created_at)
 }
 
 /// A restricted client's freight money is hidden from a caller the client does
@@ -341,8 +341,23 @@ async fn require_replay_visible(
     org_id: Uuid,
     stored: &Value,
 ) -> ApiResult<()> {
-    let ticket_id = stored
-        .get("cost")
+    let cost = stored.get("cost");
+    let raw_client = cost.and_then(|cost| cost.get("client_id"));
+    let client_id = match raw_client {
+        None | Some(Value::Null) => None,
+        Some(Value::String(raw)) => Some(Uuid::parse_str(raw).map_err(|_| {
+            ApiError::Internal(anyhow::anyhow!(
+                "a stored acquisition cost carries an unreadable client id"
+            ))
+        })?),
+        Some(_) => {
+            return Err(ApiError::Internal(anyhow::anyhow!(
+                "a stored acquisition cost carries an unreadable client id"
+            )))
+        }
+    };
+    require_layer_client_visible(conn, principal, org_id, client_id).await?;
+    let ticket_id = cost
         .and_then(|cost| cost.get("ticket_id"))
         .and_then(Value::as_str)
         .and_then(|raw| Uuid::parse_str(raw).ok());
@@ -530,7 +545,12 @@ pub async fn create(
         )));
     }
     let cost_id = Uuid::now_v7();
-    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    // The receipt comes from the path, so a retry against another receipt must
+    // not match the stored claim: it is part of what the key names.
+    let fingerprint = serde_json::json!({
+        "receipt_id": receipt_id,
+        "body": serde_json::to_value(&req).unwrap_or(Value::Null),
+    });
     let key = req.instant.idempotency_key.clone();
     let vendor_reference = clean_text(req.vendor_reference.as_deref());
     let named_class = req.reporting_class.clone();
@@ -616,7 +636,11 @@ pub async fn create(
                 chrono::Utc::now(),
             )
         };
-        if let Some(ticket_id) = expense.as_ref().map(|e| e.ticket_id) {
+        // A capitalised layer names a ticket without posting an expense, and
+        // its replay checks the board from the stored ticket. The fresh path
+        // asks the same question for both modes, so an identical retry cannot
+        // answer differently.
+        if let Some(ticket_id) = context.ticket_id {
             crate::routes::costs::ticket_for_board_check(
                 &mut ctx.tx,
                 &authed.principal,
@@ -627,7 +651,7 @@ pub async fn create(
             .await?;
         }
 
-        let cost = AcquisitionCost {
+        let mut cost = AcquisitionCost {
             id: cost_id,
             org_id,
             purchase_order_id: context.purchase_order_id,
@@ -656,7 +680,7 @@ pub async fn create(
             created_by: Some(user_id),
             created_at: chrono::Utc::now(),
         };
-        insert_layer(&mut ctx, &cost, &allocations).await?;
+        cost.created_at = insert_layer(&mut ctx, &cost, &allocations).await?;
         if let Some(expense) = &expense {
             acquisition_costs::insert_classed_expense(&mut ctx.tx, expense, &cost.reporting_class)
                 .await
@@ -793,7 +817,9 @@ pub async fn reverse(
             return Ok((ctx, MutationOutcome::Replayed(stored)));
         }
 
-        let original = acquisition_costs::get_cost(&mut ctx.tx, org_id, id).await?;
+        let original = acquisition_costs::get_cost_for_update(&mut ctx.tx, org_id, id).await?;
+        require_layer_client_visible(&mut ctx.tx, &authed.principal, org_id, original.client_id)
+            .await?;
         if original.reverses_acquisition_cost_id.is_some() {
             return Err(ApiError::Conflict(
                 "this layer is itself a reversal; a correction is a new charge, not a reversal of \
@@ -881,7 +907,7 @@ pub async fn reverse(
             .await?;
         }
 
-        let cost = AcquisitionCost {
+        let mut cost = AcquisitionCost {
             id: cost_id,
             org_id,
             purchase_order_id: original.purchase_order_id,
@@ -912,7 +938,7 @@ pub async fn reverse(
             created_by: Some(user_id),
             created_at: chrono::Utc::now(),
         };
-        insert_layer(&mut ctx, &cost, &allocations).await?;
+        cost.created_at = insert_layer(&mut ctx, &cost, &allocations).await?;
         if let Some(expense) = &expense {
             acquisition_costs::insert_classed_expense(&mut ctx.tx, expense, &cost.reporting_class)
                 .await

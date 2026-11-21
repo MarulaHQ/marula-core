@@ -342,14 +342,15 @@ CREATE POLICY acquisition_cost_allocations_org ON acquisition_cost_allocations
 -- See the header: a reversal of an expensed layer posts a negative expense, and
 -- these two CHECKs are the only place the schema admits negative money. The
 -- widened arm is a classed, unbilled expense — the row this module's reversal
--- writes. Nothing else writes `ticket_expenses.reporting_class`, the ticket
+-- writes, and the schema now says so: a negative row can never be billable. Nothing else writes `ticket_expenses.reporting_class`, the ticket
 -- entry path refuses a negative amount, and a negative row is never billable.
 ALTER TABLE ticket_expenses
   DROP CONSTRAINT ticket_expenses_amount_minor_check;
 ALTER TABLE ticket_expenses
   ADD CONSTRAINT ticket_expenses_amount_minor_check
   CHECK (amount_minor >= 0
-         OR (reporting_class IS NOT NULL AND invoice_line_id IS NULL));
+         OR (reporting_class IS NOT NULL AND invoice_line_id IS NULL
+             AND NOT billable));
 
 ALTER TABLE ticket_expenses
   DROP CONSTRAINT ticket_expenses_base_amount_minor_check;
@@ -357,4 +358,5 @@ ALTER TABLE ticket_expenses
   ADD CONSTRAINT ticket_expenses_base_amount_minor_check
   CHECK (base_amount_minor IS NULL
          OR base_amount_minor >= 0
-         OR (reporting_class IS NOT NULL AND invoice_line_id IS NULL));
+         OR (reporting_class IS NOT NULL AND invoice_line_id IS NULL
+             AND NOT billable));
