@@ -107,9 +107,13 @@ export function verifyTree(testsDir) {
 }
 
 /** Round-robin shard selection, identical to the CI split. */
-export function shardOf(targets, shard, shards) {
+export function shardOf(targets, shard, shards, pattern) {
+  if (pattern) {
+    return targets.filter((_, index) => pattern[index % pattern.length] === shard);
+  }
   return targets.filter((_, index) => index % shards === shard - 1);
 }
+
 
 function selfTest() {
   const root = mkdtempSync(join(tmpdir(), "test-targets-"));
@@ -136,6 +140,21 @@ function selfTest() {
   if (shards.flat().sort().join(",") !== "group,solo_flow") {
     throw new Error(`self-test: sharding lost a target: ${JSON.stringify(shards)}`);
   }
+  // A pattern is how a job pays for work the target set does not show. Assert
+  // the shape, not just that nothing was lost: a silent revert to even
+  // round-robin is the failure this guards.
+  const synthetic = Array.from({ length: 42 }, (_, i) => `t${i}`);
+  const even = [shardOf(synthetic, 1, 2).length, shardOf(synthetic, 2, 2).length];
+  if (even[0] !== 21 || even[1] !== 21) {
+    throw new Error(`self-test: even split gave ${even.join("/")}, expected 21/21`);
+  }
+  const weighted = [
+    shardOf(synthetic, 1, 2, [1, 2, 2, 2, 2]).length,
+    shardOf(synthetic, 2, 2, [1, 2, 2, 2, 2]).length,
+  ];
+  if (weighted[0] !== 9 || weighted[1] !== 33) {
+    throw new Error(`self-test: 1:4 pattern gave ${weighted.join("/")}, expected 9/33`);
+  }
 
   writeFileSync(join(tests, "orphan_flow.rs.bak"), "");
   writeFileSync(join(tests, "orphan.rs"), "#[test]\nfn t() {}\n");
@@ -158,7 +177,12 @@ function main(argv) {
     return 0;
   }
   const repo = join(dirname(fileURLToPath(import.meta.url)), "..");
-  const tests = join(repo, "crates", "core-api", "tests");
+  // `--dir` is repo-relative, so a second crate's targets go through the same
+  // discovery and the same verify. Without it this knows about one test tree,
+  // and a second one would need a second copy of all of this.
+  const dirAt = argv.indexOf("--dir");
+  const tests =
+    dirAt === -1 ? join(repo, "crates", "core-api", "tests") : join(repo, argv[dirAt + 1]);
   const { targets, problems } = verifyTree(tests);
 
   if (argv.includes("--list")) {
@@ -174,7 +198,18 @@ function main(argv) {
       console.error(`${LABEL}: --shard must be 1..${shards}`);
       return 2;
     }
-    for (const name of shardOf(targets, shard, shards)) console.log(name);
+    // `--pattern 1,2,2,2,2` repeats that cycle over the sorted target list. The
+    // caller that sets it owns the reason; see the core-api shard step.
+    const patternAt = argv.indexOf("--pattern");
+    let pattern;
+    if (patternAt !== -1) {
+      pattern = String(argv[patternAt + 1]).split(",").map(Number);
+      if (pattern.some((n) => !Number.isInteger(n) || n < 1 || n > shards)) {
+        console.error(`${LABEL}: --pattern values must be 1..${shards}`);
+        return 2;
+      }
+    }
+    for (const name of shardOf(targets, shard, shards, pattern)) console.log(name);
     return 0;
   }
 
