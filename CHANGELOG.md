@@ -13,6 +13,12 @@ Every change lands as a reviewed pull request. Contributions follow
 
 ## [Unreleased]
 
+## [0.6.3] - 2026-11-21
+
+### Fixed
+
+- Air-gapped bundles install again: the archive references three images by tag instead of by digest, because a digest does not survive `docker save`/`docker load` on the store most hosts use and the images came back with no name at all.
+
 ## [0.6.2] - 2026-11-20
 
 ### Added
@@ -408,7 +414,8 @@ Stage 2, the daily driver: the open-core PSA an MSP runs on.
 [0.6.0]: https://github.com/MarulaHQ/marula-core/compare/v0.5.0...v0.6.0
 [0.6.1]: https://github.com/MarulaHQ/marula-core/compare/v0.6.0...v0.6.1
 [0.6.2]: https://github.com/MarulaHQ/marula-core/compare/v0.6.1...v0.6.2
-[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.6.2...HEAD
+[0.6.3]: https://github.com/MarulaHQ/marula-core/compare/v0.6.2...v0.6.3
+[Unreleased]: https://github.com/MarulaHQ/marula-core/compare/v0.6.3...HEAD
 [0.4.0]: https://github.com/MarulaHQ/marula-core/compare/v0.3.8...v0.4.0
 [0.3.8]: https://github.com/MarulaHQ/marula-core/compare/v0.3.7...v0.3.8
 [0.3.7]: https://github.com/MarulaHQ/marula-core/compare/v0.3.6...v0.3.7
