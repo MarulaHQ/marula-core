@@ -75,6 +75,16 @@ const MAX_RUN_DAYS: i64 = 366;
 /// Default payment terms for issued invoices.
 const DEFAULT_DUE_IN_DAYS: i32 = 30;
 
+/// One rental line the run writes: the candidate, the charge it cites, and the
+/// charge row itself when this run is the one creating it. Rent periods are
+/// created here; damage and loss charges were created by the return that raised
+/// them and are only picked up.
+struct RentalLine {
+    candidate: BillingCandidateLine,
+    charge_id: Uuid,
+    new_charge: Option<core_db::loans::NewRentalCharge>,
+}
+
 // --- wire structs ------------------------------------------------------------
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -405,6 +415,28 @@ pub async fn create_run(
         )
         .await?;
 
+        // Rental charges, loaded once for the whole sweep: the leases that
+        // bill under these contracts, the periods already charged, and the
+        // one-off charges (damage, loss) waiting for a line. Two queries, never
+        // one per agreement.
+        let billable_leases =
+            core_db::loans::list_billable_leases(&mut *ctx.tx, org_id, &contract_ids).await?;
+        let lease_ids: Vec<Uuid> = billable_leases.iter().map(|l| l.loan_id).collect();
+        let charged_keys =
+            core_db::loans::existing_rental_charge_keys(&mut *ctx.tx, org_id, &lease_ids).await?;
+        let already_charged: std::collections::HashSet<(
+            Uuid,
+            String,
+            chrono::NaiveDate,
+            chrono::NaiveDate,
+        )> = charged_keys
+            .iter()
+            .map(|(loan, kind, start, end, _)| (*loan, kind.clone(), *start, *end))
+            .collect();
+        let pending_charges =
+            core_db::loans::list_pending_rental_charges(&mut *ctx.tx, org_id, &contract_ids)
+                .await?;
+
         // Contracts arrive ordered by number: per-client sequential
         // processing means later contracts re-read UNBILLED entries and
         // see the consumption links this run already wrote.
@@ -449,7 +481,7 @@ pub async fn create_run(
 
             // Skip already-billed candidates; the partial unique indexes
             // remain the concurrency backstop.
-            let lines: Vec<BillingCandidateLine> = evaluation
+            let mut lines: Vec<BillingCandidateLine> = evaluation
                 .lines
                 .iter()
                 .filter(|l| match l.kind {
@@ -470,6 +502,119 @@ pub async fn create_run(
                 })
                 .cloned()
                 .collect();
+
+            // Rental lines: charges this contract already owes a line for, then
+            // the periods this window starts. Every line cites its charge; the
+            // charge cites the agreement. A lease in another currency than the
+            // contract's is refused rather than converted (the run is
+            // single-currency by construction).
+            let mut rental_lines: Vec<RentalLine> = Vec::new();
+            for charge in pending_charges.iter().filter(|c| c.contract_id == contract.id) {
+                if !charge.currency.eq_ignore_ascii_case(&contract.currency) {
+                    return Err(ApiError::Conflict(format!(
+                        "rental charge {} is {} but contract {} bills in {}",
+                        charge.id, charge.currency, contract.number, contract.currency
+                    )));
+                }
+                rental_lines.push(RentalLine {
+                    candidate: BillingCandidateLine {
+                        contract_id: contract.id,
+                        contract_number: contract.number.clone(),
+                        client_id: charge.client_id,
+                        kind: BillingLineKind::Rental,
+                        period_start: charge.period_start,
+                        period_end: charge.period_end,
+                        description: charge.description.clone(),
+                        quantity_minutes: 0,
+                        unit_amount_minor: charge.unit_amount_minor,
+                        amount_minor: charge.amount_minor,
+                    },
+                    charge_id: charge.id,
+                    new_charge: None,
+                });
+            }
+            for lease in billable_leases
+                .iter()
+                .filter(|l| l.contract_id == contract.id)
+            {
+                // A lease with no cycle price is a loan recorded as one; it
+                // produces no charge rather than an endless zero line.
+                if lease.cycle_amount_minor <= 0 {
+                    continue;
+                }
+                if !lease.currency.eq_ignore_ascii_case(&contract.currency) {
+                    return Err(ApiError::Conflict(format!(
+                        "lease {} bills in {} but its contract {} bills in {}",
+                        lease.loan_id, lease.currency, contract.number, contract.currency
+                    )));
+                }
+                let terms = core_billing::rules::LeaseTerms {
+                    agreement_id: lease.loan_id,
+                    label: lease.label.clone(),
+                    cycle: lease.cycle.clone(),
+                    cycle_amount_minor: lease.cycle_amount_minor,
+                    active_from: lease.active_from,
+                    active_until: lease.active_until,
+                };
+                for period in core_billing::rules::rental_charge_periods(&terms, window.0, window.1)
+                    .map_err(engine_error)?
+                {
+                    if already_charged.contains(&(
+                        lease.loan_id,
+                        "rent".to_string(),
+                        period.period_start,
+                        period.period_end,
+                    )) {
+                        continue;
+                    }
+                    let charge_id = Uuid::now_v7();
+                    rental_lines.push(RentalLine {
+                        candidate: BillingCandidateLine {
+                            contract_id: contract.id,
+                            contract_number: contract.number.clone(),
+                            client_id: lease.client_id,
+                            kind: BillingLineKind::Rental,
+                            period_start: period.period_start,
+                            period_end: period.period_end,
+                            description: period.description.clone(),
+                            quantity_minutes: 0,
+                            unit_amount_minor: period.unit_amount_minor,
+                            amount_minor: period.amount_minor,
+                        },
+                        charge_id,
+                        new_charge: Some(core_db::loans::NewRentalCharge {
+                            id: charge_id,
+                            loan_id: lease.loan_id,
+                            contract_id: contract.id,
+                            client_id: lease.client_id,
+                            kind: "rent".into(),
+                            source_line_id: None,
+                            period_start: period.period_start,
+                            period_end: period.period_end,
+                            days_billed: period.days_billed,
+                            period_days: period.period_days,
+                            unit_amount_minor: period.unit_amount_minor,
+                            amount_minor: period.amount_minor,
+                            currency: lease.currency.clone(),
+                            description: period.description.clone(),
+                            fx_rate_used: None,
+                            fx_rate_date: None,
+                            fx_source: None,
+                            base_amount_minor: None,
+                        }),
+                    });
+                }
+            }
+            let rental_total: i64 = rental_lines
+                .iter()
+                .try_fold(0i64, |acc, r| acc.checked_add(r.candidate.amount_minor))
+                .ok_or_else(|| ApiError::Conflict("invoice run totals overflow".into()))?;
+            let rental_base = lines.len();
+            lines.extend(rental_lines.iter().map(|r| r.candidate.clone()));
+            let invoice_total_minor = evaluation
+                .total_minor
+                .checked_add(rental_total)
+                .ok_or_else(|| ApiError::Conflict("invoice run totals overflow".into()))?;
             if lines.is_empty() {
                 continue;
             }
@@ -485,7 +630,7 @@ pub async fn create_run(
                 }
             }
             total_minor = total_minor
-                .checked_add(evaluation.total_minor)
+                .checked_add(invoice_total_minor)
                 .ok_or_else(|| ApiError::Conflict("invoice run totals overflow".into()))?;
 
             // Entry consumption: T&M invoices consume the entries in the
@@ -576,7 +721,7 @@ pub async fn create_run(
                 .as_ref()
                 .map(|rate| {
                     let original = core_domain::money::Money::new(
-                        evaluation.total_minor,
+                        invoice_total_minor,
                         core_domain::money::CurrencyCode::new(&contract.currency)
                             .map_err(ApiError::from)?,
                     );
@@ -627,7 +772,7 @@ pub async fn create_run(
                 period_to,
                 issued_at: today,
                 due_on,
-                total_minor: evaluation.total_minor,
+                total_minor: invoice_total_minor,
                 total_paid_minor: 0,
                 fx_rate_used: issue_rate_columns.as_ref().map(|s| s.columns().0),
                 fx_rate_date: issue_rate_columns.as_ref().map(|s| s.rate_date),
@@ -673,6 +818,56 @@ pub async fn create_run(
             if !consumed.is_empty() {
                 core_db::invoices::insert_entry_links(&mut *ctx.tx, org_id, invoice.id, &consumed)
                     .await?;
+            }
+            // Rental side effects, same transaction. The charge is written
+            // first (the line already cites its id), then it is flipped to
+            // billed with the line it became — the only update its guard
+            // admits. The line's own source columns cite the charge, which is
+            // what makes "a lease charge cites its agreement" traceable from
+            // either side. The FX snapshot is the contract's already-resolved
+            // one: the charge is in the contract's currency by the check above.
+            if !rental_lines.is_empty() {
+                for line in &rental_lines {
+                    if let Some(charge) = &line.new_charge {
+                        let mut charge = charge.clone();
+                        charge.fx_rate_used =
+                            issue_rate_columns.as_ref().map(|s| s.columns().0);
+                        charge.fx_rate_date =
+                            issue_rate_columns.as_ref().map(|s| s.rate_date);
+                        charge.fx_source = issue_rate_columns.as_ref().map(|s| s.source.clone());
+                        charge.base_amount_minor = issue_rate_columns
+                            .as_ref()
+                            .map(|_| base_of(charge.amount_minor))
+                            .transpose()?;
+                        core_db::loans::insert_rental_charge(
+                            &mut *ctx.tx,
+                            org_id,
+                            user_id,
+                            &charge,
+                        )
+                        .await?;
+                    }
+                }
+                let billed: Vec<(Uuid, Uuid, Uuid)> = rental_lines
+                    .iter()
+                    .enumerate()
+                    .map(|(i, line)| (line.charge_id, invoice.id, line_rows[rental_base + i].id))
+                    .collect();
+                core_db::loans::mark_rental_charges_billed(&mut *ctx.tx, org_id, &billed).await?;
+                let line_ids: Vec<Uuid> = billed.iter().map(|b| b.2).collect();
+                let charge_ids: Vec<Uuid> = billed.iter().map(|b| b.0).collect();
+                sqlx::query(
+                    r#"UPDATE invoice_lines l
+                          SET source_kind = 'rental_charge', source_id = v.charge_id
+                         FROM (SELECT unnest($2::uuid[]) AS line_id,
+                                      unnest($3::uuid[]) AS charge_id) v
+                        WHERE l.org_id = $1 AND l.id = v.line_id"#,
+                )
+                .bind(org_id)
+                .bind(&line_ids)
+                .bind(&charge_ids)
+                .execute(&mut *ctx.tx)
+                .await?;
             }
             // Wave-39 aggregate side effects (same transaction: a failure
             // rolls the whole run back):

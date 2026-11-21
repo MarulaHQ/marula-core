@@ -49,8 +49,24 @@ pub fn routes(gen: ApiGeneration) -> Router<AppState> {
         )
         .route(&format!("{base}/client-loans/{{id}}"), get(get_loan))
         .route(
+            &format!("{base}/client-loans/{{id}}/charges"),
+            get(list_charges),
+        )
+        .route(
             &format!("{base}/client-loans/{{id}}/return"),
             post(return_loan),
+        )
+        .route(
+            &format!("{base}/vendor-rentals"),
+            get(list_vendor_rentals).post(create_vendor_rental),
+        )
+        .route(
+            &format!("{base}/vendor-rentals/{{id}}"),
+            get(get_vendor_rental),
+        )
+        .route(
+            &format!("{base}/vendor-rentals/{{id}}/return"),
+            post(return_vendor_rental),
         )
 }
 
@@ -130,6 +146,17 @@ pub struct LoanReturnLineRequest {
     pub return_condition: Option<String>,
     #[serde(default)]
     pub return_notes: Option<String>,
+    /// Where the unit goes now: pool | sale_stock | refurbishment | ewaste.
+    /// Absent = back to the class it was issued from.
+    #[serde(default)]
+    pub disposition: Option<String>,
+    /// A damage charge raised with this return. Leases only: the charge bills
+    /// through the next ordinary run under the agreement's contract.
+    #[serde(default)]
+    #[schema(value_type = Option<i64>)]
+    pub damage_charge_minor: Option<i64>,
+    #[serde(default)]
+    pub damage_note: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
@@ -463,15 +490,64 @@ pub async fn return_loan(
             .await
             .map_err(|e| instant::mutation_scope_err(ApiError::from(e)))?
             .0;
-        let targets: Vec<core_db::loans::LoanReturnTarget> = req
-            .lines
-            .iter()
-            .map(|l| core_db::loans::LoanReturnTarget {
-                line_id: l.line_id,
-                return_condition: l.return_condition.clone(),
-                return_notes: l.return_notes.clone(),
-            })
-            .collect();
+        let today = Utc::now().date_naive();
+        let mut targets: Vec<core_db::loans::LoanReturnTarget> =
+            Vec::with_capacity(req.lines.len());
+        for line in &req.lines {
+            let damage_charge = match line.damage_charge_minor {
+                None => None,
+                Some(amount) => {
+                    if !before.is_lease {
+                        return Err(ApiError::Validation(
+                            "damage charges belong to a lease agreement".into(),
+                        ));
+                    }
+                    let Some(contract_id) = before.contract_id else {
+                        return Err(ApiError::Conflict(
+                            "this lease names no contract, so a damage charge has nothing to bill under"
+                                .into(),
+                        ));
+                    };
+                    let currency = before.lease_currency.clone().ok_or_else(|| {
+                        ApiError::Conflict("this lease carries no currency to charge in".into())
+                    })?;
+                    let snapshot = crate::routes::fx::lock_snapshot(
+                        &mut ctx.tx, org_id, amount, &currency, today,
+                    )
+                    .await?;
+                    Some(core_db::loans::NewRentalCharge {
+                        id: Uuid::now_v7(),
+                        loan_id: id,
+                        contract_id,
+                        client_id: before.client_id,
+                        kind: "damage".into(),
+                        source_line_id: Some(line.line_id),
+                        period_start: today,
+                        period_end: today + chrono::Duration::days(1),
+                        days_billed: 1,
+                        period_days: 1,
+                        unit_amount_minor: amount,
+                        amount_minor: amount,
+                        currency,
+                        description: match line.damage_note.as_deref() {
+                            Some(note) => format!("Rental damage — {note} [{}]", line.line_id),
+                            None => format!("Rental damage on return [{}]", line.line_id),
+                        },
+                        fx_rate_used: snapshot.as_ref().map(|s| s.rate_used.clone()),
+                        fx_rate_date: snapshot.as_ref().map(|s| s.rate_date),
+                        fx_source: snapshot.as_ref().map(|s| s.source.clone()),
+                        base_amount_minor: snapshot.as_ref().map(|s| s.base_amount_minor),
+                    })
+                }
+            };
+            targets.push(core_db::loans::LoanReturnTarget {
+                line_id: line.line_id,
+                return_condition: line.return_condition.clone(),
+                return_notes: line.return_notes.clone(),
+                disposition: line.disposition.clone(),
+                damage_charge,
+            });
+        }
         let result = core_db::loans::return_loan(
             &mut ctx.tx,
             org_id,
@@ -645,4 +721,614 @@ pub async fn get_loan(
         loan: ClientLoanView::view(loan),
         lines: lines.into_iter().map(ClientLoanLineView::from).collect(),
     }))
+}
+
+// --- lease charges ------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RentalChargeView {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    #[schema(value_type = uuid::Uuid)]
+    pub loan_id: Uuid,
+    #[schema(value_type = uuid::Uuid)]
+    pub contract_id: Uuid,
+    /// rent | damage | loss
+    pub kind: String,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub source_line_id: Option<Uuid>,
+    #[schema(value_type = String)]
+    pub period_start: NaiveDate,
+    #[schema(value_type = String)]
+    pub period_end: NaiveDate,
+    pub days_billed: i64,
+    pub period_days: i64,
+    #[schema(value_type = i64)]
+    pub unit_amount_minor: i64,
+    #[schema(value_type = i64)]
+    pub amount_minor: i64,
+    pub currency: String,
+    pub description: String,
+    /// pending | billed
+    pub status: String,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub invoice_id: Option<Uuid>,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub invoice_line_id: Option<Uuid>,
+    #[schema(value_type = Option<String>)]
+    pub billed_at: Option<DateTime<Utc>>,
+}
+
+impl From<core_db::loans::RentalCharge> for RentalChargeView {
+    fn from(c: core_db::loans::RentalCharge) -> Self {
+        Self {
+            id: c.id,
+            loan_id: c.loan_id,
+            contract_id: c.contract_id,
+            kind: c.kind,
+            source_line_id: c.source_line_id,
+            period_start: c.period_start,
+            period_end: c.period_end,
+            days_billed: c.days_billed,
+            period_days: c.period_days,
+            unit_amount_minor: c.unit_amount_minor,
+            amount_minor: c.amount_minor,
+            currency: c.currency,
+            description: c.description,
+            status: c.status,
+            invoice_id: c.invoice_id,
+            invoice_line_id: c.invoice_line_id,
+            billed_at: c.billed_at,
+        }
+    }
+}
+
+/// GET /api/client-loans/{id}/charges — every charge the agreement has
+/// produced, billed or waiting for the next run.
+#[utoipa::path(
+    operation_id = "client_loans_charges",
+    get,
+    path = "/api/client-loans/{id}/charges",
+    tag = "commercial",
+    security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses(
+        (status = 200, body = [RentalChargeView]),
+        (status = 404, description = "not visible in scope")
+    )
+)]
+pub async fn list_charges(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: Extensions,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+) -> ApiResult<Json<Vec<RentalChargeView>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, commercial(Action::View))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    // The agreement must exist in scope before its charges do.
+    core_db::loans::get_loan(&mut tx, org_id, id).await?;
+    let charges = core_db::loans::list_rental_charges(&mut tx, org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(
+        charges.into_iter().map(RentalChargeView::from).collect(),
+    ))
+}
+
+// --- vendor rentals (inbound) -------------------------------------------------
+//
+// The unit is the vendor's. It lands as a `device_assets` row with
+// `ownership = rented` and class `rental_in`, so it never depreciates and never
+// enters owned valuation. This surface records the agreement around it: terms,
+// the expense, the deposit, and the return with its condition, damage, or loss.
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct VendorRentalAssetRequest {
+    pub tag: String,
+    pub name: String,
+    /// device | server | ... (free text, as on every asset).
+    #[serde(default = "VendorRentalAssetRequest::default_kind")]
+    pub kind: String,
+}
+
+impl VendorRentalAssetRequest {
+    fn default_kind() -> String {
+        "device".into()
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct CreateVendorRentalRequest {
+    /// An asset the procurement receipt already created as `rental_in`.
+    #[serde(default)]
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub device_asset_id: Option<Uuid>,
+    /// Or a unit to create in the vendor's class.
+    #[serde(default)]
+    pub asset: Option<VendorRentalAssetRequest>,
+    #[serde(default)]
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub vendor_id: Option<Uuid>,
+    /// The vendor's name when they are not in the directory.
+    #[serde(default)]
+    pub vendor_name: Option<String>,
+    #[serde(default)]
+    pub agreement_ref: Option<String>,
+    #[schema(value_type = String)]
+    pub start_on: NaiveDate,
+    #[serde(default)]
+    #[schema(value_type = Option<String>)]
+    pub end_on: Option<NaiveDate>,
+    /// The rental expense per cycle, integer minor units.
+    #[schema(value_type = i64)]
+    pub cost_minor: i64,
+    pub currency: String,
+    /// monthly | quarterly | annual.
+    pub cycle: String,
+    #[serde(default)]
+    #[schema(value_type = Option<i64>)]
+    pub deposit_minor: Option<i64>,
+    #[serde(default)]
+    pub deposit_currency: Option<String>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct VendorRentalView {
+    #[schema(value_type = Uuid)]
+    pub id: Uuid,
+    #[schema(value_type = Uuid)]
+    pub device_asset_id: Uuid,
+    #[schema(value_type = Option<Uuid>)]
+    pub vendor_id: Option<Uuid>,
+    #[schema(nullable = true)]
+    pub vendor_name: Option<String>,
+    #[schema(nullable = true)]
+    pub agreement_ref: Option<String>,
+    #[schema(value_type = String)]
+    pub start_on: NaiveDate,
+    #[schema(value_type = Option<String>)]
+    pub end_on: Option<NaiveDate>,
+    #[schema(value_type = i64)]
+    pub cost_minor: i64,
+    pub currency: String,
+    pub cycle: String,
+    #[schema(value_type = Option<i64>)]
+    pub deposit_minor: Option<i64>,
+    #[schema(nullable = true)]
+    pub deposit_currency: Option<String>,
+    /// The cycle cost in the organisation base currency, locked when it was
+    /// written. Absent when the cost is already in the base currency.
+    #[schema(value_type = Option<i64>)]
+    pub base_cost_minor: Option<i64>,
+    /// open | returned
+    pub status: String,
+    #[schema(value_type = Option<String>)]
+    pub returned_at: Option<DateTime<Utc>>,
+    #[schema(nullable = true)]
+    pub return_condition: Option<String>,
+    #[schema(value_type = Option<i64>)]
+    pub damage_minor: Option<i64>,
+    pub lost: bool,
+    #[schema(value_type = Option<i64>)]
+    pub loss_minor: Option<i64>,
+    #[schema(nullable = true)]
+    pub notes: Option<String>,
+    #[schema(value_type = String)]
+    pub created_at: DateTime<Utc>,
+    #[schema(value_type = String)]
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<core_db::loans::VendorRental> for VendorRentalView {
+    fn from(v: core_db::loans::VendorRental) -> Self {
+        Self {
+            id: v.id,
+            device_asset_id: v.device_asset_id,
+            vendor_id: v.vendor_id,
+            vendor_name: v.vendor_name,
+            agreement_ref: v.agreement_ref,
+            start_on: v.start_on,
+            end_on: v.end_on,
+            cost_minor: v.cost_minor,
+            currency: v.currency,
+            cycle: v.cycle,
+            deposit_minor: v.deposit_minor,
+            deposit_currency: v.deposit_currency,
+            base_cost_minor: v.base_cost_minor,
+            status: v.status,
+            returned_at: v.returned_at,
+            return_condition: v.return_condition,
+            damage_minor: v.damage_minor,
+            lost: v.lost,
+            loss_minor: v.loss_minor,
+            notes: v.notes,
+            created_at: v.created_at,
+            updated_at: v.updated_at,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, ToSchema)]
+pub struct VendorRentalMutationResponse {
+    pub rental: VendorRentalView,
+    pub mutation: instant::MutationMeta,
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
+pub struct VendorRentalListQuery {
+    /// open | returned (absent = both).
+    #[serde(default)]
+    pub status: Option<String>,
+    #[serde(default)]
+    pub limit: Option<i64>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct VendorRentalReturnRequest {
+    /// good | fair | damaged — required unless the unit was lost.
+    #[serde(default)]
+    pub return_condition: Option<String>,
+    #[serde(default)]
+    pub lost: bool,
+    #[serde(default)]
+    #[schema(value_type = Option<i64>)]
+    pub damage_minor: Option<i64>,
+    #[serde(default)]
+    #[schema(value_type = Option<i64>)]
+    pub loss_minor: Option<i64>,
+    #[serde(default)]
+    pub notes: Option<String>,
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
+}
+
+const VENDOR_ENTITY: &str = "vendor_rental";
+
+/// POST /api/vendor-rentals — record what the organisation is renting in.
+#[utoipa::path(
+    operation_id = "vendor_rentals_create",
+    post,
+    path = "/api/vendor-rentals",
+    tag = "commercial",
+    security(("bearer" = [])),
+    request_body = CreateVendorRentalRequest,
+    responses(
+        (status = 200, body = VendorRentalMutationResponse),
+        (status = 404, description = "vendor or asset not visible in scope"),
+        (status = 409, description = "the unit is not rental_in gear, or is already on an open rental"),
+        (status = 422, description = "validation failure")
+    )
+)]
+pub async fn create_vendor_rental(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: Extensions,
+    axum::extract::Json(req): axum::extract::Json<CreateVendorRentalRequest>,
+) -> ApiResult<Json<VendorRentalMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, commercial(Action::Create))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
+    // Currency and amount are validated here, before the transaction: a bad
+    // code is a caller mistake, not a conflict.
+    core_domain::money::CurrencyCode::new(&req.currency)
+        .map_err(|e| ApiError::Validation(e.to_string()))?;
+    if let Some(code) = &req.deposit_currency {
+        core_domain::money::CurrencyCode::new(code)
+            .map_err(|e| ApiError::Validation(e.to_string()))?;
+    }
+    if req.device_asset_id.is_none() && req.asset.is_none() {
+        return Err(ApiError::Validation(
+            "name the rented asset or describe one to create".into(),
+        ));
+    }
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: VENDOR_ENTITY,
+                entity_id: None,
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        // ADR 0002: the cycle cost is priced once, so its FX snapshot locks
+        // here and never re-converts.
+        let snapshot = crate::routes::fx::lock_snapshot(
+            &mut ctx.tx,
+            org_id,
+            req.cost_minor,
+            &req.currency,
+            req.start_on,
+        )
+        .await?;
+        let core_req = core_db::loans::VendorRentalRequest {
+            device_asset_id: req.device_asset_id,
+            new_asset: req.asset.as_ref().map(|a| core_db::loans::NewRentalAsset {
+                tag: a.tag.clone(),
+                name: a.name.clone(),
+                kind: a.kind.clone(),
+            }),
+            vendor_id: req.vendor_id,
+            vendor_name: req.vendor_name.clone(),
+            agreement_ref: req.agreement_ref.clone(),
+            start_on: req.start_on,
+            end_on: req.end_on,
+            cost_minor: req.cost_minor,
+            currency: req.currency.clone(),
+            cycle: req.cycle.clone(),
+            deposit_minor: req.deposit_minor,
+            deposit_currency: req.deposit_currency.clone(),
+            fx_rate_used: snapshot.as_ref().map(|s| s.rate_used.clone()),
+            fx_rate_date: snapshot.as_ref().map(|s| s.rate_date),
+            fx_source: snapshot.as_ref().map(|s| s.source.clone()),
+            base_cost_minor: snapshot.as_ref().map(|s| s.base_amount_minor),
+            notes: req.notes.clone(),
+        };
+        let rental = core_db::loans::create_vendor_rental(&mut ctx.tx, org_id, user_id, &core_req)
+            .await
+            .map_err(|e| instant::mutation_scope_err(ApiError::from(e)))?;
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: VENDOR_ENTITY,
+                entity_id: rental.id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: Actor::Human(user_id),
+                action: "vendor_rental.created".into(),
+                entity_type: Some(VENDOR_ENTITY.into()),
+                entity_id: Some(rental.id.to_string()),
+                detail: serde_json::json!({
+                    "device_asset_id": rental.device_asset_id,
+                    "cost_minor": rental.cost_minor,
+                    "currency": rental.currency,
+                }),
+                ip: None,
+                occurred_at: Utc::now(),
+            },
+        )
+        .await?;
+        let view = VendorRentalView::from(rental);
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: VENDOR_ENTITY,
+                entity_id: view.id,
+                op: "create",
+                seq: write_seq,
+                before: None,
+                after: serde_json::to_value(&view).unwrap_or(Value::Null),
+                updated_at: view.updated_at,
+                key: key.as_deref(),
+                payload: &view,
+                provenance: Default::default(),
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(VendorRentalMutationResponse {
+                rental: view,
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+    Ok(Json(outcome.into_response()?))
+}
+
+/// GET /api/vendor-rentals.
+#[utoipa::path(
+    operation_id = "vendor_rentals_list",
+    get,
+    path = "/api/vendor-rentals",
+    tag = "commercial",
+    security(("bearer" = [])),
+    params(VendorRentalListQuery),
+    responses((status = 200, body = [VendorRentalView]))
+)]
+pub async fn list_vendor_rentals(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: Extensions,
+    axum::extract::Query(q): axum::extract::Query<VendorRentalListQuery>,
+) -> ApiResult<Json<Vec<VendorRentalView>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, commercial(Action::View))?;
+    // The row carries the rental expense, the deposit, damage and loss.
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
+    if let Some(status) = q.status.as_deref() {
+        if status != "open" && status != "returned" {
+            return Err(ApiError::Validation(
+                "status must be open or returned".into(),
+            ));
+        }
+    }
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let rows = core_db::loans::list_vendor_rentals(
+        &mut tx,
+        org_id,
+        q.status.as_deref(),
+        q.limit.unwrap_or(LIST_LIMIT).min(LIST_LIMIT),
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(rows.into_iter().map(VendorRentalView::from).collect()))
+}
+
+/// GET /api/vendor-rentals/{id}.
+#[utoipa::path(
+    operation_id = "vendor_rentals_get",
+    get,
+    path = "/api/vendor-rentals/{id}",
+    tag = "commercial",
+    security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    responses(
+        (status = 200, body = VendorRentalView),
+        (status = 404, description = "not visible in scope")
+    )
+)]
+pub async fn get_vendor_rental(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: Extensions,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+) -> ApiResult<Json<VendorRentalView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, commercial(Action::View))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let rental = core_db::loans::get_vendor_rental(&mut tx, org_id, id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(VendorRentalView::from(rental)))
+}
+
+/// POST /api/vendor-rentals/{id}/return — close the agreement with what
+/// happened to the unit.
+#[utoipa::path(
+    operation_id = "vendor_rentals_return",
+    post,
+    path = "/api/vendor-rentals/{id}/return",
+    tag = "commercial",
+    security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    request_body = VendorRentalReturnRequest,
+    responses(
+        (status = 200, body = VendorRentalMutationResponse),
+        (status = 404, description = "not visible in scope"),
+        (status = 409, description = "already closed, or an incomplete return")
+    )
+)]
+pub async fn return_vendor_rental(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: Extensions,
+    axum::extract::Path(id): axum::extract::Path<Uuid>,
+    axum::extract::Json(req): axum::extract::Json<VendorRentalReturnRequest>,
+) -> ApiResult<Json<VendorRentalMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, commercial(Action::Edit))?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: VENDOR_ENTITY,
+                entity_id: Some(id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+        let before = core_db::loans::get_vendor_rental(&mut ctx.tx, org_id, id)
+            .await
+            .map_err(|e| instant::mutation_scope_err(ApiError::from(e)))?;
+        let rental = core_db::loans::return_vendor_rental(
+            &mut ctx.tx,
+            org_id,
+            user_id,
+            id,
+            &core_db::loans::VendorRentalReturn {
+                return_condition: req.return_condition.clone(),
+                lost: req.lost,
+                damage_minor: req.damage_minor,
+                loss_minor: req.loss_minor,
+                notes: req.notes.clone(),
+            },
+        )
+        .await
+        .map_err(|e| instant::mutation_scope_err(ApiError::from(e)))?;
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: VENDOR_ENTITY,
+                entity_id: id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: Actor::Human(user_id),
+                action: "vendor_rental.returned".into(),
+                entity_type: Some(VENDOR_ENTITY.into()),
+                entity_id: Some(id.to_string()),
+                detail: serde_json::json!({
+                    "return_condition": rental.return_condition,
+                    "lost": rental.lost,
+                    "damage_minor": rental.damage_minor,
+                    "loss_minor": rental.loss_minor,
+                }),
+                ip: None,
+                occurred_at: Utc::now(),
+            },
+        )
+        .await?;
+        let view = VendorRentalView::from(rental);
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: VENDOR_ENTITY,
+                entity_id: id,
+                op: "return",
+                seq: write_seq,
+                before: Some(
+                    serde_json::to_value(VendorRentalView::from(before)).unwrap_or(Value::Null),
+                ),
+                after: serde_json::to_value(&view).unwrap_or(Value::Null),
+                updated_at: view.updated_at,
+                key: key.as_deref(),
+                payload: &view,
+                provenance: Default::default(),
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(VendorRentalMutationResponse {
+                rental: view,
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+    Ok(Json(outcome.into_response()?))
 }
