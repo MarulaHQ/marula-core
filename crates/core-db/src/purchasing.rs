@@ -2075,6 +2075,7 @@ pub async fn project_cost_rollup(
     executor: &mut sqlx::PgConnection,
     org_id: Uuid,
     project_id: Uuid,
+    scope: ClientScope,
 ) -> DbResult<ProjectCostRollup> {
     let project =
         sqlx::query("SELECT budget_minor, currency FROM projects WHERE org_id = $1 AND id = $2")
@@ -2084,34 +2085,46 @@ pub async fn project_cost_rollup(
             .await?
             .ok_or(DbError::NotFound)?;
     let base_currency = crate::fx::base_currency(&mut *executor, org_id).await?;
-    let rows = sqlx::query(
+    // A bill names the purchase order behind it, and a client-linked order the
+    // caller cannot see must not contribute to the total or the list: the
+    // budget comparison would otherwise disclose the hidden spend. The rule is
+    // the one every purchase-order read applies.
+    let rows = sqlx::query!(
         r#"SELECT b.id AS bill_id, b.purchase_order_id, o.number AS order_number,
                   b.amount_minor, b.currency, b.base_amount_minor, b.posted_at
            FROM purchase_bills b
            JOIN purchase_orders o ON o.org_id = b.org_id AND o.id = b.purchase_order_id
            WHERE b.org_id = $1 AND o.project_id = $2 AND b.posted_at IS NOT NULL
+             AND ($4::boolean OR o.client_id IS NULL OR NOT EXISTS (
+                   SELECT 1 FROM clients c
+                    WHERE c.org_id = o.org_id
+                      AND c.id = o.client_id
+                      AND c.restricted_to <> '[]'::jsonb
+                      AND NOT (c.restricted_to ? $3)))
            ORDER BY b.posted_at"#,
+        org_id,
+        project_id,
+        scope.viewer_id.to_string(),
+        scope.sees_every_client,
     )
-    .bind(org_id)
-    .bind(project_id)
     .fetch_all(&mut *executor)
     .await?;
     let mut bills = Vec::with_capacity(rows.len());
     let mut total: i64 = 0;
     for row in rows {
-        let base_amount: Option<i64> = row.get("base_amount_minor");
-        let amount: i64 = row.get("amount_minor");
+        let base_amount: Option<i64> = row.base_amount_minor;
+        let amount: i64 = row.amount_minor;
         // `base_amount_minor` is the locked base conversion; a
         // base-currency bill has no snapshot and contributes its amount.
         total = total.saturating_add(base_amount.unwrap_or(amount));
         bills.push(RollupBill {
-            bill_id: row.get("bill_id"),
-            purchase_order_id: row.get("purchase_order_id"),
-            purchase_order_number: row.get("order_number"),
+            bill_id: row.bill_id,
+            purchase_order_id: row.purchase_order_id,
+            purchase_order_number: row.order_number,
             amount_minor: amount,
-            currency: row.get("currency"),
+            currency: row.currency,
             base_amount_minor: base_amount,
-            posted_at: row.get("posted_at"),
+            posted_at: row.posted_at,
         });
     }
     Ok(ProjectCostRollup {

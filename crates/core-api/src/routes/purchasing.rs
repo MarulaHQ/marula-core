@@ -1107,6 +1107,12 @@ fn guard_line_destination(
             "an e-waste line is a service; units arrive through an e-waste intake".into(),
         ));
     }
+    if destination.is_terminal() {
+        return Err(ApiError::Validation(format!(
+            "a line cannot land in {} — that is a terminal disposition, reached by a movement after the unit exists",
+            destination.as_str()
+        )));
+    }
     // Tools are stock: a tool serial lands in `tools` through the item's own
     // flag when it is received as sale stock, which is the only writer. Naming
     // the class directly would record a receipt with no tool movement.
@@ -1477,6 +1483,27 @@ fn strip_financials(value: &mut Value) {
         }
         _ => {}
     }
+}
+
+/// The order a link hangs on, resolved from the link's own subject. A link's
+/// parent is a document the caller may or may not see, and the request path is
+/// not evidence of it: the same key can be replayed through another order's
+/// route, so both the read and the replay ask the link itself.
+async fn linked_order_of(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    subject_kind: ExternalLinkSubject,
+    subject_id: Uuid,
+) -> ApiResult<Option<Uuid>> {
+    Ok(match subject_kind {
+        ExternalLinkSubject::PurchaseOrder => Some(subject_id),
+        ExternalLinkSubject::PurchaseOrderLine => Some(
+            core_db::purchasing::get_po_line(&mut *conn, org_id, subject_id)
+                .await?
+                .purchase_order_id,
+        ),
+        _ => None,
+    })
 }
 
 /// Puts a read transaction on one snapshot.
@@ -2187,8 +2214,28 @@ async fn insert_link(
         )
         .await?
         {
-            // A replayed link is still a read of the order it hangs on.
-            if let Some(order_id) = linked_order {
+            // A replayed link is still a read of the order it hangs on, and the
+            // order that counts is the one the stored link belongs to: the
+            // request path is not part of the fingerprint, so the same key can
+            // arrive through a different order's route.
+            let stored_parent = match (
+                stored
+                    .get("link")
+                    .and_then(|link| link.get("subject_kind"))
+                    .and_then(Value::as_str)
+                    .and_then(|raw| ExternalLinkSubject::parse(raw).ok()),
+                stored
+                    .get("link")
+                    .and_then(|link| link.get("subject_id"))
+                    .and_then(Value::as_str)
+                    .and_then(|raw| Uuid::parse_str(raw).ok()),
+            ) {
+                (Some(kind), Some(subject_id)) => {
+                    linked_order_of(&mut ctx.tx, org_id, kind, subject_id).await?
+                }
+                _ => linked_order,
+            };
+            if let Some(order_id) = stored_parent {
                 assert_order_client_visible(&mut ctx.tx, org_id, &authed.principal, order_id)
                     .await?;
             }
@@ -2429,15 +2476,7 @@ pub async fn delete_external_link_route(
         .await
         .map_err(ApiError::from)?;
     let link = core_db::purchasing::get_external_link(&mut *tx, org_id, id).await?;
-    let linked_order = match link.subject_kind {
-        ExternalLinkSubject::PurchaseOrder => Some(link.subject_id),
-        ExternalLinkSubject::PurchaseOrderLine => Some(
-            core_db::purchasing::get_po_line(&mut *tx, org_id, link.subject_id)
-                .await?
-                .purchase_order_id,
-        ),
-        _ => None,
-    };
+    let linked_order = linked_order_of(&mut tx, org_id, link.subject_kind, link.subject_id).await?;
     if let Some(order_id) = linked_order {
         assert_order_client_visible(&mut tx, org_id, &authed.principal, order_id).await?;
     }
@@ -3472,6 +3511,25 @@ pub async fn place_order(
             return Err(ApiError::Conflict(
                 "a purchase order needs at least one line before it can be ordered".into(),
             ));
+        }
+        // A draft line may wait for its stock item, but a placed one cannot: the
+        // line is not editable after placement and a sale-stock receipt posts
+        // through the stock ledger, which needs the item to move.
+        let header = core_db::purchasing::get_order_intent(&mut *ctx.tx, org_id, id).await?;
+        let intents = core_db::purchasing::list_line_intents(&mut ctx.tx, org_id, id).await?;
+        for line in &lines {
+            let intent = intents
+                .get(&line.id)
+                .cloned()
+                .unwrap_or_else(core_db::purchasing::LineIntent::stock);
+            if resolve_destination(&intent, &header) == CustodyClass::SaleStock
+                && line.stock_item_id.is_none()
+            {
+                return Err(ApiError::Validation(format!(
+                    "line \"{}\" lands in sale stock but names no stock item — a sale-stock receipt posts through the stock ledger, so the line needs one before it is placed",
+                    line.description
+                )));
+            }
         }
         let order = core_db::purchasing::mark_ordered(&mut *ctx.tx, org_id, id).await?;
         let write_seq = instant::entity_seq(
@@ -5052,7 +5110,16 @@ pub async fn project_cost_rollup_route(
     core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
         .await
         .map_err(ApiError::from)?;
-    let rollup = core_db::purchasing::project_cost_rollup(&mut tx, org_id, id).await?;
+    let rollup = core_db::purchasing::project_cost_rollup(
+        &mut tx,
+        org_id,
+        id,
+        core_db::purchasing::ClientScope {
+            viewer_id: authed.principal.user.id,
+            sees_every_client: authed.principal.is_owner_or_admin(),
+        },
+    )
+    .await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok(Json(rollup.into()))
 }
@@ -5187,6 +5254,25 @@ mod tests {
         let mut lot = line_input(None, None);
         lot.qty_ordered_milli = 1_500;
         assert!(line_intent_from_input(&lot, &client).is_ok());
+    }
+
+    #[test]
+    fn a_terminal_destination_is_refused() {
+        let ours = header(AcquiredFor::SaleStock);
+        for terminal in [
+            CustodyClass::Sold,
+            CustodyClass::Recycled,
+            CustodyClass::Destroyed,
+            CustodyClass::Returned,
+        ] {
+            let refused =
+                line_intent_from_input(&line_input(None, Some(terminal)), &ours).unwrap_err();
+            assert!(
+                matches!(refused, ApiError::Validation(_)),
+                "{} is not a purchase destination",
+                terminal.as_str()
+            );
+        }
     }
 
     #[test]

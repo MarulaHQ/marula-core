@@ -560,6 +560,15 @@ pub struct PurchaseLineIntent {
 
 impl PurchaseLineIntent {
     pub fn validate(&self) -> Result<(), DomainError> {
+        // A terminal class is a disposition, not a destination: a unit reaches
+        // `sold` or `recycled` by a movement after it exists. A purchase that
+        // names one is refused here rather than by the schema's narrower CHECK.
+        if self.destination_class.is_terminal() {
+            return Err(DomainError::Validation(format!(
+                "a purchase cannot land in {} — that is a terminal disposition, reached by a movement after the unit exists",
+                self.destination_class.as_str()
+            )));
+        }
         if let Some(weight) = self.weight_g {
             if weight <= 0 {
                 return Err(DomainError::Validation(
@@ -1128,6 +1137,37 @@ mod tests {
             ours.validate().is_err(),
             "a purchase for stock is not recharged to a client"
         );
+    }
+
+    #[test]
+    #[test]
+    fn a_terminal_class_is_not_a_destination() {
+        // Every terminal disposition is reached by a movement after the unit
+        // exists; a purchase that names one is refused rather than left to the
+        // schema's narrower CHECK.
+        for terminal in [
+            CustodyClass::Sold,
+            CustodyClass::Recycled,
+            CustodyClass::Destroyed,
+            CustodyClass::Returned,
+        ] {
+            let line = PurchaseLineIntent {
+                line_kind: LineKind::Stock,
+                destination_class: terminal,
+                serial_expected: false,
+                asset_layout_id: None,
+                weight_g: None,
+                sell_price_minor: None,
+                billable: false,
+            };
+            assert!(
+                line.validate().is_err(),
+                "{} is not a purchase destination",
+                terminal.as_str()
+            );
+        }
+        // The seven live classes stay valid where their kind allows them.
+        assert!(line_intent().validate().is_ok());
     }
 
     #[test]
