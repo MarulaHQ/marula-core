@@ -328,6 +328,15 @@ pub struct RecordDispositionRequest {
     pub instant: instant::MutationParams,
 }
 
+/// POST /api/ewaste/intakes/{id}/close. The body is optional: a caller that
+/// has not read a version may close without one, and a caller that has read
+/// the intake passes the version it saw.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct CloseIntakeRequest {
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
+}
+
 /// GET /api/ewaste/intakes.
 #[derive(Debug, Deserialize, utoipa::IntoParams, ToSchema)]
 pub struct ListIntakesQuery {
@@ -699,7 +708,6 @@ pub async fn create(
 
         let id = Uuid::now_v7();
         ewaste::create_intake(&mut ctx.tx, org_id, user_id, id, &input).await?;
-        let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -709,6 +717,7 @@ pub async fn create(
             },
         )
         .await?;
+        let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         ctx.emit(
             "ewaste.intake_recorded",
             ENTITY,
@@ -785,7 +794,6 @@ pub async fn add_line(
         require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
             .await?;
         ewaste::add_line(&mut ctx.tx, org_id, user_id, id, &line).await?;
-        let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -795,6 +803,7 @@ pub async fn add_line(
             },
         )
         .await?;
+        let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         ctx.emit(
             "ewaste.line_added",
             ENTITY,
@@ -929,7 +938,6 @@ pub async fn record_event(
         require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
             .await?;
         ewaste::record_event(&mut ctx.tx, org_id, id, &input).await?;
-        let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -939,6 +947,7 @@ pub async fn record_event(
             },
         )
         .await?;
+        let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         ctx.emit(
             "ewaste.event_recorded",
             ENTITY,
@@ -1032,7 +1041,6 @@ pub async fn set_destruction(
             req.document_id,
         )
         .await?;
-        let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -1042,6 +1050,7 @@ pub async fn set_destruction(
             },
         )
         .await?;
+        let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         ctx.emit(
             "ewaste.destruction_recorded",
             ENTITY,
@@ -1131,7 +1140,6 @@ pub async fn record_disposition(
         }
         let disposition =
             ewaste::record_disposition(&mut ctx.tx, org_id, user_id, id, &input).await?;
-        let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -1141,6 +1149,7 @@ pub async fn record_disposition(
             },
         )
         .await?;
+        let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         ctx.emit(
             "ewaste.disposition_recorded",
             ENTITY,
@@ -1180,6 +1189,9 @@ pub async fn record_disposition(
 }
 
 /// POST /api/ewaste/intakes/{id}/close — the balanced end of a receipt.
+///
+/// An optional `{"version": n}` body is checked before the close writes; a
+/// bodyless call still works.
 #[utoipa::path(operation_id = "ewaste_close_intake", post, path = "/api/ewaste/intakes/{id}/close", tag = "ewaste", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, body = IntakeMutationResponse),
@@ -1189,27 +1201,32 @@ pub async fn close_intake(
     axum::extract::State(state): axum::extract::State<AppState>,
     extensions: Extensions,
     axum::extract::Path(id): axum::extract::Path<Uuid>,
+    body: Option<Json<CloseIntakeRequest>>,
 ) -> ApiResult<Json<IntakeMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
+    let version = body.and_then(|Json(body)| body.instant.version);
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
         require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
             .await?;
-        ewaste::close_intake(&mut ctx.tx, org_id, user_id, id).await?;
-        let detail = load_detail(&mut ctx.tx, org_id, id).await?;
+        // The version is checked before the close writes, and the same lock
+        // serializes a concurrent child write, so the detail below describes
+        // the state this close produced.
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
                 entity: ENTITY,
                 entity_id: id,
-                version: None,
+                version,
             },
         )
         .await?;
+        ewaste::close_intake(&mut ctx.tx, org_id, user_id, id).await?;
+        let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         ctx.emit(
             "ewaste.intake_closed",
             ENTITY,

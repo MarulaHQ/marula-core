@@ -1572,6 +1572,7 @@ use utoipa::OpenApi;
         crate::routes::ewaste::AddLineRequest,
         crate::routes::ewaste::RecordEventRequest,
         crate::routes::ewaste::SetDestructionRequest,
+        crate::routes::ewaste::CloseIntakeRequest,
         crate::routes::ewaste::RecordDispositionRequest,
         crate::routes::ewaste::ListIntakesQuery,
         crate::routes::ewaste::ListDispositionsQuery,
