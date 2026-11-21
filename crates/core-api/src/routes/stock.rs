@@ -1452,6 +1452,12 @@ async fn ledger_apply(
     key: Option<String>,
     m: core_domain::entities::StockMovement,
     serial_number: Option<String>,
+    // `sale_side_serial` is the unit a sale-side withdrawal takes out, when
+    // there is one. The custody recheck runs in this transaction, against a
+    // locked row, so a commission that lands between a preflight read and the
+    // write cannot be missed. Pool issue and the other legs pass None: a `loan`
+    // movement is allowed to move a `rental_out` unit.
+    sale_side_serial: Option<Uuid>,
 ) -> ApiResult<Json<MovementMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
@@ -1505,6 +1511,28 @@ async fn ledger_apply(
                     movement.fx_source = Some(snap.source);
                     movement.base_cost_minor = Some(snap.base_amount_minor);
                 }
+            }
+        }
+
+        // A withdrawal takes a unit out of saleable stock, and a pool unit is
+        // not saleable. Lock the serial here, in the writing transaction, and
+        // read its class under that lock: the class-movement trigger takes the
+        // same row lock, so a commission either commits before this read or
+        // waits for this write.
+        if let Some(serial_id) = sale_side_serial {
+            let class = sqlx::query_scalar!(
+                r#"SELECT custody_class AS "custody_class!" FROM stock_serials
+                    WHERE org_id = $1 AND id = $2 FOR UPDATE"#,
+                org_id,
+                serial_id
+            )
+            .fetch_optional(&mut *ctx.tx)
+            .await?;
+            if class.as_deref() == Some("rental_out") {
+                return Err(ApiError::Conflict(
+                    "that unit is in the rental pool; decommission it before withdrawing it as sale stock"
+                        .into(),
+                ));
             }
         }
 
@@ -1594,42 +1622,6 @@ async fn item_kind(
     let item = core_db::stock::get_stock_item(&mut *tx, org_id, item_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     Ok((item.kind, item.currency))
-}
-
-/// Refuses a withdrawal of a unit that belongs to the rental pool. A
-/// `rental_out` unit is not saleable stock: the on-hand read already leaves it
-/// out of the count, so a consume or a ship-out that names one would remove a
-/// unit the shelves never offered.
-///
-/// The check lives here, in the sale-side handlers, and not in the shared stock
-/// writer: a pool issue writes a `loan` movement for the same serial after it
-/// sets the class, and a writer-level refusal would block the loan.
-async fn require_saleable_serial(
-    state: &AppState,
-    extensions: &Extensions,
-    serial_id: Uuid,
-) -> ApiResult<()> {
-    let authed = authed::<crate::auth::AuthedUser>(extensions)?;
-    let org_id = authed.principal.user.org_id;
-    let user_id = authed.principal.user.id;
-    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org_and_user(&mut tx, org_id, user_id)
-        .await
-        .map_err(ApiError::from)?;
-    let class: Option<String> =
-        sqlx::query_scalar("SELECT custody_class FROM stock_serials WHERE org_id = $1 AND id = $2")
-            .bind(org_id)
-            .bind(serial_id)
-            .fetch_optional(&mut *tx)
-            .await?;
-    tx.commit().await.map_err(ApiError::from)?;
-    match class.as_deref() {
-        Some("rental_out") => Err(ApiError::Conflict(
-            "that unit is in the rental pool; decommission it before withdrawing it as sale stock"
-                .into(),
-        )),
-        _ => Ok(()),
-    }
 }
 
 fn require_pos(qty: i64, what: &str) -> ApiResult<()> {
@@ -1733,6 +1725,7 @@ pub async fn receive(
         req.instant.idempotency_key.clone(),
         movement,
         serial_number,
+        None,
     )
     .await
 }
@@ -1791,9 +1784,6 @@ pub async fn consume(
     let (kind, _currency) = item_kind(&state, &extensions, req.item_id).await?;
     let serialized = kind == "serialized";
     require_serialized_consistent(serialized, &req.serial_id, "consume")?;
-    if let Some(serial_id) = req.serial_id {
-        require_saleable_serial(&state, &extensions, serial_id).await?;
-    }
     let qty_milli = if serialized { 1000 } else { req.qty_milli };
 
     let movement = core_domain::entities::StockMovement {
@@ -1828,6 +1818,7 @@ pub async fn consume(
         req.instant.idempotency_key.clone(),
         movement,
         None,
+        req.serial_id,
     )
     .await
 }
@@ -1903,6 +1894,7 @@ pub async fn adjust(
         req.instant.idempotency_key.clone(),
         movement,
         None,
+        None,
     )
     .await
 }
@@ -1965,6 +1957,7 @@ pub async fn transfer(
         req.instant.idempotency_key.clone(),
         movement,
         None,
+        None,
     )
     .await
 }
@@ -1999,9 +1992,6 @@ pub async fn ship_out(
     let (kind, _currency) = item_kind(&state, &extensions, req.item_id).await?;
     let serialized = kind == "serialized";
     require_serialized_consistent(serialized, &req.serial_id, "ship-out")?;
-    if let Some(serial_id) = req.serial_id {
-        require_saleable_serial(&state, &extensions, serial_id).await?;
-    }
     let qty_milli = if serialized { 1000 } else { req.qty_milli };
 
     // Fingerprint BEFORE the request is consumed by movement below.
@@ -2039,6 +2029,7 @@ pub async fn ship_out(
         key,
         movement,
         None,
+        req.serial_id,
     )
     .await
 }
@@ -2151,19 +2142,19 @@ pub async fn on_hand(
     // what is on that shelf and not in the rental pool, so the pool's in-stock
     // units come off the count in one grouped read. A pool unit that is out on
     // a lease is already absent from the level: its loan leg took it off.
-    let pool_counts: Vec<(Uuid, Uuid, i64)> = sqlx::query_as(
-        r#"SELECT stock_item_id, location_id, count(*)::bigint
+    let pool_counts = sqlx::query!(
+        r#"SELECT stock_item_id, location_id AS "location_id!", count(*)::bigint AS "qty!"
              FROM stock_serials
             WHERE org_id = $1 AND custody_class = 'rental_out' AND status = 'in_stock'
               AND location_id IS NOT NULL
             GROUP BY stock_item_id, location_id"#,
+        org_id
     )
-    .bind(org_id)
     .fetch_all(&mut *tx)
     .await?;
     let pool: std::collections::HashMap<(Uuid, Uuid), i64> = pool_counts
         .into_iter()
-        .map(|(item, location, qty)| ((item, location), qty * 1000))
+        .map(|row| ((row.stock_item_id, row.location_id), row.qty * 1000))
         .collect();
 
     let mut items: std::collections::HashMap<Uuid, (String, String, String)> =
@@ -2480,11 +2471,12 @@ pub struct PoolMoveRequest {
     pub device_asset_id: Option<Uuid>,
     /// good | fair | damaged.
     pub condition_grade: String,
-    /// True when the device stores data. The wipe reference is then required:
-    /// a pool move that launders a laptop with somebody's data still on it is
-    /// the one thing this leg must not do silently.
-    #[serde(default)]
-    pub stores_data: bool,
+    /// Whether the device stores data. The caller must answer: an omitted value
+    /// is not "no data", it is an unasked question, and the schema has no
+    /// unit-level field to fall back on. A true answer requires the wipe
+    /// reference, because a pool move that launders a laptop with somebody's
+    /// data still on it is the one thing this leg must not do silently.
+    pub stores_data: Option<bool>,
     #[serde(default)]
     pub data_wipe_ref: Option<String>,
     #[serde(default)]
@@ -2630,7 +2622,16 @@ async fn pool_apply(
         .as_deref()
         .map(str::trim)
         .filter(|w| !w.is_empty());
-    if req.stores_data && wipe.is_none() {
+    // An omitted answer is not a "no". The system has no unit-level data-bearing
+    // field to check, so the operator's answer is the only signal there is, and
+    // it has to be given on every pool move.
+    let Some(stores_data) = req.stores_data else {
+        return Err(ApiError::Validation(
+            "answer stores_data on a pool move: true or false decides whether the unit needs wipe evidence"
+                .into(),
+        ));
+    };
+    if stores_data && wipe.is_none() {
         return Err(ApiError::Validation(
             "a device that stores data needs its wipe evidence before it moves".into(),
         ));

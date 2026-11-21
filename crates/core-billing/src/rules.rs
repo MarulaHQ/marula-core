@@ -608,6 +608,13 @@ pub struct LeaseTerms {
     pub active_from: NaiveDate,
     /// Last day the unit is out (inclusive).
     pub active_until: NaiveDate,
+    /// First day the agreement can bill under its contract (inclusive). The
+    /// caller passes the contract's `effective_from` clamped to the lease.
+    pub term_from: NaiveDate,
+    /// Last day the agreement can bill under its contract (inclusive). The
+    /// caller passes the contract's `effective_until` clamped to the lease, or
+    /// the lease end when the contract has none.
+    pub term_until: NaiveDate,
 }
 
 /// One billable rental period: the charge the run writes and the line it
@@ -648,8 +655,14 @@ pub fn rental_charge_periods(
     if terms.active_until < terms.active_from {
         return Ok(Vec::new());
     }
-    // Exclusive end of the active span: the last out day is billable.
+    if terms.term_until < terms.term_from {
+        return Ok(Vec::new());
+    }
+    // Exclusive ends: the last out day is billable, and so is the last day of
+    // the contract term. The period stays anchored on `active_from`; what the
+    // term bounds change is how many of its days are billable.
     let active_end = terms.active_until + chrono::Duration::days(1);
+    let term_end = terms.term_until + chrono::Duration::days(1);
     let mut out = Vec::new();
     for (start, end) in crate::periods::periods_starting_in(
         terms.active_from,
@@ -657,11 +670,18 @@ pub fn rental_charge_periods(
         from.max(terms.active_from),
         to,
     ) {
-        if start >= active_end {
+        if start >= active_end || start >= term_end {
             break;
         }
-        let span_start = start.max(terms.active_from);
-        let span_end = end.min(active_end);
+        // Only the days inside the lease AND inside its contract term bill. A
+        // period that straddles either edge is prorated to the overlap, so a
+        // lease that starts early or runs past the contract never charges a day
+        // the contract does not cover.
+        let span_start = start.max(terms.active_from).max(terms.term_from);
+        let span_end = end.min(active_end).min(term_end);
+        if span_end <= span_start {
+            continue;
+        }
         let days = (span_end - span_start).num_days();
         let period_days = (end - start).num_days();
         let Some(amount) = prorate_days(terms.cycle_amount_minor, days, period_days) else {
@@ -3026,6 +3046,9 @@ mod tests {
             cycle_amount_minor: 49_000,
             active_from,
             active_until,
+            // No contract bound unless a test narrows it.
+            term_from: active_from,
+            term_until: active_until,
         }
     }
 
@@ -3090,6 +3113,48 @@ mod tests {
         assert_eq!(days[0].period_days, 31);
         assert_eq!(days[0].amount_minor, prorate_days(49_000, 17, 31).unwrap());
         assert!(days[0].amount_minor < 49_000);
+    }
+
+    #[test]
+    fn a_period_that_starts_before_the_contract_term_bills_only_in_term_days() {
+        // Out on Jan 15, contract effective Feb 1: the first period is anchored
+        // on Jan 15 and bills the 14 days that fall inside the term.
+        let mut terms = lease(d(2026, 1, 15), d(2026, 12, 31));
+        terms.term_from = d(2026, 2, 1);
+        let billed = rental_charge_periods(&terms, d(2026, 1, 1), d(2026, 1, 31)).unwrap();
+        assert_eq!(billed.len(), 1);
+        assert_eq!(billed[0].period_start, d(2026, 1, 15), "anchor unchanged");
+        assert_eq!(billed[0].days_billed, 14);
+        assert_eq!(
+            billed[0].amount_minor,
+            prorate_days(49_000, 14, 31).unwrap()
+        );
+    }
+
+    #[test]
+    fn a_period_that_ends_after_the_contract_term_is_prorated_to_it() {
+        // The contract ends Feb 10; the February period started Feb 1 and only
+        // its ten in-term days bill.
+        let mut terms = lease(d(2026, 1, 1), d(2026, 12, 31));
+        terms.term_until = d(2026, 2, 10);
+        let billed = rental_charge_periods(&terms, d(2026, 2, 1), d(2026, 2, 28)).unwrap();
+        assert_eq!(billed.len(), 1);
+        assert_eq!(billed[0].days_billed, 10);
+        assert!(billed[0].amount_minor < billed[0].unit_amount_minor);
+        // A later period is wholly outside the term and bills nothing.
+        assert!(rental_charge_periods(&terms, d(2026, 3, 1), d(2026, 3, 31))
+            .unwrap()
+            .is_empty());
+    }
+
+    #[test]
+    fn a_lease_wholly_before_the_contract_term_bills_nothing() {
+        let mut terms = lease(d(2026, 1, 1), d(2026, 1, 31));
+        terms.term_from = d(2026, 2, 1);
+        terms.term_until = d(2026, 12, 31);
+        assert!(rental_charge_periods(&terms, d(2026, 1, 1), d(2026, 1, 31))
+            .unwrap()
+            .is_empty());
     }
 
     #[test]

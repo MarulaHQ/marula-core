@@ -491,6 +491,18 @@ pub async fn return_loan(
             .map_err(|e| instant::mutation_scope_err(ApiError::from(e)))?
             .0;
         let today = Utc::now().date_naive();
+        // A damage charge bills under the lease's contract, in the contract's
+        // currency. A lease written before the currency rule existed can still
+        // carry another one, and the run would abort on the charge; refuse it
+        // here, before any charge is written.
+        let damage_contract = match (before.contract_id, before.is_lease) {
+            (Some(contract_id), true) => Some(
+                core_db::contracts::get_contract(&mut *ctx.tx, org_id, contract_id)
+                    .await
+                    .map_err(|e| instant::mutation_scope_err(ApiError::from(e)))?,
+            ),
+            _ => None,
+        };
         let mut targets: Vec<core_db::loans::LoanReturnTarget> =
             Vec::with_capacity(req.lines.len());
         for line in &req.lines {
@@ -511,6 +523,15 @@ pub async fn return_loan(
                     let currency = before.lease_currency.clone().ok_or_else(|| {
                         ApiError::Conflict("this lease carries no currency to charge in".into())
                     })?;
+                    if let Some(contract) = &damage_contract {
+                        if !currency.eq_ignore_ascii_case(&contract.currency) {
+                            return Err(ApiError::Conflict(format!(
+                                "lease bills in {currency} but its contract {} bills in {}; \
+                                 record the damage in the contract currency",
+                                contract.number, contract.currency
+                            )));
+                        }
+                    }
                     let snapshot = crate::routes::fx::lock_snapshot(
                         &mut ctx.tx, org_id, amount, &currency, today,
                     )

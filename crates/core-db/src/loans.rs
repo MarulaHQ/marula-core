@@ -230,9 +230,12 @@ pub async fn issue_loan(
 ) -> DbResult<LoanOutcome> {
     let now = Utc::now();
     crate::clients::get_client(&mut *conn, org_id, req.client_id).await?;
-    if let Some(contract_id) = req.contract_id {
-        crate::contracts::get_contract(&mut *conn, org_id, contract_id).await?;
-    }
+    let contract = match req.contract_id {
+        Some(contract_id) => {
+            Some(crate::contracts::get_contract(&mut *conn, org_id, contract_id).await?)
+        }
+        None => None,
+    };
     if req.items.is_empty() {
         return Err(DbError::Conflict("a loan needs at least one device".into()));
     }
@@ -271,6 +274,22 @@ pub async fn issue_loan(
     };
     loan.validate()
         .map_err(|e| DbError::Conflict(e.to_string()))?;
+    // The run bills a lease under its contract, and it is single-currency. A
+    // lease in another currency would reach the run as a charge it must refuse,
+    // aborting billing for every other contract in that sweep. Refuse it here,
+    // where the agreement is written, rather than there.
+    if let (true, Some(contract), Some(currency)) = (
+        loan.is_lease,
+        contract.as_ref(),
+        loan.lease_currency.as_deref(),
+    ) {
+        if !currency.eq_ignore_ascii_case(&contract.currency) {
+            return Err(DbError::Conflict(format!(
+                "lease bills in {currency} but its contract {} bills in {}",
+                contract.number, contract.currency
+            )));
+        }
+    }
     insert_loan(conn, &loan).await?;
 
     let out_date = loan.out_at.date_naive();
@@ -778,11 +797,11 @@ pub async fn return_loan(
         let mut movement_in_id: Option<Uuid> = None;
 
         // The lease ends with the return. Close it at the ACTUAL date (the
-        // expected return was the plan; the asset carries what happened) and
-        // stop calling the unit leased: from here it is ours again, and the
-        // routing below decides where it sits. Ownership is patched without a
-        // class movement because that movement is the routing's, written with
-        // this return as its source — one class transition, not two.
+        // expected return was the plan; the asset carries what happened). The
+        // ownership is NOT reset here: an asset leased before the custody work
+        // can still be classed `rental_in`, and `rental_in` plus `owned`
+        // violates `device_assets_rented_in_shape`. It is reset after routing,
+        // when the class can hold it.
         //
         // This runs before the ledger leg so the asset row is locked before the
         // serial. The class-movement trigger takes the same order, so a return
@@ -796,7 +815,6 @@ pub async fn return_loan(
                     asset_id,
                     &crate::assets::AssetLifecyclePatch {
                         rental_end: Some(now.date_naive()),
-                        ownership: Some("owned".into()),
                         ..Default::default()
                     },
                 )
@@ -940,6 +958,27 @@ pub async fn return_loan(
                 None,
             )
             .await?;
+        }
+
+        // The unit is ours again once the lease ends. This is the second half of
+        // the split above: the class has been routed, so `owned` is a shape the
+        // row can satisfy in every destination, including a legacy `rental_in`
+        // unit whose movement just took it to `rental_out`. One class movement
+        // remains the only class write; this patch only stops the row claiming
+        // a lease that has ended.
+        if loan.is_lease {
+            if let Some(asset_id) = line.device_asset_id {
+                crate::assets::update_asset_lifecycle(
+                    &mut *conn,
+                    org_id,
+                    asset_id,
+                    &crate::assets::AssetLifecyclePatch {
+                        ownership: Some("owned".into()),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+            }
         }
 
         if let Some(charge) = &t.damage_charge {
@@ -1887,8 +1926,13 @@ pub async fn create_vendor_rental(
 
     let asset_id = match (req.device_asset_id, &req.new_asset) {
         (Some(id), _) => {
+            // Lock before reading the class: a return can commit between a
+            // plain read and the agreement insert, and the agreement would then
+            // land on a unit that is no longer rented in. The lock makes the
+            // class below the committed one.
             let row: Option<(String, String)> = sqlx::query_as(
-                "SELECT custody_class, ownership FROM device_assets WHERE org_id = $1 AND id = $2",
+                "SELECT custody_class, ownership FROM device_assets \
+                  WHERE org_id = $1 AND id = $2 FOR UPDATE",
             )
             .bind(org_id)
             .bind(id)
@@ -2043,6 +2087,14 @@ pub async fn return_vendor_rental(
             "this vendor rental is already closed".into(),
         ));
     }
+    // The asset before the agreement row, the order every other path takes:
+    // a create waiting on this asset blocks here, then reads the class the
+    // return is about to change, instead of racing the agreement update.
+    sqlx::query("SELECT 1 FROM device_assets WHERE org_id = $1 AND id = $2 FOR UPDATE")
+        .bind(org_id)
+        .bind(rental.device_asset_id)
+        .execute(&mut *conn)
+        .await?;
     let condition = req.return_condition.as_deref().map(str::trim);
     if req.lost {
         if condition.is_some() {

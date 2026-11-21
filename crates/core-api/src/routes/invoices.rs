@@ -542,6 +542,18 @@ pub async fn create_run(
                 if lease.cycle_amount_minor <= 0 {
                     continue;
                 }
+                // The contract term bounds every other line kind, and it bounds
+                // a lease the same way: a lease that starts before the contract
+                // or runs past it bills only the overlap, prorated to the days
+                // the term actually covers.
+                let term_from = lease.active_from.max(contract.effective_from);
+                let term_until = match contract.effective_until {
+                    Some(until) => lease.active_until.min(until),
+                    None => lease.active_until,
+                };
+                if term_until < term_from {
+                    continue;
+                }
                 let terms = core_billing::rules::LeaseTerms {
                     agreement_id: lease.loan_id,
                     label: lease.label.clone(),
@@ -549,6 +561,8 @@ pub async fn create_run(
                     cycle_amount_minor: lease.cycle_amount_minor,
                     active_from: lease.active_from,
                     active_until: lease.active_until,
+                    term_from,
+                    term_until,
                 };
                 // The window and the charged periods decide what this run
                 // writes. Resolve that first, then judge the currency: a lease
