@@ -1444,6 +1444,7 @@ pub async fn archive_item(
 /// Shared leg body: claim → item load → ledger append + consequence →
 /// low-stock notification + events + audit → instant record. One commit
 /// per call; the traceability row is written exactly once.
+#[allow(clippy::too_many_arguments)]
 async fn ledger_apply(
     state: AppState,
     extensions: Extensions,
