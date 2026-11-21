@@ -49,7 +49,7 @@ pub struct CalendarItem {
     pub status: Option<AppointmentStatus>,
     #[schema(value_type = Option<uuid::Uuid>)]
     pub ticket_id: Option<Uuid>,
-    /// Appointment-only (Wave 32 lane 7): booked travel minutes sitting
+    /// Appointment-only: booked travel minutes sitting
     /// immediately BEFORE the appointment — the calendar renders them
     /// visually distinct from the booking block.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -336,7 +336,7 @@ pub struct DeadlineRangeQuery {
 }
 
 /// GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model
-/// (Wave 17 lane 13): /calendar team mode overlays THIS instead of the
+///: /calendar team mode overlays THIS instead of the
 /// bounded page-1 tickets fetch. Alive tickets only (category not closed)
 /// whose due date falls in the window; hydrated in the row itself.
 #[utoipa::path(operation_id = "calendar_deadlines", get, path = "/api/calendar/deadlines", tag = "scheduling", security(("bearer" = [])),

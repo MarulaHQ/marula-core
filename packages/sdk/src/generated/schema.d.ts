@@ -1264,7 +1264,7 @@ export interface paths {
          *     factor is enrolled, returns a short-lived `mfa_pending` bridge instead
          *     of tokens; POST /api/auth/mfa/verify completes it.
          * @description Answers 503 with `Retry-After` when the process's password-hash slots are
-         *     saturated (Wave 56 lane `p56-auth-bounds`) — backpressure under a burst,
+         *     saturated — backpressure under a burst,
          *     never a 500. Left out of the `utoipa` response list for the reason given
          *     on [`register`].
          */
@@ -1815,7 +1815,7 @@ export interface paths {
          *     policy, and the first user as Owner. One transaction: a half-created org
          *     can never exist.
          * @description Answers 503 with `Retry-After` when the process's password-hash slots are
-         *     saturated (Wave 56 lane `p56-auth-bounds`). The 503 is deliberately NOT in
+         *     saturated. The 503 is deliberately NOT in
          *     the `utoipa` response list: every route can answer it from the middleware
          *     layer (draining, database unreachable), the pinned OpenAPI document is
          *     regenerated only by `scripts/regen-openapi-pins.sh` against a live API, and
@@ -1887,17 +1887,17 @@ export interface paths {
          *
          *     What makes it safe rather than a takeover tool:
          *     - `manage_users` is required, and an administrator cannot reset their own
-         *       factors — a stolen admin session must not be able to turn its owner's MFA
-         *       off with one call.
+         *      factors — a stolen admin session must not be able to turn its owner's MFA
+         *      off with one call.
          *     - An Owner's or Admin's factors can only be reset by an Owner, so a lesser
-         *       administrator cannot strip a peer's second factor.
+         *      administrator cannot strip a peer's second factor.
          *     - The account is left owing a factor (`users.mfa_reenroll_required`), not
-         *       merely factor-free: enrolment is the only factor change it may make until
-         *       one is confirmed, and the flag is audited with the counts.
+         *      merely factor-free: enrolment is the only factor change it may make until
+         *      one is confirmed, and the flag is audited with the counts.
          *     - Every live session is revoked, so the user re-authenticates with their
-         *       password and learns the factor is gone.
+         *      password and learns the factor is gone.
          *     - The audit row names the administrator, the target, what was removed and
-         *       how many sessions died.
+         *      how many sessions died.
          */
         post: operations["mfa_admin_factor_reset"];
         delete?: never;
@@ -2651,10 +2651,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * GET /api/calendar-sync/{id}/events — the inbound mirror (the
-         *     conflict/duplicate surface Wave 14 lane 7 renders).
-         */
+        /** GET /api/calendar-sync/{id}/events — the inbound mirror. */
         get: operations["calendar_sync_events"];
         put?: never;
         post?: never;
@@ -2755,9 +2752,9 @@ export interface paths {
         };
         /**
          * GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model
-         *     (Wave 17 lane 13): /calendar team mode overlays THIS instead of the
-         *     bounded page-1 tickets fetch. Alive tickets only (category not closed)
-         *     whose due date falls in the window; hydrated in the row itself.
+         *     : /calendar team mode overlays THIS instead of the
+         *      bounded page-1 tickets fetch. Alive tickets only (category not closed)
+         *      whose due date falls in the window; hydrated in the row itself.
          */
         get: operations["calendar_deadlines"];
         put?: never;
@@ -3120,7 +3117,7 @@ export interface paths {
         };
         /**
          * GET /api/clients/{id}/completeness — backend documentation-completeness
-         *     scoring (Wave 17 lane 13): the weights live SERVER-side now, replacing
+         *     scoring: the weights live SERVER-side now, replacing
          *     the honest client-side metadata scoring the clients lane shipped.
          *     Same shape, same pro-ration doctrine: score = round(earned /
          *     maxKnown × 100) with null legs (leg absent) pro-rated OUT, never a
@@ -3306,10 +3303,10 @@ export interface paths {
         put?: never;
         /**
          * POST /api/config-items/feed-upsert — CI2: the single feeder write path
-         *     (lane 8's seam). Never blind-inserts: existing (source_system,
-         *     external_id) links resolve to their own item; identity keys resolve the
-         *     deterministic case; ambiguity queues reviewable candidates and only
-         *     auto-merges at/above the org threshold.
+         *     . Never blind-inserts: existing (source_system,
+         *      external_id) links resolve to their own item; identity keys resolve the
+         *      deterministic case; ambiguity queues reviewable candidates and only
+         *      auto-merges at/above the org threshold.
          */
         post: operations["config_items_feed_upsert"];
         delete?: never;
@@ -4054,7 +4051,7 @@ export interface paths {
         /**
          * DELETE /api/contracts/{id} — removes the contract aggregate. A typed
          *     404 (`rls_sparse`) means the target was never visible in scope.
-         *     The Wave 9 invoicing lane's billing-lock guard refuses the delete
+         *     The billing-lock guard refuses the delete
          *     once invoices reference the contract (typed 409).
          * @description The response is an acknowledgement, not the aggregate: deleting is a
          *     commercial action, not a rate read (RB2), so a commercial-delete holder
@@ -6180,13 +6177,13 @@ export interface paths {
          *     ticket through the SAME write paths users go through (ticket patch,
          *     comment insert, notification fan-out), emitting every corresponding
          *     domain event tagged `via_automation` so evaluators never loop.
-         * @description The subject may be ticket-less (Wave 43 lane 3): a board-scoped rule
+         * @description The subject may be ticket-less: a board-scoped rule
          *     whose envelope carried no ticket. Then the board is resolved for scope
          *     and only subject-agnostic effects (notifications) run — every
          *     ticket-writing effect skips with a warn, never fails the batch, so one
          *     bad rule can never wedge the queue.
          *
-         *     # The batch runs as the rule's author (Wave 58 lane `p58-effects-seam`)
+         *     # The batch runs as the rule's author
          *
          *     The token is one deployment-wide bearer, so before this lane the request's
          *     `org_id` was both the RLS scope and the actor: the holder of the token could
@@ -6297,8 +6294,7 @@ export interface paths {
         };
         /**
          * GET /api/invoices/{id}/document — the print-ready HTML invoice
-         *     document (print-to-PDF from any browser; v1 ships no PDF binary
-         *     output — see the private build tracker).
+         *     document.
          */
         get: operations["invoices_document"];
         put?: never;
@@ -7369,8 +7365,7 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * DELETE /api/meeting-types/{id} — HARD delete with audit (Wave 17 lane
-         *     13): unlike the Pause toggle (PATCH `is_active`), this removes the
+         * DELETE /api/meeting-types/{id} — HARD delete with audit: unlike the Pause toggle (PATCH `is_active`), this removes the
          *     template outright. A scheduling link still referencing the row refuses
          *     with a typed conflict (the FK RESTRICT surfaces) — pause the links
          *     FIRST or re-target them; history rows (bookings) are untouched by the
@@ -8210,7 +8205,7 @@ export interface paths {
         put?: never;
         /**
          * `POST /api/v1/orgs/{org_id}/custom-domain/verify` — run the generic DNS
-         *     verification (the private build tracker A8 (C)). The TXT token is the authority; the
+         *     verification. The TXT token is the authority; the
          *     A/CNAME leg is plausibility only.
          */
         post: operations["org_custom_domain_verify"];
@@ -10820,7 +10815,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST .../apply — updates the plan and captures a baseline. It never bills. */
+        /** POST.../apply — updates the plan and captures a baseline. It never bills. */
         post: operations["project_change_order_apply"];
         delete?: never;
         options?: never;
@@ -10838,7 +10833,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * POST .../approve — approval changes the document only. When the org asks for
+         * POST.../approve — approval changes the document only. When the org asks for
          *     portal acknowledgement the order waits for the client first.
          */
         post: operations["project_change_order_approve"];
@@ -10858,7 +10853,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * POST .../bill — releases the money through the existing billing seam. A
+         * POST.../bill — releases the money through the existing billing seam. A
          *     refused release leaves the order applied and records why.
          */
         post: operations["project_change_order_bill"];
@@ -10877,7 +10872,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST .../reject — the reason is required and stays on the record. */
+        /** POST.../reject — the reason is required and stays on the record. */
         post: operations["project_change_order_reject"];
         delete?: never;
         options?: never;
@@ -10894,7 +10889,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST .../submit — the author's last editable moment. */
+        /** POST.../submit — the author's last editable moment. */
         post: operations["project_change_order_submit"];
         delete?: never;
         options?: never;
@@ -10950,7 +10945,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST .../approve */
+        /** POST.../approve */
         post: operations["project_client_updates_approve"];
         delete?: never;
         options?: never;
@@ -10968,7 +10963,7 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * POST .../send — the send is the person's act. It is recorded here as the
+         * POST.../send — the send is the person's act. It is recorded here as the
          *     state change; the delivery channel consumes the sent row, so no model can
          *     put words in front of a client.
          */
@@ -10988,7 +10983,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** POST .../withhold — records the honest refusal and why. */
+        /** POST.../withhold — records the honest refusal and why. */
         post: operations["project_client_updates_withhold"];
         delete?: never;
         options?: never;
@@ -11067,7 +11062,7 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * GET /api/projects/{id}/phase-burn — the burn read model (report P3):
+         * GET /api/projects/{id}/phase-burn — the burn read model:
          *     consumed approved billable minutes and card-priced value per phase
          *     against the phase's budget, with a typed alert state: `none`, then
          *     `warn` from 80 percent, then `over` from 100 percent. Without
@@ -12087,11 +12082,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * GET /api/v1/reply-snippets/{id} — fetch one snippet (cross-lane fix,
-         *     Wave 34 lane 4: the fork-on-edit flow reads the origin after forking;
-         *     the route was missing so reads 405'd).
-         */
+        /** GET /api/v1/reply-snippets/{id} — fetch one snippet. */
         get: operations["reply_snippets_get_one"];
         put?: never;
         post?: never;
@@ -12427,7 +12418,7 @@ export interface paths {
         };
         get?: never;
         /**
-         * PUT /api/roles/{id} — the custom-roles EDITOR (Wave 22): updates a
+         * PUT /api/roles/{id} — the custom-roles EDITOR: updates a
          *     custom row's name and/or permission set. Builtin presets are typed
          *     refusals (rb1) — restore is the ONLY preset-matrix mutation.
          */
@@ -12798,7 +12789,7 @@ export interface paths {
          *     behind the same permission gate the query ran behind. One pin per
          *     (kind, id): re-pinning is idempotent AND refreshes the stored
          *     snapshot (query + title + parent) to current — the created_at stays
-         *     the original pin time (Wave 23 lane 1, item 6).
+         *     the original pin time.
          */
         post: operations["search_pins_create"];
         delete?: never;
@@ -14397,7 +14388,7 @@ export interface paths {
         };
         /**
          * GET /api/tickets — filtered, priority-ordered list; each row carries its
-         *     custom-field values (the private build tracker 2.17) fetched in one batched query.
+         *     custom-field values fetched in one batched query.
          *     Pagination is envelope-compatible: the body stays the plain ticket
          *     array; deep-page walks pass the opaque `cursor` query param (from the
          *     previous page's `x-next-cursor` response header) and the server resumes
@@ -14428,8 +14419,7 @@ export interface paths {
         };
         /**
          * GET /api/tickets/my-work — everything assigned to me, not closed,
-         *     across all boards, priority-then-SLA-due ordered (the unified
-         *     cross-board view from §1; the private build tracker 2.11 adds client/board annotations).
+         *     across all boards, priority-then-SLA-due ordered.
          */
         get: operations["tickets_my_work"];
         put?: never;
@@ -14992,13 +14982,13 @@ export interface paths {
          * @description Three rules, in this order:
          *
          *     1. the caller must be able to read the ticket (module gate + client
-         *        restriction) — the same gate the ticket page uses;
+         *      restriction) — the same gate the ticket page uses;
          *     2. a ticket belonging to a **restricted client** is refused outright. The
-         *        channel's audience is not the ticket's audience, and redacting a card is
-         *        a promise that ages badly; refusing is the honest answer;
+         *      channel's audience is not the ticket's audience, and redacting a card is
+         *      a promise that ages badly; refusing is the honest answer;
          *     3. the connection must have an enabled destination. A connection with no
-         *        binding cannot be a share target, and the answer says so instead of
-         *        failing at the vendor.
+         *      binding cannot be a share target, and the answer says so instead of
+         *      failing at the vendor.
          */
         post: operations["tickets_share"];
         delete?: never;
@@ -15878,7 +15868,7 @@ export interface paths {
         options?: never;
         head?: never;
         /**
-         * Wave 26 onboarding leg (b): the per-user first-run "check your profile"
+         * The per-user first-run "check your profile"
          *     step needs a self-editable name/timezone. Self-scoped: PATCH /api/v1/users/me
          *     changes ONLY the caller's own display name and timezone (email is
          *     immutable here by design), with an audit row in the same transaction.
@@ -16414,7 +16404,7 @@ export interface components {
             kind: "portal_it_manager";
         } | {
             /**
-             * @description Bulk-import runs (the private build tracker D2): the descriptor names the driving
+             * @description Bulk-import runs: the descriptor names the driving
              *     identity without pretending it row-walked — `"user:<uuid>"` for
              *     admin JWT runs, `"api-key:<key-id>""` for machine pushes. Row-level
              *     mutations still emit their ordinary domain events; the import actor
@@ -16436,7 +16426,7 @@ export interface components {
             attachment_ids?: string[];
             body: string;
             /**
-             * @description IF2 delete-on-submit (Wave 17 lane 11, §5.2): the composer autosave
+             * @description IF2 delete-on-submit: the composer autosave
              *     draft's idempotency key. When a comment with this key commits, the
              *     author's `note_drafts` row for the ticket is deleted in the SAME
              *     transaction — the draft never resurrects after submit. Absent in
@@ -16853,7 +16843,7 @@ export interface components {
             /**
              * @description When set, this source is a generic M2M webhook receiver: a signed
              *     POST emits a domain-event envelope onto the outbox stream instead
-             *     of creating an alert row (Wave 43 lane 1). NULL = alert source (Wave 9).
+             *     of creating an alert row. NULL = alert source.
              */
             event_type?: string | null;
             /** Format: uuid */
@@ -16970,7 +16960,7 @@ export interface components {
         /**
          * @description A booked slot on one user's calendar, optionally tied to a ticket and
          *     client/site. `travel_minutes` is travel time booked immediately BEFORE
-         *     `starts_at` (Wave 32 lane 7): it ADDS to the appointment and occupies
+         *     `starts_at`: it ADDS to the appointment and occupies
          *     dispatch capacity (`crate::scheduling::occupied_minutes`), never
          *     replacing or shrinking the booked span. The `travel_*` fields carry
          *     the estimate's provenance so a heuristic number is never mistaken for
@@ -16992,7 +16982,7 @@ export interface components {
             /**
              * Format: uuid
              * @description Set when the booking came through a Calendly-style scheduling
-             *     link (Wave 11 lane 4); NULL for every other creation path.
+             *     link; NULL for every other creation path.
              */
             scheduling_link_id?: string | null;
             /** Format: uuid */
@@ -17091,7 +17081,7 @@ export interface components {
          */
         AppointmentStatus: "scheduled" | "in_progress" | "done" | "cancelled";
         /**
-         * @description Approval lifecycle of a time entry (Wave 14 lane 1): `draft` entries
+         * @description Approval lifecycle of a time entry: `draft` entries
          *     are still being worked on, `submitted` waits in the approver queue,
          *     `approved` entries are the only ones billing reads may consume, and
          *     `rejected` entries carry a typed rejection reason until reopened.
@@ -17578,7 +17568,7 @@ export interface components {
          *
          *     The vocabulary is closed and each variant is a whole predicate, so the
          *     editor's field/operator grammar can only offer what a saved rule can
-         *     carry. Wave 43 lane 17b widened it from equality-only to the operators
+         *     carry. Widened it from equality-only to the operators
          *     MSPs actually reach for — negation, set membership and the positive
          *     assignee test — because "priority is not P1" and "priority is any of P1,
          *     P2" had no way to be written down.
@@ -17679,15 +17669,14 @@ export interface components {
          *     org's most recent tickets (board-scoped when the rule binds a board),
          *     PROPOSAL-shaped: what WOULD match and what the actions would do. The
          *     rule editor renders the result; nothing is ever applied and no event is
-         *     emitted — a test-run writes nothing (Wave 17 lane 13 contract: the rule
-         *     editor never pretends to execute).
+         *     emitted — a test-run writes nothing.
          */
         AutomationTestRunMatch: {
             /** Format: uuid */
             assignee_id?: string | null;
             number: string;
             /**
-             * @description The ticket's priority when the run sampled it (Wave 43 lane 17b).
+             * @description The ticket's priority when the run sampled it.
              *
              *     The run is a PROPOSAL, so the useful thing to show is not only that a
              *     ticket matched but what the rule's effects WOULD change on it. Both
@@ -17840,7 +17829,7 @@ export interface components {
         };
         /**
          * @description One draft invoice-line candidate. This is a PREVIEW shape: nothing
-         *     persists until Wave 9's invoice run.
+         *     persists until invoice run.
          */
         BillingCandidateLine: {
             /**
@@ -18099,7 +18088,7 @@ export interface components {
             visible_status_ids: string[];
         };
         /**
-         * @description A named, ordered nav grouping of boards within one org (the private build tracker 2.11).
+         * @description A named, ordered nav grouping of boards within one org.
          *     Groups are organization-wide; `owner_id` records who controls the group.
          */
         BoardGroup: {
@@ -18163,8 +18152,7 @@ export interface components {
             name: string;
         };
         /**
-         * @description Per-board role tier stored on `board_members` rows (migration 0019,
-         *     the private build tracker 2.11). Board roles sit BESIDE the org matrix and can only
+         * @description Per-board role tier stored on `board_members` rows. Board roles sit BESIDE the org matrix and can only
          *     narrow it — see `authorize_board_scoped`.
          * @enum {string}
          */
@@ -18185,7 +18173,7 @@ export interface components {
             board_id: string;
             category: components["schemas"]["TicketStatusCategory"];
             /**
-             * @description Wave 41 lane 12: whether the portal shows this status's own label to
+             * @description Whether the portal shows this status's own label to
              *     a client. `false` shows the semantic category word instead, so an
              *     internal label ("Escalated to L2") never reaches a client while the
              *     ticket still reports where it stands.
@@ -18210,7 +18198,7 @@ export interface components {
         };
         /**
          * @description GET /api/boards/{id}/statuses/usage — per-status ticket counts and
-         *     automation references (Wave 41 lane 12).
+         *     automation references.
          *
          *     One read serves both the settings table's TICKETS column and the delete
          *     confirm's "12 tickets use this status" and "2 automations mention this
@@ -18277,7 +18265,7 @@ export interface components {
             decision: string;
             entry_ids: string[];
             note?: string | null;
-            /** @description Typed rejection vocabulary (`missing_notes`, `wrong_ticket`, ...). */
+            /** @description Typed rejection vocabulary (`missing_notes`, `wrong_ticket`,...). */
             reason_code?: string | null;
         };
         BulkDecisionResponse: {
@@ -18411,7 +18399,7 @@ export interface components {
             day_of_month?: number | null;
             /**
              * Format: int32
-             * @description 0 = Monday .. 6 = Sunday; weekly only.
+             * @description 0 = Monday.. 6 = Sunday; weekly only.
              */
             day_of_week?: number | null;
             /** @description Local wall-clock fire time in `timezone` (HH:MM:SS). */
@@ -18480,7 +18468,7 @@ export interface components {
             title?: string | null;
             /**
              * Format: int32
-             * @description Appointment-only (Wave 32 lane 7): booked travel minutes sitting
+             * @description Appointment-only: booked travel minutes sitting
              *     immediately BEFORE the appointment — the calendar renders them
              *     visually distinct from the booking block.
              */
@@ -18494,8 +18482,7 @@ export interface components {
          * @description One connection as the API returns it: the stored row minus the cached
          *     provider credential.
          *
-         *     A credential is written and never read back through a view (Wave 55
-         *     decision 9). The row's `access_token` is read by the poll and by nothing
+         *     A credential is written and never read back through a view. The row's `access_token` is read by the poll and by nothing
          *     else, so what a client gets is presence — a token is held or it is not —
          *     and never the token itself. An access token a client can read leaves the
          *     product through a screenshot, a copied log line or a support bundle, and
@@ -18837,7 +18824,7 @@ export interface components {
             span?: components["schemas"]["CardSpan"];
         };
         /**
-         * @description Card width on the dashboard's twelve-column grid. The vocabulary lane 6
+         * @description Card width on the dashboard's twelve-column grid. The vocabulary the dashboard
          *     consumes; the CSS owns the measurement, this owns the names.
          * @enum {string}
          */
@@ -18928,7 +18915,7 @@ export interface components {
             search?: string | null;
         };
         /**
-         * @description One card shape, described for the authoring agent (Wave 46 lane 1). The
+         * @description One card shape, described for the authoring agent. The
          *     prose is served, not duplicated in a prompt: a model that reads this
          *     catalogue authors against the same rules the compiler enforces.
          */
@@ -18967,8 +18954,7 @@ export interface components {
             agent_description: string;
             emits: string[];
             /**
-             * @description Whether the executor can run this node today (Wave 43 lane 20, item
-             *     C). The authoring model is told, so it does not place a node the
+             * @description Whether the executor can run this node today. The authoring model is told, so it does not place a node the
              *     validator will refuse.
              */
             executable: boolean;
@@ -19105,7 +19091,7 @@ export interface components {
             /** Format: uuid */
             id: string;
             /**
-             * @description Shared "not applicable" state (Wave 12 lane 6): server truth for the
+             * @description Shared "not applicable" state: server truth for the
              *     tasks-panel tri-state, set by the toggle endpoint in the same tx as
              *     `checked`. Mutually exclusive with `checked` (enforced at the API);
              *     N-A REQUIRED items are exempt from pre-close enforcement and derived
@@ -19603,8 +19589,7 @@ export interface components {
             committed_at: string;
         };
         /**
-         * @description POST /api/tickets/{id}/checklist/complete-all request (Wave 17 lane 11
-         *     §5.3): the close gate's Option A batch — every listed item flips to
+         * @description POST /api/tickets/{id}/checklist/complete-all request: the close gate's Option A batch — every listed item flips to
          *     `checked` and each lands its auto-append note, ALL in one transaction
          *     with per-item idempotency keys (duplicate-proof at the envelope, scored
          *     as REPORTED auto notes via `workflow_meta.auto = true`).
@@ -19822,7 +19807,7 @@ export interface components {
             updated_at?: string | null;
         };
         /**
-         * @description ADR 0009 §6 (Wave 19 lane 2): the modeled connector governance
+         * @description ADR 0009 §6: the modeled connector governance
          *     profile — WHERE the connector speaks (webhook endpoints) and what it
          *     wears outward (SaaS scopes). Structured, validated DECLARATIONS, not
          *     prose: the consent screen renders them verbatim and connectors inherit
@@ -19830,7 +19815,7 @@ export interface components {
          */
         ConnectorProfile: {
             /**
-             * @description ADR 0023 Decision 3 (Wave 53 lane 2): the EGRESS allowlist a wasm
+             * @description ADR 0023 Decision 3: the EGRESS allowlist a wasm
              *     guest's `http_request` reads — profile name -> consented scopes. Each
              *     scope is `https://host[:port][/path-prefix]`; a request whose scheme is
              *     not https, whose authority is not listed, or whose path is outside the
@@ -20013,7 +19998,7 @@ export interface components {
             source_kind: string;
             source_url: string;
             /**
-             * @description §4.6 (Wave 34 lane 4) — the declarative UI-surface profile
+             * @description §4.6 — the declarative UI-surface profile
              *     (widgets / automation action kinds / report render kinds /
              *     field validators), rendered on consent verbatim so an admin
              *     consents to exactly the surfaces the plugin contributes.
@@ -20538,14 +20523,14 @@ export interface components {
         };
         /**
          * @description Lifecycle. `draft` contracts evaluate in previews (plan before
-         *     activation) but Wave 9's invoice runs will refuse them; `cancelled`
+         *     activation) but invoice runs will refuse them; `cancelled`
          *     contracts never evaluate. `ended` keeps evaluating candidates whose
          *     dates fall inside the (closed) effective window.
          * @enum {string}
          */
         ContractStatus: "draft" | "active" | "ended" | "cancelled";
         /**
-         * @description The supported commercial agreement shapes. Wave 39 adds the MSP
+         * @description The supported commercial agreement shapes. Adds the MSP
          *     relationship types beyond the original four: per-unit recurring
          *     (per-seat / per-device) and per-incident (per closed ticket) pricing.
          *     Prepaid blocks, NTE caps, minimums, and escalators ride the existing
@@ -20590,7 +20575,7 @@ export interface components {
             /**
              * @description When set, this source is a generic M2M webhook receiver that emits
              *     domain-event envelopes onto the outbox stream instead of creating
-             *     alert rows (Wave 43 lane 1). Leave NULL for the classic alert path.
+             *     alert rows. Leave NULL for the classic alert path.
              */
             event_type?: string | null;
             name: string;
@@ -21287,7 +21272,7 @@ export interface components {
             notes?: string | null;
             /**
              * Format: date-time
-             * @description Rotation schedule (Wave 19 lane 3): absent/null = never remide.
+             * @description Rotation schedule: absent/null = never remide.
              */
             rotate_at?: string | null;
             secret: string;
@@ -21299,7 +21284,7 @@ export interface components {
             budget_currency?: string | null;
             /**
              * Format: int64
-             * @description Wave 39 lane 4 (report C/D): the phase's billing budget and/or the
+             * @description The phase's billing budget and/or the
              *     fixed fee a COMPLETED non-milestone phase releases. Milestone
              *     phases keep using `milestone_amount_*`.
              */
@@ -21319,7 +21304,7 @@ export interface components {
             sort_order?: number;
             /**
              * Format: date
-             * @description The planned window (Wave 34 claims close-out, claim 6). Both ends
+             * @description The planned window. Both ends
              *     optional: a phase created without dates lands in the ordered list,
              *     NOT on the Gantt, and the UI says which it is. Supplying only one
              *     end is rejected at the database CHECK, because a phase with a start
@@ -21364,8 +21349,7 @@ export interface components {
         CreateProjectRequest: components["schemas"]["MutationParams"] & {
             /**
              * Format: uuid
-             * @description The contract this project bills through (Wave 39 lane 4, report
-             *     P2). Its rate card/blocks/caps price the project's T&M entries and
+             * @description The contract this project bills through. Its rate card/blocks/caps price the project's T&M entries and
              *     its runs carry the project's released milestones. Validated to
              *     belong to the same client.
              */
@@ -21511,7 +21495,7 @@ export interface components {
             day_of_month?: number | null;
             /**
              * Format: int32
-             * @description Weekly only: 0 = Monday .. 6 = Sunday.
+             * @description Weekly only: 0 = Monday.. 6 = Sunday.
              */
             day_of_week?: number | null;
             enabled?: boolean | null;
@@ -21544,8 +21528,7 @@ export interface components {
             name: string;
             /**
              * @description What the rule's subject is: `ticket` (default, historical) or
-             *     `board` — a rule that fires on ticket-less envelopes (Wave 43
-             *     lane 3).
+             *     `board` — a rule that fires on ticket-less envelopes.
              */
             subject_kind?: string | null;
             /** @description Domain event type, e.g. "ticket.created". */
@@ -21625,7 +21608,7 @@ export interface components {
             object_key?: string | null;
             /**
              * Format: date-time
-             * @description Rotation schedule (Wave 19 lane 3): the worker sweep reminds once
+             * @description Rotation schedule: the worker sweep reminds once
              *     past this instant (at-most-once per schedule).
              */
             rotate_at?: string | null;
@@ -21756,7 +21739,7 @@ export interface components {
             catalog_item_id?: string | null;
             currency: string;
             /**
-             * @description Wave 32 lane 3: flag the item as a tool (serialized-only, eligible
+             * @description Flag the item as a tool (serialized-only, eligible
              *     for tool checkout + kit membership).
              */
             is_tool?: boolean;
@@ -21881,7 +21864,7 @@ export interface components {
             contact_id?: string | null;
             /**
              * @description Initial custom-field values; each is validated against its
-             *     definition. REQUIRED definitions must all be present (the private build tracker 2.17).
+             *     definition. REQUIRED definitions must all be present.
              */
             custom_fields?: components["schemas"]["TicketFieldInput"][];
             /** Format: date-time */
@@ -21906,20 +21889,20 @@ export interface components {
             /**
              * Format: uuid
              * @description The ticket this entry bills through. `None` ONLY for project-scoped
-             *     entries (Wave 39 lane 4, report P5): supply `phase_id` instead and
+             *     entries: supply `phase_id` instead and
              *     the entry bills through the phase project's linked contract.
              */
             ticket_id?: string | null;
             /** @description Typed unbillable reason — required when `billable` is false (V3). */
             unbillable_reason?: string | null;
-            /** @description Category slug from the org's time taxonomy (Wave 39 V5). */
+            /** @description Category slug from the org's time taxonomy. */
             work_type?: string | null;
         };
         /** @description POST /api/dispatch/travel-drafts body. */
         CreateTravelDraftRequest: components["schemas"]["MutationParams"] & {
             /**
              * Format: uuid
-             * @description Wave 32 lane 7: the planned appointment this trip reconciles
+             * @description The planned appointment this trip reconciles
              *     against (optional — ad-hoc travel against a ticket stays legal).
              */
             appointment_id?: string | null;
@@ -22189,7 +22172,7 @@ export interface components {
          */
         CreditNoteStatus: "issued" | "void";
         /**
-         * @description CSAT inputs slot (Wave 34 lane 2): `available` is the honest feature
+         * @description CSAT inputs slot: `available` is the honest feature
          *     gate — true only once the org has real survey data, never fabricated
          *     from a zero-window. Scores are 1-5; "low" means score ≤ 2.
          */
@@ -22523,7 +22506,7 @@ export interface components {
             id: string;
             last_error?: string | null;
             /**
-             * @description Whether `POST .../redrive` can requeue it. False for a dead stream
+             * @description Whether `POST.../redrive` can requeue it. False for a dead stream
              *     event, whose payload needs the relay's stream writer.
              */
             replayable: boolean;
@@ -22939,7 +22922,7 @@ export interface components {
         DefinitionScope: "org" | "self";
         DeleteOrderLineRequest: components["schemas"]["MutationParams"];
         /**
-         * @description What a delete with reassignment actually did (Wave 41 lane 12).
+         * @description What a delete with reassignment actually did.
          *
          *     Returned instead of a bare 204 because the confirm has to say what
          *     happened, and the admin is the one who has to believe it.
@@ -23146,7 +23129,7 @@ export interface components {
             fields?: unknown;
             /** Format: uuid */
             id: string;
-            /** @description CI3 deterministic identity keys (source GUID, serial, MACs, ...). */
+            /** @description CI3 deterministic identity keys (source GUID, serial, MACs,...). */
             identity_keys?: unknown;
             /**
              * @description Free-text connector compatibility column; typed classification
@@ -23389,7 +23372,7 @@ export interface components {
             status: string;
         };
         /**
-         * @description The human verification disposition of one time entry (Wave 39 V1).
+         * @description The human verification disposition of one time entry.
          *     `rejected` and `non_billable` demand the typed [`UnbillableReason`];
          *     the workspace badge set matches this vocabulary exactly.
          * @enum {string}
@@ -23800,8 +23783,7 @@ export interface components {
             /**
              * Format: uuid
              * @description The rule whose effects these are. Required in practice: the rule's
-             *     recorded author is the principal the batch runs as (Wave 58 lane
-             *     `p58-effects-seam`), so a call that names no rule is refused. Optional
+             *     recorded author is the principal the batch runs as, so a call that names no rule is refused. Optional
              *     in the wire shape so "no rule" is expressible and refusable rather than
              *     a sentinel the seam guesses at.
              */
@@ -23809,7 +23791,7 @@ export interface components {
             /**
              * Format: uuid
              * @description The ticket the subject resolved to. `None` on a board-subject match
-             *     (Wave 43 lane 3) — there is no ticket to act on.
+             *      — there is no ticket to act on.
              */
             ticket_id?: string | null;
         };
@@ -23832,7 +23814,7 @@ export interface components {
          */
         EmailDirection: "inbound" | "outbound";
         /**
-         * @description The greeting and signature a composer wrote for THIS message (Wave 42).
+         * @description The greeting and signature a composer wrote for THIS message.
          *
          *     Purely additive and purely per-message: it changes what goes out with
          *     this one note and is never stored as a preference. The composer
@@ -24237,7 +24219,7 @@ export interface components {
             /** @description `act` | `pending` | `ignore` — threshold gate at read time. */
             state?: string | null;
             /**
-             * @description The server's mechanical verdicts for this entry (Wave 41 lane 8), each
+             * @description The server's mechanical verdicts for this entry, each
              *     with the one action that clears it. Empty means clean — and empty for
              *     an entry that is not visible in scope either, because RLS proves
              *     visibility by absence, never by an error.
@@ -24452,7 +24434,7 @@ export interface components {
         ExportAsset: {
             /**
              * Format: uuid
-             * @description Nullable since Wave 32: an internal-org asset (the MSP's own
+             * @description Nullable: an internal-org asset (the MSP's own
              *     equipment) has no client.
              */
             client_id?: string | null;
@@ -25552,7 +25534,7 @@ export interface components {
             started_at: string;
             /**
              * Format: uuid
-             * @description `None` on project-scoped entries (Wave 39 lane 4): `phase_id`
+             * @description `None` on project-scoped entries: `phase_id`
              *     scopes the entry instead.
              */
             ticket_id?: string | null;
@@ -25667,12 +25649,12 @@ export interface components {
             label: string;
             notes?: string | null;
         };
-        /** @description The feeder upsert input — lane 8's seam (NinjaOne / IT Glue / Auvik). */
+        /** @description The feeder upsert input (NinjaOne / IT Glue / Auvik). */
         FeedUpsertRequest: components["schemas"]["MutationParams"] & {
             /** Format: uuid */
             client_id: string;
             external_id: string;
-            /** @description CI3 deterministic identity signals (source GUID, serial, MACs, ...). */
+            /** @description CI3 deterministic identity signals (source GUID, serial, MACs,...). */
             identity_keys?: unknown;
             /** Format: uuid */
             layout_id?: string | null;
@@ -26190,7 +26172,7 @@ export interface components {
              */
             artifact_kind: string;
             /**
-             * @description The credential bindings this install holds (Wave 53 lane 12): which
+             * @description The credential bindings this install holds: which
              *     profile wears which vault record, as which header. The record is named
              *     by title only — [`CredentialBindingView`] has no member that could
              *     carry a field or a value.
@@ -26446,7 +26428,7 @@ export interface components {
             /** Format: date */
             period_to?: string | null;
             /**
-             * @description Client purchase-order reference (Wave 39 F): copied from the
+             * @description Client purchase-order reference: copied from the
              *     producing contract at run time so the document carries what the
              *     client's AP system matches against. TAX STAYS OUT by design —
              *     the 0036 boundary stands (tax is an accounting-export concern).
@@ -26621,7 +26603,7 @@ export interface components {
             run: components["schemas"]["InvoiceRun"];
         };
         /**
-         * @description The reviewer sign-off recorded per invoice run (Wave 39 V8): the
+         * @description The reviewer sign-off recorded per invoice run: the
          *     close checklist a human attested before the run fired. One row per
          *     run; the run-create seam refuses an unsigned run.
          */
@@ -27489,8 +27471,7 @@ export interface components {
             name: string;
             /**
              * @description What the rule's subject is: `ticket` (the historical default) or
-             *     `board` — a rule that fires on ticket-less envelopes (Wave 43
-             *     lane 3). Absent from a pre-lane manifest, so it defaults.
+             *     `board` — a rule that fires on ticket-less envelopes. Absent from a pre-lane manifest, so it defaults.
              */
             subject_kind?: string;
             /** @description Domain event type from the envelope, e.g. `ticket.created`. */
@@ -27595,7 +27576,7 @@ export interface components {
             trigger_kind: string;
         };
         /**
-         * @description One stored report definition (the private build tracker R3). The spec body rides as its
+         * @description One stored report definition. The spec body rides as its
          *     stored jsonb document (`{filters, group_by, measures}`) exactly like
          *     custom-field `config` — the registry-validated view/viz slugs travel as
          *     their own fields so a preflight can flag deprecated constructs without
@@ -27659,7 +27640,7 @@ export interface components {
              */
             boards: components["schemas"]["ManifestBoard"][];
             /**
-             * @description Per-client workflow overrides (Wave 12 lane 5): every client-scoped
+             * @description Per-client workflow overrides: every client-scoped
              *     override of the org workflow defaults, rows verbatim. The override
              *     registry (`core_domain::workflow_overrides`) is the closed key set;
              *     the preflight must see which constructs each client's rows reference
@@ -27673,15 +27654,14 @@ export interface components {
              */
             custom_fields: components["schemas"]["ManifestCustomField"][];
             /**
-             * @description Stored report definitions (the private build tracker R3): registry-validated specs
+             * @description Stored report definitions: registry-validated specs
              *     over the versioned read-model views. Covered so the upgrade
              *     preflight (U6) can flag any definition whose `kind`/spec columns
              *     reference deprecated view or column constructs (policy §5).
              */
             report_definitions: components["schemas"]["ManifestReportDefinition"][];
             /**
-             * @description Role rows (Wave 13 lane 6, RB1 — ADR 0004: role rows are
-             *     customizations-as-data covered by U5/U6 like any other section).
+             * @description Role rows.
              *     This section is the ORG-OWNED rows only: custom roles and forked
              *     copies (including forked presets with their origin tag). Shipped
              *     preset rows are default state, not customization — they stay
@@ -27696,7 +27676,7 @@ export interface components {
             /** @description SLA configuration: calendars and policies with escalation ladders. */
             sla: components["schemas"]["ManifestSla"];
             /**
-             * @description Ticket type/category/subcategory trees (Wave 11 lane 3).
+             * @description Ticket type/category/subcategory trees.
              *     Classification-only (§5): exported so the preflight sees the full
              *     classification surface; retired rows INCLUDED (tickets may still
              *     reference them). Categories are flat — `parent_id` reconstructs
@@ -28207,7 +28187,7 @@ export interface components {
             work_type?: string | null;
         };
         /**
-         * @description One cross-board my-work queue row (the private build tracker 2.11): the ticket plus the
+         * @description One cross-board my-work queue row: the ticket plus the
          *     annotations the Today screen renders per the mockup.
          */
         MyWorkItem: {
@@ -28328,8 +28308,7 @@ export interface components {
              */
             emits: string[];
             /**
-             * @description Whether the executor can actually apply this node today (Wave 43
-             *     lane 20, item C). A palette should gray out a node whose flag is
+             * @description Whether the executor can actually apply this node today. A palette should gray out a node whose flag is
              *     false: `WorkflowDocument::validate` refuses to save one.
              */
             executable: boolean;
@@ -28840,7 +28819,7 @@ export interface components {
             not_ready_reason?: string | null;
             /**
              * @description The org's own greeting — what opens mail the workspace sends to its
-             *     staff, and the fallback for a member with none (Wave 42).
+             *     staff, and the fallback for a member with none.
              */
             org_greeting: string;
             postmark_base_url: string;
@@ -28979,7 +28958,7 @@ export interface components {
             org_id: string;
             /**
              * Format: date-time
-             * @description Operator-scheduled rotation due date (Wave 19 lane 3); the worker
+             * @description Operator-scheduled rotation due date; the worker
              *     sweep reminds once past it (durable at-most-once marker on the
              *     row in the DB; the entities carry no sweep housekeeping).
              */
@@ -29161,7 +29140,7 @@ export interface components {
             budget_currency?: string | null;
             /**
              * Format: int64
-             * @description Wave 39 lane 4: tri-state budget/fee updates on the phase's
+             * @description Tri-state budget/fee updates on the phase's
              *     billing record (`Some(Some(v))` sets, `Some(None)` clears,
              *     `None` = no change; `clear_*` drops the whole record when both
              *     fields would be empty).
@@ -29201,7 +29180,7 @@ export interface components {
             /**
              * Format: uuid
              * @description `Some(Some(v))` links the contract; `Some(None)` unlinks;
-             *     `None` = no change (Wave 39 lane 4, report P2).
+             *     `None` = no change.
              */
             billing_contract_id?: string | null;
             billing_method?: components["schemas"]["BillingMethod"] | null;
@@ -29295,7 +29274,7 @@ export interface components {
             title?: string | null;
             /**
              * Format: uuid
-             * @description Classification (Wave 11 lane 3): `"type_id": null` clears,
+             * @description Classification: `"type_id": null` clears,
              *     an id sets (the node must exist in this org and not be retired),
              *     an absent member leaves it untouched. Purely descriptive: behavior
              *     binds to the semantic categories, never these trees.
@@ -29412,7 +29391,7 @@ export interface components {
         /**
          * @description The burn read model for one phase: consumed minutes priced against the
          *     project's linked contract versus the contracted budget, with a typed
-         *     alert state (report P3). Amounts are in the budget's currency.
+         *     alert state. Amounts are in the budget's currency.
          */
         PhaseBurn: {
             /** @description Typed alert: `none` under budget, `warn` past 80%, `over` past 100%. */
@@ -29729,7 +29708,7 @@ export interface components {
             verification_id?: string | null;
         };
         /**
-         * @description Marketplace v2 verified-publisher registry row (Wave 22). A
+         * @description Marketplace v2 verified-publisher registry row. A
          *     publisher is a NORMALIZED SOURCE IDENTITY; verification is per-org
          *     (this org vouches this publisher), admin-curated, and additive over
          *     the v1 distribution formats.
@@ -29908,7 +29887,7 @@ export interface components {
             staged_item_id: string;
         };
         /**
-         * @description Wave 34 lane 4 (§4.6): the modeled UI-surface profile a WASM manifest
+         * @description (§4.6): the modeled UI-surface profile a WASM manifest
          *     may declare — dashboard/ticket-pane WIDGETS, automation ACTION KINDS,
          *     report RENDER KINDS, and custom-field VALIDATORS. Everything here is
          *     DECLARATIVE: closed render/effect vocabularies plus JSON-Schema
@@ -29922,7 +29901,7 @@ export interface components {
             /** @description JSON-Schema validators for board custom fields. */
             field_validators?: components["schemas"]["SurfaceFieldValidator"][];
             /**
-             * @description Wave 43 lane 4 (ADR 0017 §3, §5): READ nodes, the only kind that
+             * @description (ADR 0017 §3, §5): READ nodes, the only kind that
              *     lets a workflow FETCH from an external system. Every entry carries
              *     its own guardrails; there is no default that weakens them.
              */
@@ -29930,7 +29909,7 @@ export interface components {
             /** @description Render kinds contributed to the report builder. */
             render_kinds?: components["schemas"]["SurfaceRenderKind"][];
             /**
-             * @description Wave 43 lane 4 (ADR 0017 §3): TRIGGER sources the plugin
+             * @description (ADR 0017 §3): TRIGGER sources the plugin
              *     contributes — the event type a rule can fire on. This is the half
              *     of the `automation_action` symmetry that was missing: a plugin
              *     could contribute an action but never a trigger.
@@ -30003,7 +29982,7 @@ export interface components {
             day_of_month?: number | null;
             /**
              * Format: int32
-             * @description 0 = Monday .. 6 = Sunday; weekly only.
+             * @description 0 = Monday.. 6 = Sunday; weekly only.
              */
             day_of_week?: number | null;
             enabled: boolean;
@@ -30538,7 +30517,7 @@ export interface components {
             offset?: number;
         };
         /**
-         * @description A ticket as a CLIENT sees it (Wave 41 lane 12).
+         * @description A ticket as a CLIENT sees it.
          *
          *     The ticket fields are flattened exactly as they were, so the portal client
          *     keeps reading the same keys; two status fields are added. `status_label`
@@ -30851,8 +30830,7 @@ export interface components {
         Project: {
             /**
              * Format: uuid
-             * @description The contract this project bills through (Wave 39 lane 4, report
-             *     P2): its rate card, blocks, and caps price the project's T&M work.
+             * @description The contract this project bills through: its rate card, blocks, and caps price the project's T&M work.
              *     `None` = non-billable or not linked. The link validates in the
              *     app layer (same client, active-or-draft contract).
              */
@@ -30893,7 +30871,7 @@ export interface components {
             updated_at: string;
         };
         /**
-         * @description One released milestone (report P1/P4): the durable record that a
+         * @description One released milestone: the durable record that a
          *     completed milestone or fixed-fee phase released its amount to the
          *     invoicing pipeline. `pending` rows bill on the first run that reaches
          *     the window; the run flips them `billed` with the consuming invoice,
@@ -31031,7 +31009,7 @@ export interface components {
             sort_order: number;
             /**
              * Format: date
-             * @description The phase's PLANNED window (Wave 34 claims close-out, claim 6).
+             * @description The phase's PLANNED window.
              *
              *     Both ends are nullable and that is the honest state rather than a
              *     compromise: most real projects have phases nobody has dated yet, and
@@ -31046,8 +31024,7 @@ export interface components {
             updated_at: string;
         };
         /**
-         * @description A phase's billing budget and/or fixed-fee record (Wave 39 lane 4,
-         *     report P3/P4). One optional row per phase: `budget_minor` is the
+         * @description A phase's billing budget and/or fixed-fee record. One optional row per phase: `budget_minor` is the
          *     contracted denominator the burn math consumes (T&M phases), and
          *     `fee_minor` is the fixed fee a completed NON-milestone phase releases
          *     (milestone phases carry their own amount on the phase row).
@@ -31259,7 +31236,7 @@ export interface components {
              * @description The acting user (or machine actor) id, when attributed.
              */
             actor_id: string | null;
-            /** @description Actor kind from the write-trail vocabulary (human, agent, ...). */
+            /** @description Actor kind from the write-trail vocabulary (human, agent,...). */
             actor_kind: string;
             /** @description Applied value; null when the field was removed in this write. */
             after: Record<string, never> | null;
@@ -31277,7 +31254,7 @@ export interface components {
              */
             idempotency_key?: string | null;
             occurred_at: string;
-            /** @description Machine-readable operation ("create", "update", "status_change", ...). */
+            /** @description Machine-readable operation ("create", "update", "status_change",...). */
             op: string;
             /** @description Rule-set hash that governed the write, when present. */
             ruleset_hash?: string | null;
@@ -31927,7 +31904,7 @@ export interface components {
             /**
              * @description OMITTED (vs explicit empty) keeps the existing row's tags — a
              *     re-seal without a capabilities payload must not silently wipe the
-             *     capability enforcement data (Wave 18 lane 2b, item 4).
+             *     capability enforcement data.
              */
             capabilities?: string[] | null;
             /** Format: int32 */
@@ -32069,7 +32046,7 @@ export interface components {
             from_address?: string | null;
             from_name?: string | null;
             logo_url?: string | null;
-            /** @description The org's own greeting (Wave 42). */
+            /** @description The org's own greeting. */
             org_greeting?: string | null;
             postmark_base_url?: string | null;
             reply_to?: string | null;
@@ -32079,7 +32056,7 @@ export interface components {
             ses_region?: string | null;
             signature?: string | null;
             /**
-             * @description `allowed` | `org_locked` (Wave 42). Absent leaves the policy alone,
+             * @description `allowed` | `org_locked`. Absent leaves the policy alone,
              *     so an older client that does not know the key cannot reset it.
              */
             signature_policy?: string | null;
@@ -32943,7 +32920,7 @@ export interface components {
              * Format: uuid
              * @description Optional ticket anchor. A return/restock of parts from a job carries
              *     the ticket so the movement lands on that ticket's timeline instead of
-             *     forcing a detour through the stock surfaces (Wave 32 lane 6).
+             *     forcing a detour through the stock surfaces.
              */
             ticket_id?: string | null;
             /**
@@ -33568,7 +33545,7 @@ export interface components {
             day_of_month?: number | null;
             /**
              * Format: int32
-             * @description 0 = Monday .. 6 = Sunday (weekly only).
+             * @description 0 = Monday.. 6 = Sunday (weekly only).
              */
             day_of_week?: number | null;
             definition_kind: string;
@@ -33597,7 +33574,7 @@ export interface components {
             window_days: number;
         };
         /**
-         * @description A stored report spec (the private build tracker R3). Every member is registry-validated;
+         * @description A stored report spec. Every member is registry-validated;
          *     see [`ReportSpec::validate`].
          */
         ReportSpec: {
@@ -33708,8 +33685,7 @@ export interface components {
          *     (typed read model; the raw row never carries the label).
          *
          *     A label is a READ OF THE TARGET, so it is present only when the
-         *     caller's own gate for the target's module passed (Wave 55 decision 3:
-         *     `design/qa-p55-link-labels`). A denied target keeps the link row and
+         *     caller's own gate for the target's module passed. A denied target keeps the link row and
          *     carries no title.
          */
         ResolvedLink: components["schemas"]["DocumentLink"] & {
@@ -34516,7 +34492,7 @@ export interface components {
         };
         /**
          * @description Workload mix over APPROVED time entries only — drafts and rejected
-         *     entries are never scorecard truth (Wave 14 lane-1 approval contract).
+         *     entries are never scorecard truth (approval contract).
          */
         ScorecardWorkload: {
             /** Format: int64 */
@@ -34687,7 +34663,7 @@ export interface components {
             value: string;
         };
         /**
-         * @description PATCH field entry (A5, Wave 16 lane 9): `value: null` CLEARS the
+         * @description PATCH field entry (A5): `value: null` CLEARS the
          *     sealed field (row deleted, audited via the record-updated event);
          *     a value rotates the sealed ciphertext.
          */
@@ -34796,7 +34772,7 @@ export interface components {
             org_id?: string | null;
             /**
              * Format: date-time
-             * @description Operator-scheduled rotation due date (Wave 19 lane 3) — additive
+             * @description Operator-scheduled rotation due date — additive
              *     on 0078's record shape; the worker sweep reminds once past it.
              */
             rotate_at?: string | null;
@@ -34914,8 +34890,7 @@ export interface components {
             otel_metrics?: string | null;
             tempo?: string | null;
             /**
-             * @description Uptime Kuma's status-page UI (Wave 34 claims close-out: the section
-             *     2 observability row that had not shipped). Same link-out shape as
+             * @description Uptime Kuma's status-page UI. Same link-out shape as
              *     Grafana — a standalone operator UI in the observability profile
              *     that Marula never reads from, so the pane can only offer the link
              *     and never report on it.
@@ -35025,7 +35000,7 @@ export interface components {
         SetChecklistItemRequest: components["schemas"]["MutationParams"] & {
             checked: boolean;
             /**
-             * @description Shared not-applicable state (Wave 12 lane 6): `true` marks the item
+             * @description Shared not-applicable state: `true` marks the item
              *     N-A as ORG-WIDE server truth and clears the checkmark (the states
              *     are mutually exclusive; checked semantics are untouched for callers
              *     that omit it — legacy payloads default to `false` and behave
@@ -35034,7 +35009,7 @@ export interface components {
              */
             na?: boolean;
             /**
-             * @description Server-composed ledger reason (Wave 17 lane 11, §5.1): MANDATORY
+             * @description Server-composed ledger reason: MANDATORY
              *     (non-empty, ≤2000 chars) when this call sets N-A (na: true) or
              *     reverses a terminal state (reopen); ignored for plain checks. The
              *     reason text lands in the ledger as the auto-appended internal note
@@ -35051,7 +35026,7 @@ export interface components {
              */
             domain: string;
         };
-        /** @description POST response: exactly the three fields the private build tracker A8 (B) names. */
+        /** @description POST response: exactly the three fields the DNS check reports. */
         SetCustomDomainResponse: {
             domain: string;
             instructions: components["schemas"]["CustomDomainInstructions"];
@@ -35966,12 +35941,12 @@ export interface components {
              */
             session_id?: string | null;
             /**
-             * @description Typed unbillable reason (Wave 39 V3) — required by validation
+             * @description Typed unbillable reason — required by validation
              *     when `billable` is false.
              */
             unbillable_reason?: string | null;
             /**
-             * @description Category slug (Wave 39 V5): keys onto the org's time_categories
+             * @description Category slug: keys onto the org's time_categories
              *     taxonomy; additive — legacy clients omit it and the entry stays
              *     honestly unclassified.
              */
@@ -36090,7 +36065,7 @@ export interface components {
             /** @description Label shown in the automations editor. */
             label: string;
             /**
-             * @description A2 (Wave 43 lane 13, `p43-node-registry`): what the action
+             * @description A2: what the action
              *     RETURNS. Before this field a workflow could call a plugin action
              *     but could not use what came back, which made a plugin node a
              *     dead end for every downstream condition and reference.
@@ -36131,7 +36106,7 @@ export interface components {
             schema: unknown;
         };
         /**
-         * @description One declared READ node (Wave 43 lane 4, ADR 0017 §5).
+         * @description One declared READ node (ADR 0017 §5).
          *
          *     `automation_action` is write-shaped, so before this kind a workflow
          *     could not FETCH from an external system at all — which is exactly the
@@ -36165,7 +36140,7 @@ export interface components {
              */
             id: string;
             /**
-             * @description A2 (Wave 43 lane 13): repeating-safety. False by default — a read
+             * @description A2: repeating-safety. False by default — a read
              *     is rate-capped precisely because a loop over devices is cheap to
              *     write, and retrying one is the same loop.
              */
@@ -36201,7 +36176,7 @@ export interface components {
          */
         SurfaceSlot: "dashboard" | "ticket_pane";
         /**
-         * @description One declared TRIGGER source (Wave 43 lane 4, ADR 0017 §3): the event
+         * @description One declared TRIGGER source (ADR 0017 §3): the event
          *     type a plugin emits, which a rule can then fire on.
          *
          *     The trigger is a DECLARATION, not a dispatcher. It names the type it
@@ -36767,7 +36742,7 @@ export interface components {
             id: string;
             /**
              * Format: uuid
-             * @description Merge marker (Wave 11 lane 9): the survivor this ticket folded
+             * @description Merge marker: the survivor this ticket folded
              *     into, when it was absorbed by a merge. The row stays queryable
              *     (doctrine #9) but is closed and never re-opened.
              */
@@ -36787,7 +36762,7 @@ export interface components {
             title: string;
             /**
              * Format: uuid
-             * @description Classification (Wave 11 lane 3; read-view exposure Wave 12 lane 6):
+             * @description Classification:
              *     the org taxonomy nodes carried on the ticket. PATCH accepts them;
              *     the read view now returns them so ticket detail can display the
              *     current classification. Purely descriptive — classification-only
@@ -36850,8 +36825,7 @@ export interface components {
             /** Format: date-time */
             updated_at?: string | null;
             /**
-             * @description Server-composed workflow-note provenance (Wave 17 lane 11,
-             *     migration 0080): `{kind, auto, item_ids}` on notes the server
+             * @description Server-composed workflow-note provenance: `{kind, auto, item_ids}` on notes the server
              *     appended for task-state transitions; NULL/unsent for every
              *     user-written note. Machine marking lives HERE, never in body text
              *     (spoofable, unqueryable). Additive-only contract: absent keys
@@ -36975,9 +36949,9 @@ export interface components {
          * @description A typed edge between two tickets.
          *
          *     - `ParentChild`: `from_ticket_id` is the CHILD, `to_ticket_id` the
-         *       parent — child work rolls up to the parent.
+         *      parent — child work rolls up to the parent.
          *     - `MajorIncident`: `from_ticket_id` is a MEMBER, `to_ticket_id` the
-         *       major incident it folded into.
+         *      major incident it folded into.
          * @enum {string}
          */
         TicketLinkType: "parent_child" | "major_incident";
@@ -36990,7 +36964,7 @@ export interface components {
             /** Format: uuid */
             client_id?: string | null;
             /**
-             * @description Keyset cursor (Wave 15 lane 3): the opaque `x-next-cursor` value
+             * @description Keyset cursor: the opaque `x-next-cursor` value
              *     from the previous page's last row. Resumes the ranked list
              *     strictly after that row — deep pages stop paying O(offset) scan
              *     cost (docs/perf.md F2). When present, `offset` is ignored.
@@ -37007,7 +36981,7 @@ export interface components {
             offset?: number;
             priority?: components["schemas"]["Priority"] | null;
             /**
-             * @description Comma-separated tag ids (Wave 11 lane 9): AND semantics — tickets
+             * @description Comma-separated tag ids: AND semantics — tickets
              *     must carry every listed tag.
              */
             tags?: string | null;
@@ -37163,7 +37137,7 @@ export interface components {
         TicketWithFields: components["schemas"]["Ticket"] & {
             custom_fields: components["schemas"]["TicketCustomFieldValue"][];
             /**
-             * @description The ticket's site zone, when the site names one (Wave 50 lane T2).
+             * @description The ticket's site zone, when the site names one.
              *
              *     The record-zone chain is site → org default → UTC, and the server ships
              *     the site's raw value only: the org default is the registry setting
@@ -37196,7 +37170,7 @@ export interface components {
          */
         TimeApprovalAction: "submitted" | "approved" | "rejected" | "reopened" | "fixed";
         /**
-         * @description An org's semantic time category (Wave 39 V4). Entries key their
+         * @description An org's semantic time category. Entries key their
          *     `work_type` column onto `slug`; the T&M rate card keys
          *     `contract_rates.work_type` onto the same slugs. Renames change the
          *     label only — slugs are stable forever.
@@ -37316,7 +37290,7 @@ export interface components {
             /**
              * Format: uuid
              * @description The ticket this entry bills through. `None` ONLY on project-scoped
-             *     entries (Wave 39 lane 4, report P5): the entry scopes to
+             *     entries: the entry scopes to
              *     [`phase_id`](Self::phase_id) instead and bills through the phase
              *     project's linked contract — project work pays without a ticket
              *     detour. Exactly one of (ticket_id, phase_id) is present; the DB
@@ -37338,7 +37312,7 @@ export interface components {
             work_type?: string | null;
         };
         /**
-         * @description One verification edit on one entry's billed minutes (Wave 39 V2).
+         * @description One verification edit on one entry's billed minutes.
          *     Additive-ledger: the original entry row is never rewritten for
          *     billing — the run sums `(entry.minutes + Σ delta_minutes)`. The
          *     signed delta is ≤ 0 (verification can only reduce or zero); the
@@ -37418,7 +37392,7 @@ export interface components {
             ticket?: components["schemas"]["TimeEntryTicketRef"] | null;
             /**
              * @description The zone the person who did the work was in when they did it — the
-             *     record's clock for this entry (Wave 50 lane T2). The approver reads
+             *     record's clock for this entry. The approver reads
              *     their own clock in the row; this is the one the member logged against,
              *     and it is what the daily totals are grouped by. Absent when the member
              *     row is gone.
@@ -37439,7 +37413,7 @@ export interface components {
             title: string;
         };
         /**
-         * @description Closed rejection vocabulary (Wave 14 lane 1): approvers reject with a
+         * @description Closed rejection vocabulary: approvers reject with a
          *     machine-readable reason code, never prose-only. `other` may carry the
          *     free-text explanation on the decision record.
          * @enum {string}
@@ -37786,7 +37760,7 @@ export interface components {
         TravelDraftView: {
             /**
              * Format: uuid
-             * @description Wave 32 lane 7: the planned appointment this trip reconciles
+             * @description The planned appointment this trip reconciles
              *     against, when linked.
              */
             appointment_id?: string | null;
@@ -37801,7 +37775,7 @@ export interface components {
             ended_at: string;
             /**
              * Format: uuid
-             * @description Wave 32 lane 7: the expense this draft's mileage produced, once
+             * @description The expense this draft's mileage produced, once
              *     reimbursed.
              */
             expense_id?: string | null;
@@ -37823,8 +37797,7 @@ export interface components {
             vehicle: string;
         };
         /**
-         * @description The resolved journey start point a travel estimate ran from (Wave 32
-         *     lane 7). Snapshotted onto the appointment so the estimate stays
+         * @description The resolved journey start point a travel estimate ran from. Snapshotted onto the appointment so the estimate stays
          *     explainable after the start point or the site changes.
          */
         TravelOrigin: {
@@ -37964,7 +37937,7 @@ export interface components {
         UndoStep: {
             /** Format: uuid */
             actor_id: string;
-            /** @description `human` | `agent` | ... (the audit actor vocabulary). */
+            /** @description `human` | `agent` |... (the audit actor vocabulary). */
             actor_kind: string;
             /** @description Applied entity snapshot. */
             after: Record<string, never>;
@@ -37972,7 +37945,7 @@ export interface components {
             before: Record<string, never> | null;
             created_at: string;
             idempotency_key?: string | null;
-            /** @description Machine op name (`create`, `update`, `status_change`, `revert`, ...). */
+            /** @description Machine op name (`create`, `update`, `status_change`, `revert`,...). */
             op: string;
             /**
              * @description The revert path can restore this write's prior values (`create`
@@ -38295,7 +38268,7 @@ export interface components {
             notes?: string | null;
             /**
              * Format: date-time
-             * @description Rotation schedule (Wave 19 lane 3): absent = keep; null = clear;
+             * @description Rotation schedule: absent = keep; null = clear;
              *     instant = set (stamps last_rotated_at in the same write).
              */
             rotate_at?: string | null;
@@ -38322,7 +38295,7 @@ export interface components {
             consent_diff: components["schemas"]["ConsentDiffView"];
             /**
              * @description The credential bindings this consent would CLEAR, by profile name
-             *     (Wave 53 lane 12).
+             *     .
              *
              *     `outbound_scopes` is manifest-declared, so the same profile name in the
              *     next version can allowlist a different host. A binding that outlived
@@ -38433,7 +38406,7 @@ export interface components {
             conditions?: unknown;
             enabled?: boolean | null;
             name?: string | null;
-            /** @description Replaces the subject declaration (Wave 43 lane 3). */
+            /** @description Replaces the subject declaration. */
             subject_kind?: string | null;
             trigger_event?: string | null;
         };
@@ -38474,7 +38447,7 @@ export interface components {
             fields?: components["schemas"]["SecretFieldValuePatch"][];
             /**
              * Format: date-time
-             * @description Rotation schedule (Wave 19 lane 3): absent = keep; null = clear;
+             * @description Rotation schedule: absent = keep; null = clear;
              *     instant = set (stamps last_rotated_at in the same write).
              */
             rotate_at?: string | null;
@@ -38514,7 +38487,7 @@ export interface components {
         UpdateStatusRequest: {
             category?: components["schemas"]["TicketStatusCategory"] | null;
             /**
-             * @description Wave 41 lane 12: whether the portal shows this status's own label to a
+             * @description Whether the portal shows this status's own label to a
              *     client. Absent = unchanged.
              */
             client_visible?: boolean | null;
@@ -38818,7 +38791,7 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
         };
         VendorRentalAssetRequest: {
-            /** @description device | server | ... (free text, as on every asset). */
+            /** @description device | server |... (free text, as on every asset). */
             kind?: string;
             name: string;
             tag: string;
@@ -38987,8 +38960,7 @@ export interface components {
             /**
              * Format: uuid
              * @description Stable grouping key: the ticket id, or the phase id for
-             *     project-scoped entries (Wave 39 lane 4 gave entries a second
-             *     parent, so a phase group has no ticket number).
+             *     project-scoped entries.
              */
             group_id: string;
             /** @description Human label: ticket number, else "Project / phase". */
@@ -60971,7 +60943,7 @@ export interface operations {
                 cursor?: string | null;
                 /**
                  * @description Actor-kind filter (the write-trail vocabulary: human, agent,
-                 *     import, ...).
+                 *     import,...).
                  */
                 actor_kind?: string | null;
                 /**
@@ -67719,14 +67691,14 @@ export interface operations {
                 category?: components["schemas"]["TicketStatusCategory"] | null;
                 priority?: components["schemas"]["Priority"] | null;
                 /**
-                 * @description Comma-separated tag ids (Wave 11 lane 9): AND semantics — tickets
+                 * @description Comma-separated tag ids: AND semantics — tickets
                  *     must carry every listed tag.
                  */
                 tags?: string | null;
                 limit?: number;
                 offset?: number;
                 /**
-                 * @description Keyset cursor (Wave 15 lane 3): the opaque `x-next-cursor` value
+                 * @description Keyset cursor: the opaque `x-next-cursor` value
                  *     from the previous page's last row. Resumes the ranked list
                  *     strictly after that row — deep pages stop paying O(offset) scan
                  *     cost (docs/perf.md F2). When present, `offset` is ignored.

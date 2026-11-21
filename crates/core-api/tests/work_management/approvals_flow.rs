@@ -1,4 +1,4 @@
-//! End-to-end time-entry approval flows (Wave 14 lane 1) driven through
+//! End-to-end time-entry approval flows driven through
 //! the REAL core-api router against a real Postgres.
 //!
 //! Purpose: prove the submit → review → approve/reject workflow over HTTP

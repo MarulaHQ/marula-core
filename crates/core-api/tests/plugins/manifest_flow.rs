@@ -172,7 +172,7 @@ async fn populate_via_api(app: &Router, token: &str) -> (String, String, Value) 
         assert_eq!(response.status(), 200, "field def create must succeed");
     }
 
-    // One stored report definition (the private build tracker R3): a customization the U5
+    // One stored report definition: a customization the U5
     // manifest must cover so the U6 preflight can see it.
     {
         let response = send(

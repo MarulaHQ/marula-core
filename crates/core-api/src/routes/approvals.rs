@@ -1,4 +1,4 @@
-//! Time-entry approval workflow endpoints (Wave 14 lane 1): submit →
+//! Time-entry approval workflow endpoints: submit →
 //! review → approve/reject with typed reason codes, bulk decisions, and
 //! per-approver queue/history reads. Entries consumed by an invoice are
 //! locked — every mutation refuses them with the typed `time_entry_locked`

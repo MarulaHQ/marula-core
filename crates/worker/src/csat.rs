@@ -1,4 +1,4 @@
-//! worker/csat — CSAT surveys on resolution (Wave 34 lane 2).
+//! worker/csat — CSAT surveys on resolution.
 //!
 //! Purpose: consume `ticket.closed` events via a durable consumer group and
 //! run the org's survey policy: send-on-resolve toggle, per-client minimum

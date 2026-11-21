@@ -1,4 +1,4 @@
-//! The ecosystem integrations surface (Wave 22): Slack / Teams / Rewst /
+//! The ecosystem integrations surface: Slack / Teams / Rewst /
 //! VoIP over the EXISTING `connector_installations` consent seam + the
 //! distributor pricing-feeds ingest.
 //!

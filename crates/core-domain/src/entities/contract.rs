@@ -93,7 +93,7 @@ impl FromStr for ContractType {
 }
 
 /// Lifecycle. `draft` contracts evaluate in previews (plan before
-/// activation) but Wave 9's invoice runs will refuse them; `cancelled`
+/// activation) but invoice runs will refuse them; `cancelled`
 /// contracts never evaluate. `ended` keeps evaluating candidates whose
 /// dates fall inside the (closed) effective window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

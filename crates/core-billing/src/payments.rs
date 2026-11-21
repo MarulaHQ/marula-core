@@ -155,7 +155,7 @@ mod tests {
 }
 
 // ---------------------------------------------------------------------------
-// Stripe adapter (Wave 22): PaymentIntents confirm + typed decline codes.
+// Stripe adapter: PaymentIntents confirm + typed decline codes.
 // ---------------------------------------------------------------------------
 
 /// Typed decline component of [`PaymentError::Declined`] — the
@@ -224,7 +224,7 @@ fn stripe_amount(amount_minor: i64, currency: &str) -> i64 {
     }
 }
 
-/// Stripe PaymentIntents adapter (Wave 22). Async travel through
+/// Stripe PaymentIntents adapter. Async travel through
 /// `confirm=true` + a caller-supplied `payment_method`. Confirmed,
 /// succeeded intents settle synchronously — exactly the seam contract —
 /// and every decline rides a typed [`PaymentDeclinedCode`]; `webhook`

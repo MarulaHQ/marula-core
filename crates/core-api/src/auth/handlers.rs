@@ -1095,7 +1095,7 @@ async fn granted_mcp_capabilities(
     Ok(rows.into_iter().map(|row| row.capability).collect())
 }
 
-/// Wave 26 onboarding leg (b): the per-user first-run "check your profile"
+/// The per-user first-run "check your profile"
 /// step needs a self-editable name/timezone. Self-scoped: PATCH /api/v1/users/me
 /// changes ONLY the caller's own display name and timezone (email is
 /// immutable here by design), with an audit row in the same transaction.

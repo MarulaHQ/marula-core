@@ -594,7 +594,7 @@ fn kind_permission(kind: core_db::search::SearchKind) -> Permission {
 /// behind the same permission gate the query ran behind. One pin per
 /// (kind, id): re-pinning is idempotent AND refreshes the stored
 /// snapshot (query + title + parent) to current — the created_at stays
-/// the original pin time (Wave 23 lane 1, item 6).
+/// the original pin time.
 #[utoipa::path(operation_id = "search_pins_create", post, path = "/api/search/pins", tag = "search", security(("bearer" = [])),
     request_body = CreateSearchPinRequest,
     responses((status = 200, body = SearchPinView),

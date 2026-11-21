@@ -259,7 +259,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `GET` | `/api/v1/calendar/day` <a id="calendar_day"></a> | GET /api/calendar/day — one local day for one user. | — |
-| `GET` | `/api/v1/calendar/deadlines` <a id="calendar_deadlines"></a> | GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model (Wave 17 lane 13): /calendar team mode overlays THIS instead of the bounded page-1 tickets fetch. Alive tickets only (category not closed) whose due date falls in the window; hydrated in the row itself. | — |
+| `GET` | `/api/v1/calendar/deadlines` <a id="calendar_deadlines"></a> | GET /api/calendar/deadlines — the ORG-WIDE ticket-deadline read model : /calendar team mode overlays THIS instead of the bounded page-1 tickets fetch. Alive tickets only (category not closed) whose due date falls in the window; hydrated in the row itself. | — |
 | `GET` | `/api/v1/calendar/team` <a id="calendar_team"></a> | GET /api/calendar/team — every org member over an absolute UTC range. | — |
 | `GET` | `/api/v1/calendar/week` <a id="calendar_week"></a> | GET /api/calendar/week — Monday-start local week for one user. | — |
 
@@ -280,7 +280,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `POST` | `/api/v1/calendar-sync/{connection_id}/authorize` <a id="calendar_sync_authorize_start"></a> | POST /api/calendar-sync/{connection_id}/authorize — begin consent. | — |
 | `DELETE` | `/api/v1/calendar-sync/{id}` <a id="calendar_sync_delete"></a> | DELETE /api/calendar-sync/{id} — the connection, its mirror rows, and the exclusion rows the sync owns all go away (external busy time frees the calendar). | — |
 | `PATCH` | `/api/v1/calendar-sync/{id}` <a id="calendar_sync_update"></a> | PATCH /api/calendar-sync/{id} — edit name/direction/feed_url/status. | [UpdateConnectionRequest](#schema-updateconnectionrequest) |
-| `GET` | `/api/v1/calendar-sync/{id}/events` <a id="calendar_sync_events"></a> | GET /api/calendar-sync/{id}/events — the inbound mirror (the conflict/duplicate surface Wave 14 lane 7 renders). | — |
+| `GET` | `/api/v1/calendar-sync/{id}/events` <a id="calendar_sync_events"></a> | GET /api/calendar-sync/{id}/events — the inbound mirror. | — |
 | `POST` | `/api/v1/calendar-sync/{id}/rotate-token` <a id="calendar_sync_rotate_token"></a> | POST /api/calendar-sync/{id}/rotate-token — invalidates the old outbound feed URL and returns the new raw token once. | — |
 | `POST` | `/api/v1/calendar-sync/{id}/sync` <a id="calendar_sync_run"></a> | POST /api/calendar-sync/{id}/sync — poll now (manual trigger; the worker lane calls the same seam on its schedule). Network fetch happens OUTSIDE the transaction; the apply + poll-state record + event emission run inside ONE org transaction. | — |
 | `GET` | `/api/v1/calendar-sync/{provider}/callback` <a id="calendar_sync_oauth_callback"></a> | GET /api/calendar-sync/{provider}/callback — the vendor's redirect target. | — |
@@ -331,7 +331,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `POST` | `/api/v1/clients/{id}/assets` <a id="clients_create_asset"></a> | POST /api/clients/{id}/assets | [CreateAssetRequest](#schema-createassetrequest) |
 | `GET` | `/api/v1/clients/{id}/board-exposures` <a id="board_exposures_list"></a> | GET /api/clients/{id}/board-exposures — every configured row for the client (exposed or not), so admin UI can render toggles. | — |
 | `PUT` | `/api/v1/clients/{id}/board-exposures` <a id="board_exposures_put"></a> | PUT /api/clients/{id}/board-exposures — upsert one board×client row. | [PutExposureRequest](#schema-putexposurerequest) |
-| `GET` | `/api/v1/clients/{id}/completeness` <a id="clients_completeness"></a> | GET /api/clients/{id}/completeness — backend documentation-completeness scoring (Wave 17 lane 13): the weights live SERVER-side now, replacing the honest client-side metadata scoring the clients lane shipped. Same shape, same pro-ration doctrine: score = round(earned / maxKnown × 100) with null legs (leg absent) pro-rated OUT, never a silent zero. | — |
+| `GET` | `/api/v1/clients/{id}/completeness` <a id="clients_completeness"></a> | GET /api/clients/{id}/completeness — backend documentation-completeness scoring: the weights live SERVER-side now, replacing the honest client-side metadata scoring the clients lane shipped. Same shape, same pro-ration doctrine: score = round(earned / maxKnown × 100) with null legs (leg absent) pro-rated OUT, never a silent zero. | — |
 | `GET` | `/api/v1/clients/{id}/contacts` <a id="clients_list_contacts"></a> | GET /api/clients/{id}/contacts | — |
 | `POST` | `/api/v1/clients/{id}/contacts` <a id="clients_create_contact"></a> | POST /api/clients/{id}/contacts | [CreateContactRequest](#schema-createcontactrequest) |
 | `GET` | `/api/v1/clients/{id}/contacts/activity` <a id="clients_contact_activity"></a> | GET /api/clients/{id}/contacts/activity | — |
@@ -357,7 +357,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `POST` | `/api/v1/config-items/{id}/interfaces` <a id="config_items_add_interface"></a> | POST /api/config-items/{id}/interfaces — record a NIC (ADR 0003 lifecycle rule: NICs are attributes, not their own CIs). | [CreateInterfaceRequest](#schema-createinterfacerequest) |
 | `POST` | `/api/v1/config-items/{id}/merge` <a id="config_items_merge"></a> | POST /api/config-items/{id}/merge — an explicit human merge (the queue's accept path rides this too). Audited + undoable (split). | [CiMergeRequest](#schema-cimergerequest) |
 | `GET` | `/api/v1/config-items/{id}/merges` <a id="config_items_list_merges"></a> | GET /api/config-items/{id}/merges — the item's merge audit trail. | — |
-| `POST` | `/api/v1/config-items/feed-upsert` <a id="config_items_feed_upsert"></a> | POST /api/config-items/feed-upsert — CI2: the single feeder write path (lane 8's seam). Never blind-inserts: existing (source_system, external_id) links resolve to their own item; identity keys resolve the deterministic case; ambiguity queues reviewable candidates and only auto-merges at/above the org threshold. | [FeedUpsertRequest](#schema-feedupsertrequest) |
+| `POST` | `/api/v1/config-items/feed-upsert` <a id="config_items_feed_upsert"></a> | POST /api/config-items/feed-upsert — CI2: the single feeder write path . Never blind-inserts: existing (source_system, external_id) links resolve to their own item; identity keys resolve the deterministic case; ambiguity queues reviewable candidates and only auto-merges at/above the org threshold. | [FeedUpsertRequest](#schema-feedupsertrequest) |
 | `DELETE` | `/api/v1/config-items/interfaces/{id}` <a id="config_items_delete_interface"></a> | DELETE /api/config-items/interfaces/{id} | — |
 | `GET` | `/api/v1/config-items/merge-candidates` <a id="config_items_list_candidates"></a> | GET /api/config-items/merge-candidates — the review queue. | — |
 | `POST` | `/api/v1/config-items/merge-candidates/{id}/accept` <a id="config_items_accept_candidate"></a> | POST /api/config-items/merge-candidates/{id}/accept — fold the candidate into the primary with the candidate's evidence attached. | — |
@@ -421,7 +421,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 |---|---|---|---|
 | `GET` | `/api/v1/contracts` <a id="contracts_list"></a> | GET /api/contracts — list with optional client/status/effective-date filters, ordered by contract number. | — |
 | `POST` | `/api/v1/contracts` <a id="contracts_create"></a> | POST /api/contracts — instant-first (IF1/IF2): idempotency-keyed and returns the read-your-write `mutation` metadata. | [CreateContractRequest](#schema-createcontractrequest) |
-| `DELETE` | `/api/v1/contracts/{id}` <a id="contracts_delete"></a> | DELETE /api/contracts/{id} — removes the contract aggregate. A typed 404 (`rls_sparse`) means the target was never visible in scope. The Wave 9 invoicing lane's billing-lock guard refuses the delete once invoices reference the contract (typed 409). | — |
+| `DELETE` | `/api/v1/contracts/{id}` <a id="contracts_delete"></a> | DELETE /api/contracts/{id} — removes the contract aggregate. A typed 404 (`rls_sparse`) means the target was never visible in scope. The billing-lock guard refuses the delete once invoices reference the contract (typed 409). | — |
 | `GET` | `/api/v1/contracts/{id}` <a id="contracts_get_one"></a> | GET /api/contracts/{id} — the contract aggregate (agreement + rate card + fee schedule). | — |
 | `PATCH` | `/api/v1/contracts/{id}` <a id="contracts_patch"></a> | PATCH /api/contracts/{id} — instant-first (IF1/IF2) partial update. Absent fields keep their values; `rates`/`fees`, when present, replace the whole card/schedule. The version gate rejects stale writes with a typed 409. | [PatchContractRequest](#schema-patchcontractrequest) |
 | `GET` | `/api/v1/contracts/{id}/billing-preview` <a id="contracts_billing_preview"></a> | GET /api/contracts/{id}/billing-preview — evaluate this contract's billing rules over `[from, to]` and return the draft invoice-line candidates. READ-ONLY: nothing persists, no billed markers exist. | — |
@@ -655,7 +655,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 |---|---|---|---|
 | `GET` | `/api/v1/invoices` <a id="invoices_list"></a> | GET /api/invoices — list with client/contract/status/dunning filters. | — |
 | `GET` | `/api/v1/invoices/{id}` <a id="invoices_get_one"></a> | GET /api/invoices/{id} — the invoice aggregate (document, lines, payment receipts). | — |
-| `GET` | `/api/v1/invoices/{id}/document` <a id="invoices_document"></a> | GET /api/invoices/{id}/document — the print-ready HTML invoice document (print-to-PDF from any browser; v1 ships no PDF binary output — see the private build tracker). | — |
+| `GET` | `/api/v1/invoices/{id}/document` <a id="invoices_document"></a> | GET /api/invoices/{id}/document — the print-ready HTML invoice document. | — |
 | `POST` | `/api/v1/invoices/{id}/dunning` <a id="invoices_dunning_transition"></a> | POST /api/invoices/{id}/dunning — move an ISSUED invoice's dunning state forward (none → reminder_sent → overdue → final_notice → collections; skipping rungs is allowed, backwards is refused). States are data: the write emits `invoice.dunning_changed` and lands in the write trail. Instant-first gated (IF1/IF2). | [DunningTransitionRequest](#schema-dunningtransitionrequest) |
 | `POST` | `/api/v1/invoices/{id}/dunning/statement` <a id="invoices_dunning_statement"></a> | POST /api/invoices/{id}/dunning/statement — generate an account statement (the client's OPEN invoices with outstanding balances) and queue it to the client's contacts through the outbound ledger (`MailTransport`; none-mode stays queued like every other leg). The statement rides the dunning path but is a document delivery, not a dunning-state change. Instant-first gated (IF1). | [SendStatementRequest](#schema-sendstatementrequest) |
 | `POST` | `/api/v1/invoices/{id}/export` <a id="invoices_export"></a> | POST /api/invoices/{id}/export — send one invoice to one connection. | [ExportRequest](#schema-exportrequest) |
@@ -777,7 +777,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 |---|---|---|---|
 | `GET` | `/api/v1/meeting-types` <a id="meeting_types_list"></a> | GET /api/meeting-types | — |
 | `POST` | `/api/v1/meeting-types` <a id="meeting_types_create"></a> | POST /api/meeting-types | [MeetingTypeBody](#schema-meetingtypebody) |
-| `DELETE` | `/api/v1/meeting-types/{id}` <a id="meeting_types_delete"></a> | DELETE /api/meeting-types/{id} — HARD delete with audit (Wave 17 lane 13): unlike the Pause toggle (PATCH `is_active`), this removes the template outright. A scheduling link still referencing the row refuses with a typed conflict (the FK RESTRICT surfaces) — pause the links FIRST or re-target them; history rows (bookings) are untouched by the template's deletion. | — |
+| `DELETE` | `/api/v1/meeting-types/{id}` <a id="meeting_types_delete"></a> | DELETE /api/meeting-types/{id} — HARD delete with audit: unlike the Pause toggle (PATCH `is_active`), this removes the template outright. A scheduling link still referencing the row refuses with a typed conflict (the FK RESTRICT surfaces) — pause the links FIRST or re-target them; history rows (bookings) are untouched by the template's deletion. | — |
 | `PATCH` | `/api/v1/meeting-types/{id}` <a id="meeting_types_update"></a> | PATCH /api/meeting-types/{id} | [MeetingTypeBody](#schema-meetingtypebody) |
 
 ## migration
@@ -873,7 +873,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `DELETE` | `/api/v1/orgs/{org_id}/custom-domain` <a id="org_custom_domain_delete"></a> | `DELETE /api/v1/orgs/{org_id}/custom-domain` — clear the domain. | — |
 | `GET` | `/api/v1/orgs/{org_id}/custom-domain` <a id="org_custom_domain_get"></a> | `GET /api/v1/orgs/{org_id}/custom-domain` — current state + verification status + provider-plugin availability. | — |
 | `POST` | `/api/v1/orgs/{org_id}/custom-domain` <a id="org_custom_domain_set"></a> | `POST /api/v1/orgs/{org_id}/custom-domain` — claim a domain. | [SetCustomDomainRequest](#schema-setcustomdomainrequest) |
-| `POST` | `/api/v1/orgs/{org_id}/custom-domain/verify` <a id="org_custom_domain_verify"></a> | `POST /api/v1/orgs/{org_id}/custom-domain/verify` — run the generic DNS verification (the private build tracker A8 (C)). The TXT token is the authority; the A/CNAME leg is plausibility only. | — |
+| `POST` | `/api/v1/orgs/{org_id}/custom-domain/verify` <a id="org_custom_domain_verify"></a> | `POST /api/v1/orgs/{org_id}/custom-domain/verify` — run the generic DNS verification. The TXT token is the authority; the A/CNAME leg is plausibility only. | — |
 | `GET` | `/api/v1/orgs/{org_id}/entitlements` <a id="org_entitlement_get"></a> | GET /api/v1/orgs/{org_id}/entitlements — the artifact the org holds. | — |
 | `PUT` | `/api/v1/orgs/{org_id}/entitlements` <a id="org_entitlement_put"></a> | PUT /api/v1/orgs/{org_id}/entitlements — adopt a signed artifact. | [AdoptEntitlementRequest](#schema-adoptentitlementrequest) |
 | `GET` | `/api/v1/orgs/{org_id}/quotas` <a id="org_quotas_get"></a> | GET /api/v1/orgs/{org_id}/quotas — usage beside configured limits. | — |
@@ -1085,21 +1085,21 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `POST` | `/api/v1/projects/{id}/change-orders` <a id="project_change_orders_create"></a> | POST /api/projects/{id}/change-orders — an empty draft with three ways in. | [CreateProjectChangeOrderRequest](#schema-createprojectchangeorderrequest) |
 | `GET` | `/api/v1/projects/{id}/change-orders/{change_order_id}` <a id="project_change_order_get"></a> | GET /api/projects/{id}/change-orders/{change_order_id} | — |
 | `PATCH` | `/api/v1/projects/{id}/change-orders/{change_order_id}` <a id="project_change_order_patch"></a> | PATCH /api/projects/{id}/change-orders/{change_order_id} — drafts only. | [PatchChangeOrderRequest](#schema-patchchangeorderrequest) |
-| `POST` | `/api/v1/projects/{id}/change-orders/{change_order_id}/apply` <a id="project_change_order_apply"></a> | POST .../apply — updates the plan and captures a baseline. It never bills. | — |
-| `POST` | `/api/v1/projects/{id}/change-orders/{change_order_id}/approve` <a id="project_change_order_approve"></a> | POST .../approve — approval changes the document only. When the org asks for portal acknowledgement the order waits for the client first. | [ProjectChangeOrderDecisionRequest](#schema-projectchangeorderdecisionrequest) |
-| `POST` | `/api/v1/projects/{id}/change-orders/{change_order_id}/bill` <a id="project_change_order_bill"></a> | POST .../bill — releases the money through the existing billing seam. A refused release leaves the order applied and records why. | — |
-| `POST` | `/api/v1/projects/{id}/change-orders/{change_order_id}/reject` <a id="project_change_order_reject"></a> | POST .../reject — the reason is required and stays on the record. | [ProjectChangeOrderDecisionRequest](#schema-projectchangeorderdecisionrequest) |
-| `POST` | `/api/v1/projects/{id}/change-orders/{change_order_id}/submit` <a id="project_change_order_submit"></a> | POST .../submit — the author's last editable moment. | — |
+| `POST` | `/api/v1/projects/{id}/change-orders/{change_order_id}/apply` <a id="project_change_order_apply"></a> | POST.../apply — updates the plan and captures a baseline. It never bills. | — |
+| `POST` | `/api/v1/projects/{id}/change-orders/{change_order_id}/approve` <a id="project_change_order_approve"></a> | POST.../approve — approval changes the document only. When the org asks for portal acknowledgement the order waits for the client first. | [ProjectChangeOrderDecisionRequest](#schema-projectchangeorderdecisionrequest) |
+| `POST` | `/api/v1/projects/{id}/change-orders/{change_order_id}/bill` <a id="project_change_order_bill"></a> | POST.../bill — releases the money through the existing billing seam. A refused release leaves the order applied and records why. | — |
+| `POST` | `/api/v1/projects/{id}/change-orders/{change_order_id}/reject` <a id="project_change_order_reject"></a> | POST.../reject — the reason is required and stays on the record. | [ProjectChangeOrderDecisionRequest](#schema-projectchangeorderdecisionrequest) |
+| `POST` | `/api/v1/projects/{id}/change-orders/{change_order_id}/submit` <a id="project_change_order_submit"></a> | POST.../submit — the author's last editable moment. | — |
 | `GET` | `/api/v1/projects/{id}/client-updates` <a id="project_client_updates_list"></a> | GET /api/projects/{id}/client-updates | — |
 | `POST` | `/api/v1/projects/{id}/client-updates` <a id="project_client_updates_draft"></a> | POST /api/projects/{id}/client-updates — drafts from what moved in the period. With no movement it records a withheld update with the reason and returns it; it never produces a cheerful empty letter. | [DraftUpdateRequest](#schema-draftupdaterequest) |
 | `PATCH` | `/api/v1/projects/{id}/client-updates/{update_id}` <a id="project_client_updates_edit"></a> | PATCH /api/projects/{id}/client-updates/{update_id} — drafts only. | [EditUpdateRequest](#schema-editupdaterequest) |
-| `POST` | `/api/v1/projects/{id}/client-updates/{update_id}/approve` <a id="project_client_updates_approve"></a> | POST .../approve | — |
-| `POST` | `/api/v1/projects/{id}/client-updates/{update_id}/send` <a id="project_client_updates_send"></a> | POST .../send — the send is the person's act. It is recorded here as the state change; the delivery channel consumes the sent row, so no model can put words in front of a client. | — |
-| `POST` | `/api/v1/projects/{id}/client-updates/{update_id}/withhold` <a id="project_client_updates_withhold"></a> | POST .../withhold — records the honest refusal and why. | [WithholdUpdateRequest](#schema-withholdupdaterequest) |
+| `POST` | `/api/v1/projects/{id}/client-updates/{update_id}/approve` <a id="project_client_updates_approve"></a> | POST.../approve | — |
+| `POST` | `/api/v1/projects/{id}/client-updates/{update_id}/send` <a id="project_client_updates_send"></a> | POST.../send — the send is the person's act. It is recorded here as the state change; the delivery channel consumes the sent row, so no model can put words in front of a client. | — |
+| `POST` | `/api/v1/projects/{id}/client-updates/{update_id}/withhold` <a id="project_client_updates_withhold"></a> | POST.../withhold — records the honest refusal and why. | [WithholdUpdateRequest](#schema-withholdupdaterequest) |
 | `GET` | `/api/v1/projects/{id}/cost-rollup` <a id="projects_cost_rollup"></a> | GET /api/projects/{id}/cost-rollup — posted PO bills in base currency (ADR 0002 locked) plus the project budget for comparison. | — |
 | `GET` | `/api/v1/projects/{id}/gantt` <a id="projects_gantt"></a> | GET /api/projects/{id}/gantt — the dated timeline plus its undated remainder, each phase carrying its budget burn. | — |
 | `PUT` | `/api/v1/projects/{id}/order` <a id="projects_reorder"></a> | PUT /api/projects/{id}/order — the plan's order, written in one transaction. | [ReorderRequest](#schema-reorderrequest) |
-| `GET` | `/api/v1/projects/{id}/phase-burn` <a id="projects_phase_burn"></a> | GET /api/projects/{id}/phase-burn — the burn read model (report P3): consumed approved billable minutes and card-priced value per phase against the phase's budget, with a typed alert state: `none`, then `warn` from 80 percent, then `over` from 100 percent. Without `financial:read` the amounts and the alert are redacted (RB2). | — |
+| `GET` | `/api/v1/projects/{id}/phase-burn` <a id="projects_phase_burn"></a> | GET /api/projects/{id}/phase-burn — the burn read model: consumed approved billable minutes and card-priced value per phase against the phase's budget, with a typed alert state: `none`, then `warn` from 80 percent, then `over` from 100 percent. Without `financial:read` the amounts and the alert are redacted (RB2). | — |
 | `GET` | `/api/v1/projects/{id}/phases` <a id="projects_list_phases"></a> | GET /api/projects/{id}/phases — ordered by sort_order. | — |
 | `POST` | `/api/v1/projects/{id}/phases` <a id="projects_create_phase"></a> | POST /api/projects/{id}/phases — adds a phase; emits `project.phase_created`. | [CreatePhaseRequest](#schema-createphaserequest) |
 | `PATCH` | `/api/v1/projects/{id}/phases/{phase_id}` <a id="projects_patch_phase"></a> | PATCH /api/projects/{id}/phases/{phase_id} — tri-state partial update. | [PatchPhaseRequest](#schema-patchphaserequest) |
@@ -1204,7 +1204,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `GET` | `/api/v1/reply-snippets` <a id="reply_snippets_list"></a> | GET /api/v1/reply-snippets — the org's snippet library with the search-in-composer predicate applied (`board_id` offer filter + `q` case-insensitive substring over name and body). | — |
 | `POST` | `/api/v1/reply-snippets` <a id="create"></a> | POST /api/v1/reply-snippets — add a snippet to the library. | [CreateReplySnippetRequest](#schema-createreplysnippetrequest) |
 | `DELETE` | `/api/v1/reply-snippets/{id}` <a id="delete"></a> | DELETE /api/v1/reply-snippets/{id} — remove a snippet from the library. | — |
-| `GET` | `/api/v1/reply-snippets/{id}` <a id="reply_snippets_get_one"></a> | GET /api/v1/reply-snippets/{id} — fetch one snippet (cross-lane fix, Wave 34 lane 4: the fork-on-edit flow reads the origin after forking; the route was missing so reads 405'd). | — |
+| `GET` | `/api/v1/reply-snippets/{id}` <a id="reply_snippets_get_one"></a> | GET /api/v1/reply-snippets/{id} — fetch one snippet. | — |
 | `PATCH` | `/api/v1/reply-snippets/{id}` <a id="update"></a> | PATCH /api/v1/reply-snippets/{id} — edit a snippet in place (the library is org-owned data; fork-on-edit applies when orgs want a divergent copy, via the fork endpoint). | [UpdateReplySnippetRequest](#schema-updatereplysnippetrequest) |
 | `POST` | `/api/v1/reply-snippets/{id}/fork` <a id="fork"></a> | POST /api/v1/reply-snippets/{id}/fork — duplicate a snippet into a new editable copy (templates fork-on-edit provenance pattern). The origin is untouched; the copy records `forked_from`. | [ForkReplySnippetRequest](#schema-forkreplysnippetrequest) |
 | `POST` | `/api/v1/reply-snippets/{id}/render` <a id="render"></a> | POST /api/v1/reply-snippets/{id}/render — resolve the snippet's variable tokens against a real ticket context and return the rendered body (the composer inserts the RENDERED text; the portal reply renders the result). Out-of-vocabulary placeholders are typed 400s. | [RenderReplySnippetRequest](#schema-renderreplysnippetrequest) |
@@ -1250,7 +1250,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `GET` | `/api/v1/roles` <a id="roles_list"></a> | GET /api/roles — the org's roles plus the canonical preset + portal tier rosters (manager+). | — |
-| `PUT` | `/api/v1/roles/{id}` <a id="roles_update"></a> | PUT /api/roles/{id} — the custom-roles EDITOR (Wave 22): updates a custom row's name and/or permission set. Builtin presets are typed refusals (rb1) — restore is the ONLY preset-matrix mutation. | [UpdateRoleRequest](#schema-updaterolerequest) |
+| `PUT` | `/api/v1/roles/{id}` <a id="roles_update"></a> | PUT /api/roles/{id} — the custom-roles EDITOR: updates a custom row's name and/or permission set. Builtin presets are typed refusals (rb1) — restore is the ONLY preset-matrix mutation. | [UpdateRoleRequest](#schema-updaterolerequest) |
 | `POST` | `/api/v1/roles/{id}/fork` <a id="roles_fork"></a> | POST /api/roles/{id}/fork — duplicate a role (typically a preset) into a mutable custom copy on the same matrix. The origin row is untouched. | [ForkRoleRequest](#schema-forkrolerequest) |
 | `POST` | `/api/v1/roles/{id}/restore` <a id="roles_restore"></a> | POST /api/roles/{id}/restore — reset a preset row's permission array to the canonical shipped set (RB1: the presets stay canonical). Custom roles and forks are org-owned data and are never restorable. | [RestoreRoleRequest](#schema-restorerolerequest) |
 
@@ -1304,7 +1304,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 |---|---|---|---|
 | `GET` | `/api/v1/search` <a id="search_query"></a> | GET /api/search — unified staff search across tickets, comments and the client hierarchy. | — |
 | `GET` | `/api/v1/search/pins` <a id="search_pins_list"></a> | GET /api/search/pins — the caller's own pins, newest-first. | — |
-| `POST` | `/api/v1/search/pins` <a id="search_pins_create"></a> | POST /api/search/pins — pins one stored result. The entity must EXIST in the index (a pin is a stored result, never invented) and kind sits behind the same permission gate the query ran behind. One pin per (kind, id): re-pinning is idempotent AND refreshes the stored snapshot (query + title + parent) to current — the created_at stays the original pin time (Wave 23 lane 1, item 6). | [CreateSearchPinRequest](#schema-createsearchpinrequest) |
+| `POST` | `/api/v1/search/pins` <a id="search_pins_create"></a> | POST /api/search/pins — pins one stored result. The entity must EXIST in the index (a pin is a stored result, never invented) and kind sits behind the same permission gate the query ran behind. One pin per (kind, id): re-pinning is idempotent AND refreshes the stored snapshot (query + title + parent) to current — the created_at stays the original pin time. | [CreateSearchPinRequest](#schema-createsearchpinrequest) |
 | `DELETE` | `/api/v1/search/pins/{id}` <a id="search_pins_delete"></a> | DELETE /api/search/pins/{id} — unpins the caller's OWN pin; another user's pin is simply not theirs (typed 404, never a conflict leak). | — |
 
 ## secrets
@@ -1479,7 +1479,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
-| `GET` | `/api/v1/tickets` <a id="tickets_list"></a> | GET /api/tickets — filtered, priority-ordered list; each row carries its custom-field values (the private build tracker 2.17) fetched in one batched query. Pagination is envelope-compatible: the body stays the plain ticket array; deep-page walks pass the opaque `cursor` query param (from the previous page's `x-next-cursor` response header) and the server resumes strictly after that row — keyset, not O(offset) scan (docs/perf.md F2). | — |
+| `GET` | `/api/v1/tickets` <a id="tickets_list"></a> | GET /api/tickets — filtered, priority-ordered list; each row carries its custom-field values fetched in one batched query. Pagination is envelope-compatible: the body stays the plain ticket array; deep-page walks pass the opaque `cursor` query param (from the previous page's `x-next-cursor` response header) and the server resumes strictly after that row — keyset, not O(offset) scan (docs/perf.md F2). | — |
 | `POST` | `/api/v1/tickets` <a id="tickets_create"></a> | POST /api/tickets — allocates the human ticket number, initializes SLA clocks, validates + stores any initial custom-field values (REQUIRED definitions enforced), and emits `ticket.created` — all in one transaction. Instant-first (IF1/IF2): routed through the shared idempotency gate and returns the read-your-write `mutation` metadata. | [CreateTicketRequest](#schema-createticketrequest) |
 | `GET` | `/api/v1/tickets/{id}` <a id="tickets_get_one"></a> | GET /api/tickets/{id} — a conditional read. | — |
 | `PATCH` | `/api/v1/tickets/{id}` <a id="tickets_patch"></a> | PATCH /api/tickets/{id} — partial update; validates + upserts any provided custom-field values; emits `ticket.updated`, `ticket.field_set` (per changed field), and `ticket.assigned` when the assignee changes. Instant-first (IF1/IF2): idempotency-keyed, version- gated, and returns prior + new values for undo. | [PatchTicketRequest](#schema-patchticketrequest) |
@@ -1530,7 +1530,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `DELETE` | `/api/v1/tickets/{id}/tags/{tag_id}` <a id="tickets_remove_tag"></a> | DELETE /api/tickets/{id}/tags/{tag_id} — remove one applied tag. | — |
 | `GET` | `/api/v1/tickets/{id}/time-entries` <a id="tickets_ticket_time_entries"></a> | GET /api/tickets/{id}/time-entries | — |
 | `GET` | `/api/v1/tickets/{id}/undo-stack` <a id="tickets_undo_stack"></a> | GET /api/tickets/{id}/undo-stack — the per-field / per-record applied-state history read model for one record. | — |
-| `GET` | `/api/v1/tickets/my-work` <a id="tickets_my_work"></a> | GET /api/tickets/my-work — everything assigned to me, not closed, across all boards, priority-then-SLA-due ordered (the unified cross-board view from §1; the private build tracker 2.11 adds client/board annotations). | — |
+| `GET` | `/api/v1/tickets/my-work` <a id="tickets_my_work"></a> | GET /api/tickets/my-work — everything assigned to me, not closed, across all boards, priority-then-SLA-due ordered. | — |
 
 ## time-categories
 
@@ -1617,7 +1617,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
-| `PATCH` | `/api/v1/users/me` <a id="users_me_patch"></a> | Wave 26 onboarding leg (b): the per-user first-run "check your profile" step needs a self-editable name/timezone. Self-scoped: PATCH /api/v1/users/me changes ONLY the caller's own display name and timezone (email is immutable here by design), with an audit row in the same transaction. | [PatchMeRequest](#schema-patchmerequest) |
+| `PATCH` | `/api/v1/users/me` <a id="users_me_patch"></a> | The per-user first-run "check your profile" step needs a self-editable name/timezone. Self-scoped: PATCH /api/v1/users/me changes ONLY the caller's own display name and timezone (email is immutable here by design), with an audit row in the same transaction. | [PatchMeRequest](#schema-patchmerequest) |
 
 ## vendor-rentals
 
@@ -1740,13 +1740,13 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-applytagrequest"></a>`ApplyTagRequest` | composite |  |
 | <a id="schema-applyworktypemaprequest"></a>`ApplyWorkTypeMapRequest` | composite |  |
 | <a id="schema-applyworktypemapresponse"></a>`ApplyWorkTypeMapResponse` | object |  |
-| <a id="schema-appointment"></a>`Appointment` | object | A booked slot on one user's calendar, optionally tied to a ticket and client/site. `travel_minutes` is travel time booked immediately BEFORE `starts_at` (Wave 32 lane 7): it ADDS to the appointment and occupies dispatch capacity (`crate::scheduling::occupied_minutes`), never replacing or shrinking the booked span. The `travel_*` fields carry the estimate's provenance so a heuristic number is never mistaken for a measured one. |
+| <a id="schema-appointment"></a>`Appointment` | object | A booked slot on one user's calendar, optionally tied to a ticket and client/site. `travel_minutes` is travel time booked immediately BEFORE `starts_at`: it ADDS to the appointment and occupies dispatch capacity (`crate::scheduling::occupied_minutes`), never replacing or shrinking the booked span. The `travel_*` fields carry the estimate's provenance so a heuristic number is never mistaken for a measured one. |
 | <a id="schema-appointmentkind"></a>`AppointmentKind` | string | What an appointment is physically for. Drives rendering color-coding on calendars and future travel-time logic (on_site only). |
 | <a id="schema-appointmentrequest"></a>`AppointmentRequest` | object | A client's request for a slot on one staff member's calendar. |
 | <a id="schema-appointmentrequestlistquery"></a>`AppointmentRequestListQuery` | object |  |
 | <a id="schema-appointmentrequeststatus"></a>`AppointmentRequestStatus` | string | Lifecycle of an appointment request. `approved`/`declined`/`cancelled` are terminal; approved requests carry the created appointment's id. |
 | <a id="schema-appointmentstatus"></a>`AppointmentStatus` | string | Lifecycle of a booking. `cancelled` frees the slot (the DB exclusion constraint's partial predicate); `done` still occupies it. |
-| <a id="schema-approvalstatus"></a>`ApprovalStatus` | string | Approval lifecycle of a time entry (Wave 14 lane 1): `draft` entries are still being worked on, `submitted` waits in the approver queue, `approved` entries are the only ones billing reads may consume, and `rejected` entries carry a typed rejection reason until reopened. Entries consumed by an invoice are additionally LOCKED (enforced by the persistence layer) regardless of status. |
+| <a id="schema-approvalstatus"></a>`ApprovalStatus` | string | Approval lifecycle of a time entry: `draft` entries are still being worked on, `submitted` waits in the approver queue, `approved` entries are the only ones billing reads may consume, and `rejected` entries carry a typed rejection reason until reopened. Entries consumed by an invoice are additionally LOCKED (enforced by the persistence layer) regardless of status. |
 | <a id="schema-approvestagedrequest"></a>`ApproveStagedRequest` | object |  |
 | <a id="schema-archivecatalogitemrequest"></a>`ArchiveCatalogItemRequest` | composite |  |
 | <a id="schema-archivedocumentrequest"></a>`ArchiveDocumentRequest` | object |  |
@@ -1783,9 +1783,9 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-authorworkflowrequest"></a>`AuthorWorkflowRequest` | object |  |
 | <a id="schema-authorworkflowresponse"></a>`AuthorWorkflowResponse` | object |  |
 | <a id="schema-automationaction"></a>`AutomationAction` | object | Effects a rule may request. Every variant maps onto an existing core-api write path — automations never gain private write routes. |
-| <a id="schema-automationcondition"></a>`AutomationCondition` | object | One predicate; a rule matches only when EVERY condition holds. Deterministic predicates evaluate against the ticket snapshot; the [`AutomationCondition::AiDecision`] kind is pulled out by [`split_conditions`] and evaluated by the worker against recorded decision answers (ADR 0010 #2). The vocabulary is closed and each variant is a whole predicate, so the editor's field/operator grammar can only offer what a saved rule can carry. Wave 43 lane 17b widened it from equality-only to the operators MSPs actually reach for — negation, set membership and the positive assignee test — because "priority is not P1" and "priority is any of P1, P2" had no way to be written down. |
+| <a id="schema-automationcondition"></a>`AutomationCondition` | object | One predicate; a rule matches only when EVERY condition holds. Deterministic predicates evaluate against the ticket snapshot; the [`AutomationCondition::AiDecision`] kind is pulled out by [`split_conditions`] and evaluated by the worker against recorded decision answers (ADR 0010 #2). The vocabulary is closed and each variant is a whole predicate, so the editor's field/operator grammar can only offer what a saved rule can carry. Widened it from equality-only to the operators MSPs actually reach for — negation, set membership and the positive assignee test — because "priority is not P1" and "priority is any of P1, P2" had no way to be written down. |
 | <a id="schema-automationdraftsummaryrequest"></a>`AutomationDraftSummaryRequest` | object |  |
-| <a id="schema-automationtestrunmatch"></a>`AutomationTestRunMatch` | object | POST /api/automation-rules/{id}/test-run — dry-run one rule against the org's most recent tickets (board-scoped when the rule binds a board), PROPOSAL-shaped: what WOULD match and what the actions would do. The rule editor renders the result; nothing is ever applied and no event is emitted — a test-run writes nothing (Wave 17 lane 13 contract: the rule editor never pretends to execute). |
+| <a id="schema-automationtestrunmatch"></a>`AutomationTestRunMatch` | object | POST /api/automation-rules/{id}/test-run — dry-run one rule against the org's most recent tickets (board-scoped when the rule binds a board), PROPOSAL-shaped: what WOULD match and what the actions would do. The rule editor renders the result; nothing is ever applied and no event is emitted — a test-run writes nothing. |
 | <a id="schema-automationtestrunresponse"></a>`AutomationTestRunResponse` | object |  |
 | <a id="schema-availabilitylistresponse"></a>`AvailabilityListResponse` | object |  |
 | <a id="schema-availabilityquery"></a>`AvailabilityQuery` | object |  |
@@ -1797,7 +1797,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-batchcandidateresponse"></a>`BatchCandidateResponse` | object |  |
 | <a id="schema-batchcreatedresponse"></a>`BatchCreatedResponse` | object |  |
 | <a id="schema-batchviewresponse"></a>`BatchViewResponse` | object |  |
-| <a id="schema-billingcandidateline"></a>`BillingCandidateLine` | object | One draft invoice-line candidate. This is a PREVIEW shape: nothing persists until Wave 9's invoice run. |
+| <a id="schema-billingcandidateline"></a>`BillingCandidateLine` | object | One draft invoice-line candidate. This is a PREVIEW shape: nothing persists until invoice run. |
 | <a id="schema-billingevaluation"></a>`BillingEvaluation` | object | The result of evaluating one contract's billing rules over a window. |
 | <a id="schema-billingfrequency"></a>`BillingFrequency` | string | Billing period length. Period boundaries derive from the contract's `billing_anchor`: the anchor is the first period's start date and each subsequent period starts one frequency step later (calendar-aware clamping lives in core-billing's period arithmetic). |
 | <a id="schema-billinglinekind"></a>`BillingLineKind` | string | Which billing rule produced a candidate line. |
@@ -1813,15 +1813,15 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-board"></a>`Board` | object |  |
 | <a id="schema-boardaddressresponse"></a>`BoardAddressResponse` | object |  |
 | <a id="schema-boardexposureview"></a>`BoardExposureView` | object |  |
-| <a id="schema-boardgroup"></a>`BoardGroup` | object | A named, ordered nav grouping of boards within one org (the private build tracker 2.11). Groups are organization-wide; `owner_id` records who controls the group. |
+| <a id="schema-boardgroup"></a>`BoardGroup` | object | A named, ordered nav grouping of boards within one org. Groups are organization-wide; `owner_id` records who controls the group. |
 | <a id="schema-boardidentityview"></a>`BoardIdentityView` | object |  |
 | <a id="schema-boardmember"></a>`BoardMember` | object | An explicit per-user membership on one board carrying a board-level role tier (§6 board-level RBAC). Rows NARROW org grants; absence of a row leaves org-level governance untouched. |
 | <a id="schema-boardmemberview"></a>`BoardMemberView` | object |  |
 | <a id="schema-boardnaventry"></a>`BoardNavEntry` | object | One left-nav entry: the board plus the CALLER's annotations. |
-| <a id="schema-boardrole"></a>`BoardRole` | string | Per-board role tier stored on `board_members` rows (migration 0019, the private build tracker 2.11). Board roles sit BESIDE the org matrix and can only narrow it — see `authorize_board_scoped`. |
+| <a id="schema-boardrole"></a>`BoardRole` | string | Per-board role tier stored on `board_members` rows. Board roles sit BESIDE the org matrix and can only narrow it — see `authorize_board_scoped`. |
 | <a id="schema-boardrouteview"></a>`BoardRouteView` | object |  |
 | <a id="schema-boardstatus"></a>`BoardStatus` | object | A per-board status. `category` is the binding contract — labels are presentation, category is behavior. |
-| <a id="schema-boardstatususage"></a>`BoardStatusUsage` | object | GET /api/boards/{id}/statuses/usage — per-status ticket counts and automation references (Wave 41 lane 12). One read serves both the settings table's TICKETS column and the delete confirm's "12 tickets use this status" and "2 automations mention this status", so the table and the confirm can never quote different numbers for the same status. |
+| <a id="schema-boardstatususage"></a>`BoardStatusUsage` | object | GET /api/boards/{id}/statuses/usage — per-status ticket counts and automation references. One read serves both the settings table's TICKETS column and the delete confirm's "12 tickets use this status" and "2 automations mention this status", so the table and the confirm can never quote different numbers for the same status. |
 | <a id="schema-boardtransitionsresponse"></a>`BoardTransitionsResponse` | object | GET response for a board's workflow: either its explicit matrix or the marker that the semantic-category floor governs. |
 | <a id="schema-bookrequest"></a>`BookRequest` | composite |  |
 | <a id="schema-bookresponse"></a>`BookResponse` | object |  |
@@ -1846,7 +1846,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-calendardeadlinesresponse"></a>`CalendarDeadlinesResponse` | object |  |
 | <a id="schema-calendarexclusion"></a>`CalendarExclusion` | object | Absolute UTC time-off punching holes in availability. |
 | <a id="schema-calendaritem"></a>`CalendarItem` | object | Flat merged entry so calendars render one ordered list without caring which table produced it. |
-| <a id="schema-calendarsyncconnectionview"></a>`CalendarSyncConnectionView` | object | One connection as the API returns it: the stored row minus the cached provider credential. A credential is written and never read back through a view (Wave 55 decision 9). The row's `access_token` is read by the poll and by nothing else, so what a client gets is presence — a token is held or it is not — and never the token itself. An access token a client can read leaves the product through a screenshot, a copied log line or a support bundle, and it reads the whole of that person's calendar until it expires. No hint field: the tree exposes no last-four pattern for a credential anywhere else, so this surface does not invent one. `token_expires_at` stays, because an expiry is not a credential and Settings needs it to say when the grant lapses. This is a view, not a mirror: a field added to the entity does not appear here until someone decides the API should carry it. That is the fail-closed direction for a response shape. |
+| <a id="schema-calendarsyncconnectionview"></a>`CalendarSyncConnectionView` | object | One connection as the API returns it: the stored row minus the cached provider credential. A credential is written and never read back through a view. The row's `access_token` is read by the poll and by nothing else, so what a client gets is presence — a token is held or it is not — and never the token itself. An access token a client can read leaves the product through a screenshot, a copied log line or a support bundle, and it reads the whole of that person's calendar until it expires. No hint field: the tree exposes no last-four pattern for a credential anywhere else, so this surface does not invent one. `token_expires_at` stays, because an expiry is not a credential and Settings needs it to say when the grant lapses. This is a view, not a mirror: a field added to the entity does not appear here until someone decides the API should carry it. That is the fail-closed direction for a response shape. |
 | <a id="schema-calendarsyncdirection"></a>`CalendarSyncDirection` | string | What a connection does: `outbound` serves the org's appointments to the external calendar (private token-scoped iCal feed), `inbound` polls the external feed for busy time, `two_way` does both. |
 | <a id="schema-calendarsyncevent"></a>`CalendarSyncEvent` | object | The inbound mirror of one external event. `exclusion_id` names the `calendar_exclusions` row the event currently feeds into the 2.12 availability foundation (NULL while not busy — cancelled or transparent). |
 | <a id="schema-calendarsyncstatus"></a>`CalendarSyncStatus` | string | Connection health: `error` records the last poll failure while the connection stays configured; writes resume when a poll succeeds. |
@@ -1875,14 +1875,14 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-cardheight"></a>`CardHeight` | string | Card height. Three named steps, not pixels: the grid owns the measurement so a density change never becomes a data-contract change. |
 | <a id="schema-cardrefresh"></a>`CardRefresh` | object | How often a card recomputes, and how much data one recompute covers. |
 | <a id="schema-cardsize"></a>`CardSize` | object | A card's footprint: the one size vocabulary both surfaces read. |
-| <a id="schema-cardspan"></a>`CardSpan` | string | Card width on the dashboard's twelve-column grid. The vocabulary lane 6 consumes; the CSS owns the measurement, this owns the names. |
+| <a id="schema-cardspan"></a>`CardSpan` | string | Card width on the dashboard's twelve-column grid. The vocabulary the dashboard consumes; the CSS owns the measurement, this owns the names. |
 | <a id="schema-cardspec"></a>`CardSpec` | object | Everything about a card that is not the query: its size, the window it displays, and how it refreshes. Stored beside a [`ReportSpec`] by both surfaces. |
 | <a id="schema-catalogcolumn"></a>`CatalogColumn` | object | One catalog column: the static identifier plus its value class slug (`uuid \| text \| timestamp \| date \| int \| bigint \| bool`). The slug is what the builder UI keys operand typing on. |
 | <a id="schema-catalogentryview"></a>`CatalogEntryView` | object |  |
 | <a id="schema-catalogitemmutationresponse"></a>`CatalogItemMutationResponse` | composite | Instant-first mutation response (IF2) for catalog mutations. |
 | <a id="schema-catalogitemview"></a>`CatalogItemView` | object | RB2 (ADR 0004): a catalog item as the CALLER may see it. `unit_price` is the commercial surface; `cost_minor` (and the gross margin derived from it) is financial data — it serializes `null` for callers without `financial:read` (dispatchers and technicians by default), which is the "those values render blank" rule. The write trail keeps full fidelity server-side; only client-facing views redact. |
 | <a id="schema-cataloglistquery"></a>`CatalogListQuery` | object |  |
-| <a id="schema-catalogshape"></a>`CatalogShape` | object | One card shape, described for the authoring agent (Wave 46 lane 1). The prose is served, not duplicated in a prompt: a model that reads this catalogue authors against the same rules the compiler enforces. |
+| <a id="schema-catalogshape"></a>`CatalogShape` | object | One card shape, described for the authoring agent. The prose is served, not duplicated in a prompt: a model that reads this catalogue authors against the same rules the compiler enforces. |
 | <a id="schema-cataloguenode"></a>`CatalogueNode` | object | One node as the authoring prompt sees it: NO schemas. Schemas are fetched per node, on demand, through [`NODE_SCHEMA_TOOL`]. `idempotent` and `agent_description` ride here so the model can reason about repeat safety before it ever fetches a schema. |
 | <a id="schema-catalogview"></a>`CatalogView` | object | The field catalog of ONE versioned view: every projected column plus the narrower filterable inventory. Identifiers here are the ONLY ones a builder may reference — the server re-validates every spec against the same Rust catalog at save and run time. |
 | <a id="schema-categorymutationresponse"></a>`CategoryMutationResponse` | composite | Instant-first mutation response (IF2): category fields at the top level plus the additive `mutation` metadata. |
@@ -1931,7 +1931,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-closeorderrequest"></a>`CloseOrderRequest` | composite |  |
 | <a id="schema-commentlistquery"></a>`CommentListQuery` | object |  |
 | <a id="schema-committedchunkref"></a>`CommittedChunkRef` | object | One committed chunk's position in the resume view. |
-| <a id="schema-completeallrequest"></a>`CompleteAllRequest` | composite | POST /api/tickets/{id}/checklist/complete-all request (Wave 17 lane 11 §5.3): the close gate's Option A batch — every listed item flips to `checked` and each lands its auto-append note, ALL in one transaction with per-item idempotency keys (duplicate-proof at the envelope, scored as REPORTED auto notes via `workflow_meta.auto = true`). |
+| <a id="schema-completeallrequest"></a>`CompleteAllRequest` | composite | POST /api/tickets/{id}/checklist/complete-all request: the close gate's Option A batch — every listed item flips to `checked` and each lands its auto-append note, ALL in one transaction with per-item idempotency keys (duplicate-proof at the envelope, scored as REPORTED auto notes via `workflow_meta.auto = true`). |
 | <a id="schema-completenessgap"></a>`CompletenessGap` | object | One named scoring leg that couldn't earn its weight. |
 | <a id="schema-configitemmutationresponse"></a>`ConfigItemMutationResponse` | composite | Instant-first mutation response (IF2). |
 | <a id="schema-configitemview"></a>`ConfigItemView` | composite |  |
@@ -1947,7 +1947,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-connectorindexresponse"></a>`ConnectorIndexResponse` | object |  |
 | <a id="schema-connectorinstallationview"></a>`ConnectorInstallationView` | object |  |
 | <a id="schema-connectorinstallrequest"></a>`ConnectorInstallRequest` | object |  |
-| <a id="schema-connectorprofile"></a>`ConnectorProfile` | object | ADR 0009 §6 (Wave 19 lane 2): the modeled connector governance profile — WHERE the connector speaks (webhook endpoints) and what it wears outward (SaaS scopes). Structured, validated DECLARATIONS, not prose: the consent screen renders them verbatim and connectors inherit the platform's egress posture from the declared endpoint list. |
+| <a id="schema-connectorprofile"></a>`ConnectorProfile` | object | ADR 0009 §6: the modeled connector governance profile — WHERE the connector speaks (webhook endpoints) and what it wears outward (SaaS scopes). Structured, validated DECLARATIONS, not prose: the consent screen renders them verbatim and connectors inherit the platform's egress posture from the declared endpoint list. |
 | <a id="schema-connectorrosterresponse"></a>`ConnectorRosterResponse` | object |  |
 | <a id="schema-connectorrosterview"></a>`ConnectorRosterView` | object | One installed connector, with its configured uses nested. The installation is the unit because the first-run state is an install with zero connections; an entry with `connections: []` is the card whose action is `Connect`, not a missing row. |
 | <a id="schema-connectorschedulequery"></a>`ConnectorScheduleQuery` | object | GET /api/dispatch-connector/schedule query. The window is bounded at 62 days so one pull cannot scan the whole calendar. |
@@ -1982,8 +1982,8 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-contractrate"></a>`ContractRate` | object | T&M rate card row: the hourly rate for time entries whose `work_type` matches `work_type`. Entries with no matching row bill at the contract's default `hourly_rate_minor`. |
 | <a id="schema-contractremovedack"></a>`ContractRemovedAck` | object | Acknowledgement for `DELETE /api/contracts/{id}`. Deliberately carries no rate, fee, cap, escalator or commitment: the delete is a commercial action, not a rate read (RB2), so the caller never receives money it did not ask to see. `deleted` mirrors the vault/asset delete shape. |
 | <a id="schema-contractslacredit"></a>`ContractSlaCredit` | object | An SLA service credit the admin or verification flow applies for a missed SLA (E): becomes a NEGATIVE `sla_credit` line at the next run window covering `applies_on`. Never silent — the record names the ticket, the policy, and the missed target. |
-| <a id="schema-contractstatus"></a>`ContractStatus` | string | Lifecycle. `draft` contracts evaluate in previews (plan before activation) but Wave 9's invoice runs will refuse them; `cancelled` contracts never evaluate. `ended` keeps evaluating candidates whose dates fall inside the (closed) effective window. |
-| <a id="schema-contracttype"></a>`ContractType` | string | The supported commercial agreement shapes. Wave 39 adds the MSP relationship types beyond the original four: per-unit recurring (per-seat / per-device) and per-incident (per closed ticket) pricing. Prepaid blocks, NTE caps, minimums, and escalators ride the existing types as attached configuration rather than new shapes. |
+| <a id="schema-contractstatus"></a>`ContractStatus` | string | Lifecycle. `draft` contracts evaluate in previews (plan before activation) but invoice runs will refuse them; `cancelled` contracts never evaluate. `ended` keeps evaluating candidates whose dates fall inside the (closed) effective window. |
+| <a id="schema-contracttype"></a>`ContractType` | string | The supported commercial agreement shapes. Adds the MSP relationship types beyond the original four: per-unit recurring (per-seat / per-device) and per-incident (per closed ticket) pricing. Prepaid blocks, NTE caps, minimums, and escalators ride the existing types as attached configuration rather than new shapes. |
 | <a id="schema-convertquoterequest"></a>`ConvertQuoteRequest` | composite | POST /api/quotes/{id}/convert-to-invoice body. |
 | <a id="schema-convertquoteresponse"></a>`ConvertQuoteResponse` | object | Convert-to-invoice response: the quote with its seam targets. |
 | <a id="schema-costlinekind"></a>`CostLineKind` | string | One money line on a ticket: `parts`, `flat`, or `other`. |
@@ -2092,7 +2092,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-creditnotelistquery"></a>`CreditNoteListQuery` | object | GET /api/credit-notes query. |
 | <a id="schema-creditnotemutationresponse"></a>`CreditNoteMutationResponse` | composite | Instant-first mutation response (IF2) for credit-note mutations. |
 | <a id="schema-creditnotestatus"></a>`CreditNoteStatus` | string | Document lifecycle of a credit note. `applied` / `refunded` / `partially applied` are DERIVED from the counters, never stored — allocation moves continuously; only a void is a state. |
-| <a id="schema-csatsection"></a>`CsatSection` | object | CSAT inputs slot (Wave 34 lane 2): `available` is the honest feature gate — true only once the org has real survey data, never fabricated from a zero-window. Scores are 1-5; "low" means score ≤ 2. |
+| <a id="schema-csatsection"></a>`CsatSection` | object | CSAT inputs slot: `available` is the honest feature gate — true only once the org has real survey data, never fabricated from a zero-window. Scores are 1-5; "low" means score ≤ 2. |
 | <a id="schema-curatefieldsrequest"></a>`CurateFieldsRequest` | composite |  |
 | <a id="schema-custodyclass"></a>`CustodyClass` | string |  |
 | <a id="schema-customdomaininstructions"></a>`CustomDomainInstructions` | object | Manual DNS setup instructions (the seam's none-mode), ready to render. |
@@ -2149,7 +2149,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-deeplinkvendor"></a>`DeeplinkVendor` | object |  |
 | <a id="schema-definitionscope"></a>`DefinitionScope` | string | Visibility scope of a stored definition: `org` (published org-wide, admins only) or `self` (private to the creator). |
 | <a id="schema-deleteorderlinerequest"></a>`DeleteOrderLineRequest` | composite |  |
-| <a id="schema-deletestatusresult"></a>`DeleteStatusResult` | object | What a delete with reassignment actually did (Wave 41 lane 12). Returned instead of a bare 204 because the confirm has to say what happened, and the admin is the one who has to believe it. |
+| <a id="schema-deletestatusresult"></a>`DeleteStatusResult` | object | What a delete with reassignment actually did. Returned instead of a bare 204 because the confirm has to say what happened, and the admin is the one who has to believe it. |
 | <a id="schema-deletetickquery"></a>`DeleteTickQuery` | object |  |
 | <a id="schema-deliveryattemptview"></a>`DeliveryAttemptView` | object |  |
 | <a id="schema-deliverycounts"></a>`DeliveryCounts` | object |  |
@@ -2178,7 +2178,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-dispatchqueuequery"></a>`DispatchQueueQuery` | object |  |
 | <a id="schema-dispatchqueueview"></a>`DispatchQueueView` | object | GET /api/dispatch/queue envelope. |
 | <a id="schema-dispatchstatusshade"></a>`DispatchStatusShade` | object | The latest connector/staff status push for one booking, shaded onto the board block face. |
-| <a id="schema-dispositionstatus"></a>`DispositionStatus` | string | The human verification disposition of one time entry (Wave 39 V1). `rejected` and `non_billable` demand the typed [`UnbillableReason`]; the workspace badge set matches this vocabulary exactly. |
+| <a id="schema-dispositionstatus"></a>`DispositionStatus` | string | The human verification disposition of one time entry. `rejected` and `non_billable` demand the typed [`UnbillableReason`]; the workspace badge set matches this vocabulary exactly. |
 | <a id="schema-dnsrecordinstruction"></a>`DnsRecordInstruction` | object | One DNS record an operator pastes by hand. Mirrors the solver's `ManualDnsRecord` as a utoipa schema (the seam crate carries no OpenAPI dependency). |
 | <a id="schema-document"></a>`Document` | object | A document's living handle. No content lives here — content is only ever a [`DocumentVersion`]; `current_version` names the newest one. |
 | <a id="schema-documentattachmentdeleted"></a>`DocumentAttachmentDeleted` | object |  |
@@ -2211,7 +2211,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-effectsrequest"></a>`EffectsRequest` | object |  |
 | <a id="schema-emaildeliveryview"></a>`EmailDeliveryView` | object | Delivery projection from the `email_outbound` ledger. Present for outbound rows only — inbound mail has no send lifecycle. |
 | <a id="schema-emaildirection"></a>`EmailDirection` | string | Whether a message entered (inbound) or left (outbound) the system. |
-| <a id="schema-emailenvelopeoverride"></a>`EmailEnvelopeOverride` | object | The greeting and signature a composer wrote for THIS message (Wave 42). Purely additive and purely per-message: it changes what goes out with this one note and is never stored as a preference. The composer prefills both fields from the sender's own default, so this carries the EDIT, and the composer is the only thing that should set it — the server never merges it into a preference behind the sender's back. |
+| <a id="schema-emailenvelopeoverride"></a>`EmailEnvelopeOverride` | object | The greeting and signature a composer wrote for THIS message. Purely additive and purely per-message: it changes what goes out with this one note and is never stored as a preference. The composer prefills both fields from the sender's own default, so this carries the EDIT, and the composer is the only thing that should set it — the server never merges it into a preference behind the sender's back. |
 | <a id="schema-emailenvelopeview"></a>`EmailEnvelopeView` | object | The caller's resolved email envelope: the greeting and signature that would go out, which rung supplied each, the org's own signature for the fallback story, the policy in force, and the insertable tokens. This is the preview AND the composer's prefill in one call, resolved through the same chain and the same dialect the send path uses. A UI that previewed with its own regex would be a second implementation of the rules, and the one thing a preview must never be is more generous than the send. |
 | <a id="schema-emailmessage"></a>`EmailMessage` | object | One persisted email message. `rfc_message_id` is unique per org and is the idempotency key for inbound processing; `email_refs` carries the RFC 5322 References chain (`references` itself is reserved SQL). |
 | <a id="schema-emailsourceview"></a>`EmailSourceView` | object | One rung of the resolution chain, as the ledger reports it. |
@@ -2308,7 +2308,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-extractrequest"></a>`ExtractRequest` | object |  |
 | <a id="schema-extractresponse"></a>`ExtractResponse` | object |  |
 | <a id="schema-favoriterequest"></a>`FavoriteRequest` | object |  |
-| <a id="schema-feedupsertrequest"></a>`FeedUpsertRequest` | composite | The feeder upsert input — lane 8's seam (NinjaOne / IT Glue / Auvik). |
+| <a id="schema-feedupsertrequest"></a>`FeedUpsertRequest` | composite | The feeder upsert input (NinjaOne / IT Glue / Auvik). |
 | <a id="schema-feedupsertresponse"></a>`FeedUpsertResponse` | composite | Instant-first mutation response (IF2): item fields flattened at the top level plus the additive feed-sync evidence and `mutation` metadata. |
 | <a id="schema-feespec"></a>`FeeSpec` | object | Fixed-fee schedule entry spec. |
 | <a id="schema-fielddefview"></a>`FieldDefView` | object | Wire view of one field definition; choice kinds carry their closed option set so generated clients can render editors directly. |
@@ -2364,7 +2364,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-invoicepayment"></a>`InvoicePayment` | object | A payment receipt recorded through the `PaymentProvider` seam. The provider stays a string (`none` in v1 — the built-in provider approves locally without external PSP calls). |
 | <a id="schema-invoicerun"></a>`InvoiceRun` | object | The invoice-run batch record: one evaluation sweep over a window and the roll-up of the invoices it created. |
 | <a id="schema-invoicerunresponse"></a>`InvoiceRunResponse` | object | Instant-first mutation response (IF2) for an invoice run. |
-| <a id="schema-invoicerunsignoff"></a>`InvoiceRunSignoff` | object | The reviewer sign-off recorded per invoice run (Wave 39 V8): the close checklist a human attested before the run fired. One row per run; the run-create seam refuses an unsigned run. |
+| <a id="schema-invoicerunsignoff"></a>`InvoiceRunSignoff` | object | The reviewer sign-off recorded per invoice run: the close checklist a human attested before the run fired. One row per run; the run-create seam refuses an unsigned run. |
 | <a id="schema-invoicestatus"></a>`InvoiceStatus` | string | Document lifecycle of an invoice. |
 | <a id="schema-ipreservationrecord"></a>`IpReservationRecord` | object |  |
 | <a id="schema-issuecreditnoterequest"></a>`IssueCreditNoteRequest` | composite | POST /api/credit-notes body. |
@@ -2440,7 +2440,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-manifestclientworkflowoverride"></a>`ManifestClientWorkflowOverride` | object | One per-client workflow override row, verbatim. `state` is `set` (value overrides the org default) or `disabled` (explicit deny); an absent row means the client inherits and exports nothing. |
 | <a id="schema-manifestcustomfield"></a>`ManifestCustomField` | object | One custom field definition. `config` is the kind-specific document (select options, validation bounds, …) exactly as stored. |
 | <a id="schema-manifestescalationstep"></a>`ManifestEscalationStep` | object | One escalation ladder step. |
-| <a id="schema-manifestreportdefinition"></a>`ManifestReportDefinition` | object | One stored report definition (the private build tracker R3). The spec body rides as its stored jsonb document (`{filters, group_by, measures}`) exactly like custom-field `config` — the registry-validated view/viz slugs travel as their own fields so a preflight can flag deprecated constructs without re-deriving validation. Nothing here is secret-bearing: definitions reference the read-model catalog only, never credentials or data. |
+| <a id="schema-manifestreportdefinition"></a>`ManifestReportDefinition` | object | One stored report definition. The spec body rides as its stored jsonb document (`{filters, group_by, measures}`) exactly like custom-field `config` — the registry-validated view/viz slugs travel as their own fields so a preflight can flag deprecated constructs without re-deriving validation. Nothing here is secret-bearing: definitions reference the read-model catalog only, never credentials or data. |
 | <a id="schema-manifestrole"></a>`ManifestRole` | object | One org-owned role row of the manifest (a custom role or a forked copy). |
 | <a id="schema-manifestsections"></a>`ManifestSections` | object | Section container. All fields are always present; empty org state is an empty array, never an absent key. New sections append here. |
 | <a id="schema-manifestsetting"></a>`ManifestSetting` | object | One org-scope settings-registry override. |
@@ -2488,7 +2488,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-mutationmeta"></a>`MutationMeta` | object | Read-your-write metadata every mutation response carries (IF2), merged as the additive `mutation` object alongside the entity fields. |
 | <a id="schema-mutationparams"></a>`MutationParams` | object | The autosave mutation parameters every gated create/update body carries (flattened into the request struct — purely additive fields). |
 | <a id="schema-mytaskview"></a>`MyTaskView` | object |  |
-| <a id="schema-myworkitem"></a>`MyWorkItem` | object | One cross-board my-work queue row (the private build tracker 2.11): the ticket plus the annotations the Today screen renders per the mockup. |
+| <a id="schema-myworkitem"></a>`MyWorkItem` | object | One cross-board my-work queue row: the ticket plus the annotations the Today screen renders per the mockup. |
 | <a id="schema-networkdetailresponse"></a>`NetworkDetailResponse` | composite |  |
 | <a id="schema-networkrecord"></a>`NetworkRecord` | object |  |
 | <a id="schema-networkrequest"></a>`NetworkRequest` | object |  |
@@ -2572,7 +2572,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-phaseallocationmutation"></a>`PhaseAllocationMutation` | object |  |
 | <a id="schema-phaseallocationquery"></a>`PhaseAllocationQuery` | object |  |
 | <a id="schema-phaseallocationview"></a>`PhaseAllocationView` | object | One stated allocation of a technician to a project phase. |
-| <a id="schema-phaseburn"></a>`PhaseBurn` | object | The burn read model for one phase: consumed minutes priced against the project's linked contract versus the contracted budget, with a typed alert state (report P3). Amounts are in the budget's currency. |
+| <a id="schema-phaseburn"></a>`PhaseBurn` | object | The burn read model for one phase: consumed minutes priced against the project's linked contract versus the contracted budget, with a typed alert state. Amounts are in the budget's currency. |
 | <a id="schema-phaseburnalert"></a>`PhaseBurnAlert` | string | The phase-burn alert state. `warn` fires at ≥80% consumed; `over` at ≥100%. Never silent: the read model carries the label, the UI renders it. |
 | <a id="schema-phaseburnview"></a>`PhaseBurnView` | object | The phase-burn row as the CALLER may see it. The amounts are financial data: `consumed_minor`, `budget_minor` and `currency` serialize `null` without `financial:read` (RB2, ADR 0004), and `alert` collapses to `none` because "over budget" is itself a money fact — an over-budget badge would disclose by itself what the amounts were redacted to hide. The consumed minutes and the phase identity stay visible, so the plan still reads. |
 | <a id="schema-phaseganttview"></a>`PhaseGanttView` | object | One phase as the Gantt draws it, with its budget burn attached. |
@@ -2589,7 +2589,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-pluginnodelistview"></a>`PluginNodeListView` | object |  |
 | <a id="schema-pluginnodeview"></a>`PluginNodeView` | object | One plugin-contributed node as the palette and the picker consume it. Only live entries are listed — a revoked install's rows are gone, not present-and-broken — and the entry carries its install so the canvas can say whose node it is. |
 | <a id="schema-pluginpublisherrevoked"></a>`PluginPublisherRevoked` | object | `plugin.publisher_revoked` — the org-side vouch was withdrawn; the badge disappears and history is preserved. |
-| <a id="schema-pluginpublisherverification"></a>`PluginPublisherVerification` | object | Marketplace v2 verified-publisher registry row (Wave 22). A publisher is a NORMALIZED SOURCE IDENTITY; verification is per-org (this org vouches this publisher), admin-curated, and additive over the v1 distribution formats. |
+| <a id="schema-pluginpublisherverification"></a>`PluginPublisherVerification` | object | Marketplace v2 verified-publisher registry row. A publisher is a NORMALIZED SOURCE IDENTITY; verification is per-org (this org vouches this publisher), admin-curated, and additive over the v1 distribution formats. |
 | <a id="schema-pluginpublisherverified"></a>`PluginPublisherVerified` | object | `plugin.publisher_verified` — Marketplace v2: an owner/admin vouched for a publisher identity on behalf of the org (per-org badge, never global). Additive over the v1 distribution surfaces. |
 | <a id="schema-pluginrating"></a>`PluginRating` | object | Marketplace v2 per-user rating on one artifact RELEASE (the `{source_kind, source_url, artifact_digest}` triple). One rating per user per release; re-rating is an upsert. |
 | <a id="schema-pluginratingrecorded"></a>`PluginRatingRecorded` | object | `plugin.rating_recorded` — Marketplace v2 social layer: one staff member's 1–5 star rating on an artifact release (upsert semantics — a re-rate wins and the event fires once per upsert). |
@@ -2599,7 +2599,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-pluginstagedimportapproved"></a>`PluginStagedImportApproved` | object | `plugin.staged_import_approved` — an owner/admin reviewed the consent diff and the wait ended in adoption: the catalog entry/version + install were minted (plugins) or the agent skill was imported (skills), provenance recorded, still deny-by-default on enable. |
 | <a id="schema-pluginstagedimportcreated"></a>`PluginStagedImportCreated` | object | `plugin.staged_import_created` — a member upload (skill or plugin) landed staged: validated, never executed, visible only to its uploader and admins. Capabilities are the staged manifest's DECLARED keys; consent happens at approval, never here. |
 | <a id="schema-pluginstagedimportrefused"></a>`PluginStagedImportRefused` | object | `plugin.staged_import_refused` — the reviewer declined the staged import (terminal for that row; the uploader may re-stage fresh). |
-| <a id="schema-pluginsurfaceprofile"></a>`PluginSurfaceProfile` | object | Wave 34 lane 4 (§4.6): the modeled UI-surface profile a WASM manifest may declare — dashboard/ticket-pane WIDGETS, automation ACTION KINDS, report RENDER KINDS, and custom-field VALIDATORS. Everything here is DECLARATIVE: closed render/effect vocabularies plus JSON-Schema subsets the core validates and executes. A plugin ships declarations, never code the browser or the rule engine runs raw (agent-safety §4.8). |
+| <a id="schema-pluginsurfaceprofile"></a>`PluginSurfaceProfile` | object | (§4.6): the modeled UI-surface profile a WASM manifest may declare — dashboard/ticket-pane WIDGETS, automation ACTION KINDS, report RENDER KINDS, and custom-field VALIDATORS. Everything here is DECLARATIVE: closed render/effect vocabularies plus JSON-Schema subsets the core validates and executes. A plugin ships declarations, never code the browser or the rule engine runs raw (agent-safety §4.8). |
 | <a id="schema-pluginupdatepending"></a>`PluginUpdatePending` | object | `plugin.update_pending` — an update proposal is waiting on the re-consent diff: the OLD version stays pinned and running until the owner/admin consents; consent commits the swap. |
 | <a id="schema-pmrun"></a>`PmRun` | object | One append-only PM run ledger row. |
 | <a id="schema-pmschedule"></a>`PmSchedule` | object | A recurring/scheduled ticket (PM schedule): a ticket template plus the typed cadence (same shape as report schedules). The worker claims due rows; core-api generates the instance and advances the cadence. |
@@ -2650,7 +2650,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-portalstep"></a>`PortalStep` | object |  |
 | <a id="schema-portalticketdetail"></a>`PortalTicketDetail` | object |  |
 | <a id="schema-portalticketlistquery"></a>`PortalTicketListQuery` | object |  |
-| <a id="schema-portalticketview"></a>`PortalTicketView` | composite | A ticket as a CLIENT sees it (Wave 41 lane 12). The ticket fields are flattened exactly as they were, so the portal client keeps reading the same keys; two status fields are added. `status_label` is `None` when the status is not client-visible, and the client shows the category word instead — which is the whole point of the per-status switch in Settings: it changes what a client is told, in words, without hiding where the ticket stands. |
+| <a id="schema-portalticketview"></a>`PortalTicketView` | composite | A ticket as a CLIENT sees it. The ticket fields are flattened exactly as they were, so the portal client keeps reading the same keys; two status fields are added. `status_label` is `None` when the status is not client-visible, and the client shows the category word instead — which is the whole point of the per-status switch in Settings: it changes what a client is told, in words, without hiding where the ticket stands. |
 | <a id="schema-portaltierview"></a>`PortalTierView` | object | One portal tier in the preset roster (RB1). Portal authorization is deliberately NOT the staff matrix (see `core_domain::policy`) — the tiers render here as data with their capability keys, but they are per-contact settings, never staff `roles` rows and never forkable. |
 | <a id="schema-portalupdate"></a>`PortalUpdate` | object |  |
 | <a id="schema-portaluser"></a>`PortalUser` | object |  |
@@ -2681,7 +2681,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-procedurestepinput"></a>`ProcedureStepInput` | object |  |
 | <a id="schema-proceduresteprecord"></a>`ProcedureStepRecord` | object |  |
 | <a id="schema-project"></a>`Project` | object | A project engagement under a client (or internal when `client_id` is `None`). |
-| <a id="schema-projectbillingrelease"></a>`ProjectBillingRelease` | object | One released milestone (report P1/P4): the durable record that a completed milestone or fixed-fee phase released its amount to the invoicing pipeline. `pending` rows bill on the first run that reaches the window; the run flips them `billed` with the consuming invoice, so a replay can never double-bill. |
+| <a id="schema-projectbillingrelease"></a>`ProjectBillingRelease` | object | One released milestone: the durable record that a completed milestone or fixed-fee phase released its amount to the invoicing pipeline. `pending` rows bill on the first run that reaches the window; the run flips them `billed` with the consuming invoice, so a replay can never double-bill. |
 | <a id="schema-projectcalendarview"></a>`ProjectCalendarView` | object | A project's own working pattern. Absent means the organisation's calendar applies, which is the state of every project that has never needed one. |
 | <a id="schema-projectchangeorderdecisionrequest"></a>`ProjectChangeOrderDecisionRequest` | object |  |
 | <a id="schema-projectcostrollupview"></a>`ProjectCostRollupView` | object |  |
@@ -2690,7 +2690,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-projectlistquery"></a>`ProjectListQuery` | object |  |
 | <a id="schema-projectmutationresponse"></a>`ProjectMutationResponse` | composite | Instant-first mutation response for the project entity (IF2): applied snapshot at the top level plus the additive `mutation` metadata. |
 | <a id="schema-projectphase"></a>`ProjectPhase` | object | A phase groups tasks into a delivery stage. A phase flagged `is_milestone` is itself a billing milestone. |
-| <a id="schema-projectphasebudget"></a>`ProjectPhaseBudget` | object | A phase's billing budget and/or fixed-fee record (Wave 39 lane 4, report P3/P4). One optional row per phase: `budget_minor` is the contracted denominator the burn math consumes (T&M phases), and `fee_minor` is the fixed fee a completed NON-milestone phase releases (milestone phases carry their own amount on the phase row). |
+| <a id="schema-projectphasebudget"></a>`ProjectPhaseBudget` | object | A phase's billing budget and/or fixed-fee record. One optional row per phase: `budget_minor` is the contracted denominator the burn math consumes (T&M phases), and `fee_minor` is the fixed fee a completed NON-milestone phase releases (milestone phases carry their own amount on the phase row). |
 | <a id="schema-projectstatus"></a>`ProjectStatus` | string | Lifecycle of a project. |
 | <a id="schema-projecttask"></a>`ProjectTask` | object | A unit of project work. A task flagged `is_milestone` is a billing milestone: completing it emits `project.milestone_completed`. Time is stored, not derived (ADR 0034 decision 1). `start_at` and `duration_minutes` are both-or-neither: a task an organisation has not dated carries neither, and the plan draws it as undated rather than implying a date. `baseline_*` holds what the plan said when it was agreed, written by the baseline capture and never by an ordinary edit. |
 | <a id="schema-projecttemplate"></a>`ProjectTemplate` | object | A reusable project blueprint. `spec` follows `core-projects::template` (`TemplateSpec`, additive-only evolution); instantiation is a plain transactional insert plan — templates are data, not code (policy §5). |
@@ -2869,13 +2869,13 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-reportschedulemutationresponse"></a>`ReportScheduleMutationResponse` | composite | Mutation envelope: applied schedule + read-your-write metadata (IF2). |
 | <a id="schema-reportschedulepage"></a>`ReportSchedulePage` | object | GET /api/report-schedules envelope. |
 | <a id="schema-reportscheduleview"></a>`ReportScheduleView` | object | One delivery schedule with its next-run preview (the materialized `next_run_at` the worker claims against) and definition coordinates. |
-| <a id="schema-reportspec"></a>`ReportSpec` | object | A stored report spec (the private build tracker R3). Every member is registry-validated; see [`ReportSpec::validate`]. |
+| <a id="schema-reportspec"></a>`ReportSpec` | object | A stored report spec. Every member is registry-validated; see [`ReportSpec::validate`]. |
 | <a id="schema-reservationrequest"></a>`ReservationRequest` | object |  |
 | <a id="schema-resolution"></a>`Resolution` | object | The effective state of one construct after resolution. |
 | <a id="schema-resolutionsource"></a>`ResolutionSource` | string | Which layer supplied the effective value. |
 | <a id="schema-resolveddetail"></a>`ResolvedDetail` | object | Render-ready details of a resolved reference value: names and the semantic category travel WITH the resolution so consumers never branch on labels and never need a second lookup. |
 | <a id="schema-resolvedlabel"></a>`ResolvedLabel` | object | The deterministic rendered label: absolute geometry in millimetres. |
-| <a id="schema-resolvedlink"></a>`ResolvedLink` | composite | A link with its target resolved to a display label for the UI (typed read model; the raw row never carries the label). A label is a READ OF THE TARGET, so it is present only when the caller's own gate for the target's module passed (Wave 55 decision 3: `design/qa-p55-link-labels`). A denied target keeps the link row and carries no title. |
+| <a id="schema-resolvedlink"></a>`ResolvedLink` | composite | A link with its target resolved to a display label for the UI (typed read model; the raw row never carries the label). A label is a READ OF THE TARGET, so it is present only when the caller's own gate for the target's module passed. A denied target keeps the link row and carries no title. |
 | <a id="schema-resolveembedrequest"></a>`ResolveEmbedRequest` | object |  |
 | <a id="schema-resolveratequery"></a>`ResolveRateQuery` | object |  |
 | <a id="schema-restoredocumentrequest"></a>`RestoreDocumentRequest` | composite |  |
@@ -2944,7 +2944,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-scorecardsettingsresponse"></a>`ScorecardSettingsResponse` | object |  |
 | <a id="schema-scorecardsla"></a>`ScorecardSla` | object | SLA attainment block. `response_total`/`resolution_total` count only tickets where BOTH the SLA target and the actual instant exist (the three-valued metrics from `ops.v1_sla_outcomes`); attainment is the met/total ratio, `None` when the total is zero. |
 | <a id="schema-scorecardwindow"></a>`ScorecardWindow` | object |  |
-| <a id="schema-scorecardworkload"></a>`ScorecardWorkload` | object | Workload mix over APPROVED time entries only — drafts and rejected entries are never scorecard truth (Wave 14 lane-1 approval contract). |
+| <a id="schema-scorecardworkload"></a>`ScorecardWorkload` | object | Workload mix over APPROVED time entries only — drafts and rejected entries are never scorecard truth (approval contract). |
 | <a id="schema-searchpinlist"></a>`SearchPinList` | object |  |
 | <a id="schema-searchpinview"></a>`SearchPinView` | object | One pinned result as the /search surface renders it. |
 | <a id="schema-searchquery"></a>`SearchQuery` | object |  |
@@ -2953,7 +2953,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-secretcategorygrant"></a>`SecretCategoryGrant` | object | A role × folder category grant (`secret_category_grants`). Grants are DATA flowing through the central policy module: the matrix permission (`secrets:read`/`secrets:edit`) is checked FIRST, then the category gate — restricted folders deny unless a grant row for one of the caller's roles allows it. |
 | <a id="schema-secretfieldmeta"></a>`SecretFieldMeta` | object | A material field of a secret record — METADATA ONLY view. The ciphertext and plaintext never ride this entity; `value_ciphertext` lives in `secret_fields` only. |
 | <a id="schema-secretfieldvalue"></a>`SecretFieldValue` | object |  |
-| <a id="schema-secretfieldvaluepatch"></a>`SecretFieldValuePatch` | object | PATCH field entry (A5, Wave 16 lane 9): `value: null` CLEARS the sealed field (row deleted, audited via the record-updated event); a value rotates the sealed ciphertext. |
+| <a id="schema-secretfieldvaluepatch"></a>`SecretFieldValuePatch` | object | PATCH field entry (A5): `value: null` CLEARS the sealed field (row deleted, audited via the record-updated event); a value rotates the sealed ciphertext. |
 | <a id="schema-secretfolder"></a>`SecretFolder` | object | A secret category folder (`secret_folders`). Exactly one of org/client scope rows: org-scope rows carry `org_id` (client_id NULL), client-scope rows carry `client_id` (org_id NULL — the tenancy spine rides the owning client's org via the RLS policy). Seeded defaults (`is_default_seed`) are immutable ADR-0004 template rows: orgs fork, never edit in place. `restricted` is deny-by-default: invisible to a role without a `secret_category_grants` row. |
 | <a id="schema-secretfolderkind"></a>`SecretFolderKind` | string | The closed seeded-configuration vocabulary for folders. |
 | <a id="schema-secretrecord"></a>`SecretRecord` | object | A SecretRecord (`secret_records`, migration 0078) — the generalization beside the shipped `PasswordEntry` (whose UI and responses stay byte- compatible; the vault never becomes a destructive cutover). Scope mirrors its owning folder; every material field is sealed in `secret_fields` and reachable ONLY via the audited reveal path. |
@@ -2976,7 +2976,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-setblockerrequest"></a>`SetBlockerRequest` | object |  |
 | <a id="schema-setchecklistitemrequest"></a>`SetChecklistItemRequest` | composite |  |
 | <a id="schema-setcustomdomainrequest"></a>`SetCustomDomainRequest` | object |  |
-| <a id="schema-setcustomdomainresponse"></a>`SetCustomDomainResponse` | object | POST response: exactly the three fields the private build tracker A8 (B) names. |
+| <a id="schema-setcustomdomainresponse"></a>`SetCustomDomainResponse` | object | POST response: exactly the three fields the DNS check reports. |
 | <a id="schema-setdependenciesrequest"></a>`SetDependenciesRequest` | object |  |
 | <a id="schema-setdestructionrequest"></a>`SetDestructionRequest` | composite | POST /api/ewaste/intakes/{id}/lines/{line_id}/destruction. |
 | <a id="schema-setemailverifiedrequest"></a>`SetEmailVerifiedRequest` | object |  |
@@ -3062,10 +3062,10 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-surfaceentrylist"></a>`SurfaceEntryList` | object |  |
 | <a id="schema-surfaceentryview"></a>`SurfaceEntryView` | object | One registered entry as the web consumes it. |
 | <a id="schema-surfacefieldvalidator"></a>`SurfaceFieldValidator` | object | One declared custom-field validator. |
-| <a id="schema-surfaceread"></a>`SurfaceRead` | object | One declared READ node (Wave 43 lane 4, ADR 0017 §5). `automation_action` is write-shaped, so before this kind a workflow could not FETCH from an external system at all — which is exactly the gap that stopped a workflow assembling Decision Engine context from an RMM. A read is therefore the one kind whose guardrails are STRICTER than a write's, and they are declared per entry rather than defaulted: a loop over devices is a denial of service aimed at the customer's own external system, and a device list of ten thousand must not grow the run ledger by megabytes. |
+| <a id="schema-surfaceread"></a>`SurfaceRead` | object | One declared READ node (ADR 0017 §5). `automation_action` is write-shaped, so before this kind a workflow could not FETCH from an external system at all — which is exactly the gap that stopped a workflow assembling Decision Engine context from an RMM. A read is therefore the one kind whose guardrails are STRICTER than a write's, and they are declared per entry rather than defaulted: a loop over devices is a denial of service aimed at the customer's own external system, and a device list of ten thousand must not grow the run ledger by megabytes. |
 | <a id="schema-surfacerenderkind"></a>`SurfaceRenderKind` | object | One declared report render kind. |
 | <a id="schema-surfaceslot"></a>`SurfaceSlot` | string | Where a declared widget may render. Closed vocabulary. |
-| <a id="schema-surfacetrigger"></a>`SurfaceTrigger` | object | One declared TRIGGER source (Wave 43 lane 4, ADR 0017 §3): the event type a plugin emits, which a rule can then fire on. The trigger is a DECLARATION, not a dispatcher. It names the type it emits and the schema the emitted payload satisfies; the engine's matching decides what fires. `emitted_event_type` is validated against the event-type registry (migration 0124) at grant time, so a plugin cannot declare a type the platform does not know and the org has not admitted. |
+| <a id="schema-surfacetrigger"></a>`SurfaceTrigger` | object | One declared TRIGGER source (ADR 0017 §3): the event type a plugin emits, which a rule can then fire on. The trigger is a DECLARATION, not a dispatcher. It names the type it emits and the schema the emitted payload satisfies; the engine's matching decides what fires. `emitted_event_type` is validated against the event-type registry (migration 0124) at grant time, so a plugin cannot declare a type the platform does not know and the org has not admitted. |
 | <a id="schema-surfacewidget"></a>`SurfaceWidget` | object | One declared widget. |
 | <a id="schema-surfacewidgetkind"></a>`SurfaceWidgetKind` | string | What a declared widget RENDERS AS. Closed vocabulary — each kind maps onto one trusted core component; a plugin cannot introduce a new render shape. |
 | <a id="schema-suspensionstatusview"></a>`SuspensionStatusView` | object | The notice state plus the two links a surface renders beside it. |
@@ -3144,19 +3144,19 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-ticketwithfields"></a>`TicketWithFields` | composite | A ticket payload enriched with its custom-field values (detail + list). |
 | <a id="schema-tickmutationresponse"></a>`TickMutationResponse` | object |  |
 | <a id="schema-timeapprovalaction"></a>`TimeApprovalAction` | string | The audit-trail action of a [`TimeEntryApprovalRecord`] (append-only decision trail; differs from [`ApprovalAction`] in that it names the recorded past, not the requested transition). |
-| <a id="schema-timecategory"></a>`TimeCategory` | object | An org's semantic time category (Wave 39 V4). Entries key their `work_type` column onto `slug`; the T&M rate card keys `contract_rates.work_type` onto the same slugs. Renames change the label only — slugs are stable forever. |
+| <a id="schema-timecategory"></a>`TimeCategory` | object | An org's semantic time category. Entries key their `work_type` column onto `slug`; the T&M rate card keys `contract_rates.work_type` onto the same slugs. Renames change the label only — slugs are stable forever. |
 | <a id="schema-timecategorycreaterequest"></a>`TimeCategoryCreateRequest` | composite |  |
 | <a id="schema-timecategorylistresponse"></a>`TimeCategoryListResponse` | object |  |
 | <a id="schema-timecategorymutationresponse"></a>`TimeCategoryMutationResponse` | object |  |
 | <a id="schema-timecategoryupdaterequest"></a>`TimeCategoryUpdateRequest` | composite |  |
 | <a id="schema-timecategoryview"></a>`TimeCategoryView` | composite |  |
 | <a id="schema-timeentry"></a>`TimeEntry` | object | A durable, reviewable record of worked time. Created from a timer session or entered manually; subject to bulk review and approval workflows. |
-| <a id="schema-timeentryadjustment"></a>`TimeEntryAdjustment` | object | One verification edit on one entry's billed minutes (Wave 39 V2). Additive-ledger: the original entry row is never rewritten for billing — the run sums `(entry.minutes + Σ delta_minutes)`. The signed delta is ≤ 0 (verification can only reduce or zero); the reason is the evidence (V9) and is NOT NULL at the DB level. |
+| <a id="schema-timeentryadjustment"></a>`TimeEntryAdjustment` | object | One verification edit on one entry's billed minutes. Additive-ledger: the original entry row is never rewritten for billing — the run sums `(entry.minutes + Σ delta_minutes)`. The signed delta is ≤ 0 (verification can only reduce or zero); the reason is the evidence (V9) and is NOT NULL at the DB level. |
 | <a id="schema-timeentryapprovalrecord"></a>`TimeEntryApprovalRecord` | object | One append-only approval decision (the audit row behind the queue's history view). `seq` is monotonic per entry — the client's ordering key. |
 | <a id="schema-timeentrymutationresponse"></a>`TimeEntryMutationResponse` | composite | Same additive envelope for the stop flow (time-entry body). |
 | <a id="schema-timeentryqueueitem"></a>`TimeEntryQueueItem` | object | A queue/history projection: the entry plus its approval metadata (who/when submitted, who/when decided). |
 | <a id="schema-timeentryticketref"></a>`TimeEntryTicketRef` | object | The ticket an entry bills through, named for a human reader. |
-| <a id="schema-timerejectionreason"></a>`TimeRejectionReason` | string | Closed rejection vocabulary (Wave 14 lane 1): approvers reject with a machine-readable reason code, never prose-only. `other` may carry the free-text explanation on the decision record. |
+| <a id="schema-timerejectionreason"></a>`TimeRejectionReason` | string | Closed rejection vocabulary: approvers reject with a machine-readable reason code, never prose-only. `other` may carry the free-text explanation on the decision record. |
 | <a id="schema-timermutationresponse"></a>`TimerMutationResponse` | composite | Instant-first mutation response (IF2): session fields at the top level (unchanged shape) plus the additive `mutation` metadata. |
 | <a id="schema-timersegment"></a>`TimerSegment` | object | A contiguous running interval within a timer session. |
 | <a id="schema-timersession"></a>`TimerSession` | object | One user's timer against one ticket. At most one session per user is ever running — enforced by [`TimerSession::start_switch`]. |
@@ -3188,7 +3188,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-transitionedge"></a>`TransitionEdge` | object | One directed edge in a board's explicit transition matrix. Both ids must belong to statuses of the SAME board (enforced here, and by composite FKs in storage). |
 | <a id="schema-traveldraftmutationresponse"></a>`TravelDraftMutationResponse` | composite | Mutation envelope: draft fields at the top level plus the additive `mutation` metadata (IF2). |
 | <a id="schema-traveldraftview"></a>`TravelDraftView` | object | One travel/mileage draft. |
-| <a id="schema-travelorigin"></a>`TravelOrigin` | object | The resolved journey start point a travel estimate ran from (Wave 32 lane 7). Snapshotted onto the appointment so the estimate stays explainable after the start point or the site changes. |
+| <a id="schema-travelorigin"></a>`TravelOrigin` | object | The resolved journey start point a travel estimate ran from. Snapshotted onto the appointment so the estimate stays explainable after the start point or the site changes. |
 | <a id="schema-travelplaceview"></a>`TravelPlaceView` | object |  |
 | <a id="schema-travelsuggestionview"></a>`TravelSuggestionView` | object |  |
 | <a id="schema-travelwarningview"></a>`TravelWarningView` | object |  |

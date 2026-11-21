@@ -94,7 +94,7 @@ pub struct ScorecardLatency {
 }
 
 /// Workload mix over APPROVED time entries only — drafts and rejected
-/// entries are never scorecard truth (Wave 14 lane-1 approval contract).
+/// entries are never scorecard truth (approval contract).
 #[derive(Debug, Serialize, ToSchema)]
 pub struct ScorecardWorkload {
     pub approved_entries: i64,
@@ -114,7 +114,7 @@ pub struct WorkTypeSlice {
     pub minutes: i64,
 }
 
-/// CSAT inputs slot (Wave 34 lane 2): `available` is the honest feature
+/// CSAT inputs slot: `available` is the honest feature
 /// gate — true only once the org has real survey data, never fabricated
 /// from a zero-window. Scores are 1-5; "low" means score ≤ 2.
 #[derive(Debug, Serialize, ToSchema)]

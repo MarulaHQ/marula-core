@@ -1,4 +1,4 @@
-//! Routing-aware scheduling policy (Wave 32 lane 7): the pure half of
+//! Routing-aware scheduling policy: the pure half of
 //! automatic travel — journey warnings and suggestion math.
 //!
 //! Purpose: turn a technician's ordered stops plus the provider's leg

@@ -395,11 +395,11 @@ pub const EMAIL_SIGNOFF: &str = "email.signoff";
 /// signature of their own. Holds the same placeholders as a personal
 /// signature, resolved at send time against the SENDING user.
 pub const EMAIL_SIGNATURE: &str = "email.signature";
-/// Org default greeting (Wave 42). The house voice: opens mail the org
+/// Org default greeting. The house voice: opens mail the org
 /// sends to its own staff (notification and digest envelopes), and is the
 /// fallback for a person with no greeting of their own.
 pub const EMAIL_ORG_GREETING: &str = "email.org_greeting";
-/// Admin policy over personal signatures (Wave 42): `allowed` (a member
+/// Admin policy over personal signatures: `allowed` (a member
 /// may keep their own signature; the org default is the fallback) or
 /// `org_locked` (every signature is the org's — the personal editor and
 /// the per-message override are both refused). Deny wins, the same shape

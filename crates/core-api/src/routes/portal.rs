@@ -764,7 +764,7 @@ fn default_limit() -> i64 {
     50
 }
 
-/// A ticket as a CLIENT sees it (Wave 41 lane 12).
+/// A ticket as a CLIENT sees it.
 ///
 /// The ticket fields are flattened exactly as they were, so the portal client
 /// keeps reading the same keys; two status fields are added. `status_label`
@@ -1127,7 +1127,7 @@ pub async fn download_attachment(
         .map_err(|e| ApiError::Internal(anyhow::anyhow!(e.to_string())))
 }
 
-// --- CSAT surveys on resolution (Wave 34 lane 2) -----------------------------
+// --- CSAT surveys on resolution -----------------------------
 
 /// Portal CSAT survey state as the in-app response route sees it.
 #[derive(Debug, Serialize, ToSchema)]

@@ -91,7 +91,7 @@ pub struct CreateTicketRequest {
     pub assignee_id: Option<Uuid>,
     pub due_at: Option<chrono::DateTime<chrono::Utc>>,
     /// Initial custom-field values; each is validated against its
-    /// definition. REQUIRED definitions must all be present (the private build tracker 2.17).
+    /// definition. REQUIRED definitions must all be present.
     #[serde(default)]
     pub custom_fields: Vec<TicketFieldInput>,
     /// Instant-first autosave parameters (IF1): idempotency key + entity
@@ -158,7 +158,7 @@ pub struct AddCommentRequest {
     /// there is no version to match.)
     #[serde(flatten, default)]
     pub instant: instant::MutationParams,
-    /// Per-message greeting/signature the composer wrote (Wave 42). Never a
+    /// Per-message greeting/signature the composer wrote. Never a
     /// stored preference. A locked org refuses it: an override is a
     /// personal signature that was never stored, so a workspace that
     /// locked signatures must not be routable around one.
@@ -166,7 +166,7 @@ pub struct AddCommentRequest {
     pub email_envelope: Option<EmailEnvelopeOverride>,
 }
 
-/// The greeting and signature a composer wrote for THIS message (Wave 42).
+/// The greeting and signature a composer wrote for THIS message.
 ///
 /// Purely additive and purely per-message: it changes what goes out with
 /// this one note and is never stored as a preference. The composer
@@ -404,7 +404,7 @@ where
 }
 
 /// GET /api/tickets — filtered, priority-ordered list; each row carries its
-/// custom-field values (the private build tracker 2.17) fetched in one batched query.
+/// custom-field values fetched in one batched query.
 /// Pagination is envelope-compatible: the body stays the plain ticket
 /// array; deep-page walks pass the opaque `cursor` query param (from the
 /// previous page's `x-next-cursor` response header) and the server resumes
@@ -543,7 +543,7 @@ pub async fn my_work(
     Ok(Json(rows.into_iter().map(MyWorkItem::from_row).collect()))
 }
 
-/// One cross-board my-work queue row (the private build tracker 2.11): the ticket plus the
+/// One cross-board my-work queue row: the ticket plus the
 /// annotations the Today screen renders per the mockup.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct MyWorkItem {

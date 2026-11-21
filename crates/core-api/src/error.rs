@@ -204,7 +204,7 @@ pub enum ApiError {
         /// The scanner's detail string (usually the signature name).
         detail: Option<String>,
     },
-    /// Typed 422 for a card that cannot be drawn (Wave 46 lane 1): the
+    /// Typed 422 for a card that cannot be drawn: the
     /// request carried a card contract and the run cannot fill it — no rows
     /// for a chart or table, no headers, no scalar for a stat. Kept distinct
     /// from `Validation` so a repair loop branches on `reason:
@@ -397,7 +397,7 @@ pub enum ApiError {
         retry_after_secs: i64,
     },
     /// Typed 409 for a time-entry mutation the invoicing lock refuses
-    /// (Wave 14 lane 1): once an entry is consumed by an invoice it is
+    ///: once an entry is consumed by an invoice it is
     /// frozen — no submit, decide, reopen, or content edit. Carries the
     /// entry id so the client can flag the exact blocked row.
     #[error("time entry is locked by invoicing")]

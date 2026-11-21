@@ -86,7 +86,7 @@ pub struct PluginManifestBody {
     /// ADR 0009 §4 — optional JSON-Schema for manifest-rendered settings.
     #[serde(default)]
     pub settings_schema: Option<serde_json::Value>,
-    /// ADR 0009 §6 full semantics (Wave 19 lane 2) — the modeled
+    /// ADR 0009 §6 full semantics — the modeled
     /// connector governance profile (webhook endpoints + scopes).
     /// Valid only on http_connector manifests; wasm manifests refuse it.
     #[serde(default)]

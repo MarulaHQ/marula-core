@@ -43,7 +43,7 @@ pub enum PluginCapability {
     /// existing `financial:read` permission — the same gate cost rates,
     /// contract rates, and margin panels sit behind for humans.
     FinancialRead,
-    /// ADR 0006 leg (d) (Wave 19 lane 2): the CIPHERTEXT-ONLY vault-ingress
+    /// ADR 0006 leg (d): the CIPHERTEXT-ONLY vault-ingress
     /// scope. A plugin holding this capability may submit ENCRYPTED
     /// payloads (client-side E2E, key in URL fragment, wrapped to the org
     /// key) into a scoped vault folder — nothing else. The core never
@@ -767,7 +767,7 @@ pub struct PluginManifestV2 {
     /// vocabulary).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub artifact_kind: Option<PluginRuntimeKind>,
-    /// ADR 0009 §6 full semantics (Wave 19 lane 2) — the connector
+    /// ADR 0009 §6 full semantics — the connector
     /// governance profile: webhook endpoints + outbound scopes as MODELED
     /// manifest fields, never free text. Optional on any artifact kind since
     /// ADR 0023 (Wave 53 lane 2): its two connector-only members are
@@ -830,7 +830,7 @@ impl PluginRuntimeKind {
     }
 }
 
-/// ADR 0009 §6 (Wave 19 lane 2): the modeled connector governance
+/// ADR 0009 §6: the modeled connector governance
 /// profile — WHERE the connector speaks (webhook endpoints) and what it
 /// wears outward (SaaS scopes). Structured, validated DECLARATIONS, not
 /// prose: the consent screen renders them verbatim and connectors inherit
@@ -1397,7 +1397,7 @@ pub struct SurfaceFieldValidator {
     pub schema: serde_json::Value,
 }
 
-/// One declared TRIGGER source (Wave 43 lane 4, ADR 0017 §3): the event
+/// One declared TRIGGER source (ADR 0017 §3): the event
 /// type a plugin emits, which a rule can then fire on.
 ///
 /// The trigger is a DECLARATION, not a dispatcher. It names the type it
@@ -1426,7 +1426,7 @@ pub struct SurfaceTrigger {
     pub payload_schema: Option<serde_json::Value>,
 }
 
-/// One declared READ node (Wave 43 lane 4, ADR 0017 §5).
+/// One declared READ node (ADR 0017 §5).
 ///
 /// `automation_action` is write-shaped, so before this kind a workflow
 /// could not FETCH from an external system at all — which is exactly the
@@ -2334,7 +2334,7 @@ impl PluginProvenanceEntry {
     }
 }
 
-/// Marketplace v2 verified-publisher registry row (Wave 22). A
+/// Marketplace v2 verified-publisher registry row. A
 /// publisher is a NORMALIZED SOURCE IDENTITY; verification is per-org
 /// (this org vouches this publisher), admin-curated, and additive over
 /// the v1 distribution formats.

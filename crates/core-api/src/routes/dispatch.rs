@@ -103,7 +103,7 @@ pub struct DispatchAppointment {
     pub kind: AppointmentKind,
     pub status: AppointmentStatus,
     pub travel_minutes: i32,
-    /// Travel provenance (Wave 32 lane 7): where the estimate ran from,
+    /// Travel provenance: where the estimate ran from,
     /// which provider produced it, and at what quality. All absent for
     /// manual or unestimated bookings.
     #[serde(skip_serializing_if = "Option::is_none")]

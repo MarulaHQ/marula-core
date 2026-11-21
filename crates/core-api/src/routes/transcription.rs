@@ -1,5 +1,5 @@
 //! The TRANSCRIPTION edge over ADR 0008's registered `transcription`
-//! plugin surface (Wave 22): voice-note transcription as the surface's
+//! plugin surface: voice-note transcription as the surface's
 //! FIRST core capability — the surface has been seeded (0081) and
 //! admin-grantable through the Wave 18 plugin-surface settings since
 //! lane 2b; this lane lands the CALL edge.

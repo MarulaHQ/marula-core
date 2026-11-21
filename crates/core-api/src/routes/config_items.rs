@@ -1,7 +1,7 @@
 //! Configuration-identity endpoints (ADR 0003, Wave 12 lane 3): the CI
 //! facets of the asset surface. The canonical `ConfigItem` IS a
 //! `device_assets` row (no parallel registry); `config_source_links` is the
-//! ONLY feed write path (lane 8's seam), the merge queue is
+//! ONLY feed write path, the merge queue is
 //! visible-evidence + audited + undoable, and curated fields are sticky.
 //!
 //! Envelope: every mutation rides IF1–IF3 (claim → write → seq → emit →
@@ -91,7 +91,7 @@ pub struct AcceptObservedRequest {
     pub instant: instant::MutationParams,
 }
 
-/// The feeder upsert input — lane 8's seam (NinjaOne / IT Glue / Auvik).
+/// The feeder upsert input (NinjaOne / IT Glue / Auvik).
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct FeedUpsertRequest {
     pub source_system: String,
@@ -407,7 +407,7 @@ pub async fn list_candidates(
 }
 
 /// POST /api/config-items/feed-upsert — CI2: the single feeder write path
-/// (lane 8's seam). Never blind-inserts: existing (source_system,
+///. Never blind-inserts: existing (source_system,
 /// external_id) links resolve to their own item; identity keys resolve the
 /// deterministic case; ambiguity queues reviewable candidates and only
 /// auto-merges at/above the org threshold.

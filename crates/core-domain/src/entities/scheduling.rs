@@ -95,7 +95,7 @@ pub struct TravelOrigin {
 
 /// A booked slot on one user's calendar, optionally tied to a ticket and
 /// client/site. `travel_minutes` is travel time booked immediately BEFORE
-/// `starts_at` (Wave 32 lane 7): it ADDS to the appointment and occupies
+/// `starts_at`: it ADDS to the appointment and occupies
 /// dispatch capacity (`crate::scheduling::occupied_minutes`), never
 /// replacing or shrinking the booked span. The `travel_*` fields carry
 /// the estimate's provenance so a heuristic number is never mistaken for

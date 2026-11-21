@@ -1,4 +1,4 @@
-//! Stripe WEBHOOK receiver (Wave 22): `POST /api/webhooks/stripe`.
+//! Stripe WEBHOOK receiver: `POST /api/webhooks/stripe`.
 //!
 //! Posture (stripe-best-practices binding rules):
 //! * the webhook is NEVER optional decoration — it reconciles

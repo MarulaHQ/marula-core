@@ -198,7 +198,7 @@ pub async fn resolve_brand(conn: &mut PgConnection, org_id: Uuid) -> ApiResult<B
     })
 }
 
-// --- greeting + signature resolution (Wave 42) -------------------------------
+// --- greeting + signature resolution -------------------------------
 
 /// The greeting and signature that go out with one message, plus WHICH
 /// source supplied each. The sources are the ledger's memory: a delivery

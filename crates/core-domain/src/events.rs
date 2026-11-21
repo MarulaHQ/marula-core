@@ -149,7 +149,7 @@ pub mod types {
     /// (Wave 55, decision 4). `source` distinguishes a person's act from
     /// the engine's, so an autonomous org can still audit which happened.
     pub const EMAIL_SENDER_BINDING_DECIDED: &str = "email.sender_binding_decided";
-    /// CSAT surveys on resolution (Wave 34 lane 2): the worker sent (or
+    /// CSAT surveys on resolution: the worker sent (or
     /// honestly skipped) the tokenized survey email for a resolved ticket.
     pub const CSAT_SURVEY_SENT: &str = "csat.survey_sent";
     /// A client submitted a CSAT score through the single-use portal link.
@@ -164,7 +164,7 @@ pub mod types {
     pub const SLA_POLICY_UPDATED: &str = "sla.policy_updated";
     /// An automation rule definition was created/changed/disabled.
     pub const AUTOMATION_RULE_UPDATED: &str = "automation.rule_updated";
-    /// Report definitions as data (the private build tracker R3): a stored report spec was
+    /// Report definitions as data: a stored report spec was
     /// created / changed / removed through the admin-gated CRUD surface.
     pub const REPORT_DEFINITION_CREATED: &str = "report_definition.created";
     pub const REPORT_DEFINITION_UPDATED: &str = "report_definition.updated";
@@ -218,11 +218,11 @@ pub mod types {
     /// appends to the provenance read surface via audit.
     pub const PLUGIN_STAGED_IMPORT_CREATED: &str = "plugin.staged_import_created";
     pub const PLUGIN_STAGED_IMPORT_APPROVED: &str = "plugin.staged_import_approved";
-    /// Marketplace v2 (Wave 22): per-org verified-publisher badge minted.
+    /// Marketplace v2: per-org verified-publisher badge minted.
     pub const PLUGIN_PUBLISHER_VERIFIED: &str = "plugin.publisher_verified";
-    /// Marketplace v2 (Wave 22): per-org verified-publisher badge withdrawn.
+    /// Marketplace v2: per-org verified-publisher badge withdrawn.
     pub const PLUGIN_PUBLISHER_REVOKED: &str = "plugin.publisher_revoked";
-    /// Marketplace v2 (Wave 22): a rating upserted on an artifact release.
+    /// Marketplace v2: a rating upserted on an artifact release.
     pub const PLUGIN_RATING_RECORDED: &str = "plugin.rating_recorded";
     pub const PLUGIN_STAGED_IMPORT_REFUSED: &str = "plugin.staged_import_refused";
     pub const PLUGIN_UPDATE_PENDING: &str = "plugin.update_pending";
@@ -313,7 +313,7 @@ pub mod types {
     /// payload names which revision landed and its digest, never what the
     /// artifact entitles — core does not interpret it, and nothing gates on it.
     pub const ENTITLEMENT_ADOPTED: &str = "org.entitlement_adopted";
-    /// Board organization + board-level RBAC (the private build tracker 2.11).
+    /// Board organization + board-level RBAC.
     pub const BOARD_GROUP_CREATED: &str = "board.group_created";
     pub const BOARD_GROUP_UPDATED: &str = "board.group_updated";
     pub const BOARD_GROUP_REMOVED: &str = "board.group_removed";
@@ -371,7 +371,7 @@ pub mod types {
     pub const SCHEDULING_LINK_VIEWED: &str = "scheduling_link.viewed";
     pub const SCHEDULING_LINK_SCHEDULED: &str = "scheduling_link.scheduled";
     pub const SCHEDULING_LINK_REVOKED: &str = "scheduling_link.revoked";
-    /// Scheduling templates (Wave 17 lane 13): a meeting type was hard
+    /// Scheduling templates: a meeting type was hard
     /// deleted by an admin. DELETE refuses when a scheduling link still
     /// references the row (typed conflict — the FK RESTRICT surfaces).
     pub const MEETING_TYPE_DELETED: &str = "meeting_type.deleted";
@@ -413,7 +413,7 @@ pub mod types {
     pub const SIGN_OFF_REVOKED: &str = "sign_off.revoked";
     pub const SIGN_OFF_SUPERSEDED: &str = "sign_off.superseded";
     pub const SIGN_OFF_CONSENT_CREATED: &str = "sign_off_consent.created";
-    /// Custom fields / dynamic forms v1 (the private build tracker 2.17): definition CRUD
+    /// Custom fields / dynamic forms v1: definition CRUD
     /// through the board settings surface and typed ticket-value writes.
     pub const CUSTOM_FIELD_DEF_CREATED: &str = "custom_field.def_created";
     pub const CUSTOM_FIELD_DEF_UPDATED: &str = "custom_field.def_updated";
@@ -1297,7 +1297,7 @@ pub struct EmailSenderBindingDecided {
     pub comment_id: Option<uuid::Uuid>,
 }
 
-/// A board group was created (the private build tracker 2.11).
+/// A board group was created.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct BoardGroupCreated {
@@ -2130,7 +2130,7 @@ pub struct AttachmentDeleted {
 // --- workflow constructs (Wave 11 lane 9, migration 0056) --------------------
 
 /// `meeting_type.deleted` — a meeting type was hard deleted by an admin
-/// (Wave 17 lane 13). The endpoint refuses (typed conflict) while a
+///. The endpoint refuses (typed conflict) while a
 /// scheduling link still references the row, so this event means the row
 /// is GONE — paused templates are PATCHes, not deletes.
 #[derive(Debug, Clone, Serialize, Deserialize)]

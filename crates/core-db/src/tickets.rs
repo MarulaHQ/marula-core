@@ -471,7 +471,7 @@ where
         .collect::<Result<_, _>>()?)
 }
 
-/// One cross-board my-work row (the private build tracker 2.11): the ticket plus the
+/// One cross-board my-work row: the ticket plus the
 /// annotations the Today queue renders — client name (squared tag), source
 /// board/status labels, and the effective due instant.
 #[derive(Debug, Clone)]

@@ -1,4 +1,4 @@
-//! Per-user email greeting and signature, org-governed (Wave 42).
+//! Per-user email greeting and signature, org-governed.
 //!
 //! Purpose: the one place that answers "whose name goes at the bottom of
 //! this message, and why" — the resolution chain, the org policy that can

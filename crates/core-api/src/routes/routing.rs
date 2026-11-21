@@ -1,4 +1,4 @@
-//! Dispatch v3 routing endpoints (Wave 32 lane 7).
+//! Dispatch v3 routing endpoints.
 //!
 //! Purpose: the dispatcher-facing read/write surfaces the routing seam
 //! powers — the day's journey plans with typed impossible-travel

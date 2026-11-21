@@ -1,4 +1,4 @@
-//! Routing-aware persistence (Wave 32 lane 7): per-technician journey
+//! Routing-aware persistence: per-technician journey
 //! start points.
 //!
 //! Purpose: one dispatcher-editable start point per (user, day) — home,

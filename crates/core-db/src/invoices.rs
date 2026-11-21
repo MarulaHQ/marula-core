@@ -990,7 +990,7 @@ pub struct UnbilledEntryRow {
 /// the inclusive date window, ascending by start time. The `NOT EXISTS`
 /// against the consumption links makes double-billing an entry
 /// impossible even across overlapping runs and across contracts sharing
-/// a client; the approval filter (Wave 14 lane 1) means only approved
+/// a client; the approval filter means only approved
 /// work reaches an invoice. Minutes are the EFFECTIVE minutes — the raw
 /// minutes less the verification adjustment ledger (Wave 39 lane 2), so
 /// this candidate panel agrees with what the engine will price.

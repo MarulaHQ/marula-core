@@ -1,4 +1,4 @@
-//! CSAT surveys on resolution — DB-layer query contracts (Wave 34 lane 2).
+//! CSAT surveys on resolution — DB-layer query contracts.
 //!
 //! Pins: queue idempotency per (org, ticket), the min-interval read,
 //! single-use consume (replay/expiry/foreign-client are no-ops), and the

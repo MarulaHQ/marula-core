@@ -683,7 +683,7 @@ pub async fn latest_provenance(
     row_to_provenance(&row)
 }
 
-// --- Marketplace v2 (Wave 22): verified publishers + ratings ---------------
+// --- Marketplace v2: verified publishers + ratings ---------------
 
 const PUBLISHER_COLS: &str = "id, org_id, publisher, display_name, status, \
      verified_by, verified_at, revoked_at, revoked_by, note";
