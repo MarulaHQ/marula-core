@@ -204,6 +204,10 @@ impl From<AssetLifecycleInput> for AssetLifecyclePatch {
             useful_life_months: v.useful_life_months,
             salvage_value_minor: v.salvage_value_minor,
             depreciation_rate_bps: v.depreciation_rate_bps,
+            // The assets route is the writer that owns the class transition: an
+            // ownership patch records a movement. Callers that record their own
+            // transition (procurement) build the patch directly and leave it off.
+            record_class_movement: true,
         }
     }
 }
@@ -214,6 +218,20 @@ fn default_kind() -> String {
 
 fn default_status() -> String {
     "active".into()
+}
+
+/// Ownership is a closed vocabulary. The DB CHECK would reject a bad value with
+/// a generic database error, so the request is refused as a typed 422 first.
+fn validate_lifecycle(input: &AssetLifecycleInput) -> ApiResult<()> {
+    if let Some(ownership) = input.ownership.as_deref() {
+        if !core_domain::entities::is_valid_asset_ownership(ownership) {
+            return Err(ApiError::Validation(format!(
+                "ownership must be one of {}",
+                core_domain::entities::ASSET_OWNERSHIPS.join(", ")
+            )));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
@@ -387,6 +405,15 @@ pub async fn create(
         req.layout_id,
     );
     let req_lifecycle = req.lifecycle.clone();
+    if let Some(lifecycle) = &req_lifecycle {
+        validate_lifecycle(lifecycle)?;
+    }
+    // The custody class is derived at insert from scope and ownership, so the
+    // final ownership has to be part of the row the insert writes. A rented-in
+    // unit patched afterwards would otherwise start in the owned class.
+    let ownership = req_lifecycle
+        .as_ref()
+        .and_then(|lifecycle| lifecycle.ownership.clone());
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
@@ -414,7 +441,7 @@ pub async fn create(
             .await?;
         }
         let id = Uuid::now_v7();
-        let mut asset = core_db::assets::create_asset(
+        let mut asset = core_db::assets::create_asset_with_ownership(
             &mut *ctx.tx,
             org_id,
             id,
@@ -427,6 +454,7 @@ pub async fn create(
             &status,
             layout_id,
             &fields,
+            ownership.as_deref(),
         )
         .await?;
         if let Some(lifecycle) = &req_lifecycle {
@@ -501,6 +529,9 @@ pub async fn update(
     let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
     let key = req.instant.idempotency_key.clone();
     let version = req.instant.version;
+    if let Some(lifecycle) = &req.lifecycle {
+        validate_lifecycle(lifecycle)?;
+    }
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
         if let InstantClaim::Replay(stored) = instant::claim(
