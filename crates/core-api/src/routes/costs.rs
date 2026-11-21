@@ -56,7 +56,10 @@ fn view_financials() -> Permission {
     Permission::ViewFinancials
 }
 
-async fn ticket_for_board_check(
+/// Loads a ticket and authorizes the caller's board access for `op`. Shared
+/// with the purchasing recharge path, which writes a cost line on a ticket the
+/// purchase serves and must obey the same board gate as this surface.
+pub(crate) async fn ticket_for_board_check(
     tx: &mut sqlx::PgConnection,
     principal: &core_domain::entities::Principal,
     org_id: Uuid,
@@ -66,6 +69,113 @@ async fn ticket_for_board_check(
     let ticket = core_db::tickets::get_ticket(&mut *tx, org_id, ticket_id).await?;
     authorize_board_op(tx, principal, ticket.board_id, op).await?;
     Ok(ticket)
+}
+
+// --- recharge leg (purchasing) ---------------------------------------------------
+
+/// One client recharge to post as a billable ticket cost line.
+///
+/// The purchasing receipt engine calls this from inside its own transaction, so
+/// a receipt that fails later never leaves a charge behind. The `billable` flag
+/// rides from the purchase line: the operator's statement about whether this
+/// charge goes on the client's bill. Source identity (`purchase_receipt_line` +
+/// the receipt line id) is stamped in the same commit, which is the citation the
+/// billing join extends.
+pub(crate) struct RechargeCostLine<'a> {
+    pub ticket_id: Uuid,
+    pub kind: CostLineKind,
+    pub description: &'a str,
+    pub amount_minor: i64,
+    pub currency: &'a str,
+    pub reporting_class: &'a str,
+    /// Whether the charge goes on the client's bill. Comes from the purchase
+    /// line, which is where the operator said so.
+    pub billable: bool,
+    /// The receipt line that caused the charge.
+    pub receipt_line_id: Uuid,
+}
+
+impl RechargeCostLine<'_> {
+    fn validate(&self) -> ApiResult<()> {
+        if self.amount_minor < 0 {
+            return Err(ApiError::Validation(
+                "a recharge amount must not be negative".into(),
+            ));
+        }
+        if !core_domain::entities::costs::is_valid_reporting_class(self.reporting_class) {
+            return Err(ApiError::Validation(format!(
+                "unknown reporting class: {}",
+                self.reporting_class
+            )));
+        }
+        Ok(())
+    }
+}
+
+/// Posts the recharge line and returns it with the FX snapshot that was locked
+/// for it, so the purchase stays the one writer of the charge record.
+pub(crate) async fn write_recharge_cost_line(
+    ctx: &mut crate::org_tx::OrgTx<'_>,
+    principal: &core_domain::entities::Principal,
+    input: RechargeCostLine<'_>,
+) -> ApiResult<(TicketCostLine, Option<crate::routes::fx::LockedSnapshot>)> {
+    input.validate()?;
+    let org_id = ctx.org_id;
+    let user_id = ctx.user_id;
+    ticket_for_board_check(
+        &mut ctx.tx,
+        principal,
+        org_id,
+        input.ticket_id,
+        BoardOp::WorkTicket,
+    )
+    .await?;
+    let now = chrono::Utc::now();
+    let snapshot = lock_snapshot(
+        &mut ctx.tx,
+        org_id,
+        input.amount_minor,
+        input.currency,
+        now.date_naive(),
+    )
+    .await?;
+    let line = TicketCostLine {
+        id: Uuid::now_v7(),
+        org_id,
+        ticket_id: input.ticket_id,
+        kind: input.kind,
+        description: input.description.to_string(),
+        quantity: 1.0,
+        unit_cost_minor: input.amount_minor,
+        currency: input.currency.to_string(),
+        billable: input.billable,
+        fx_rate_used: snapshot.as_ref().map(|s| s.rate_used.clone()),
+        fx_rate_date: snapshot.as_ref().map(|s| s.rate_date),
+        fx_source: snapshot.as_ref().map(|s| s.source.clone()),
+        base_amount_minor: snapshot.as_ref().map(|s| s.base_amount_minor),
+        invoice_line_id: None,
+        created_by: Some(user_id),
+        created_at: now,
+        updated_at: now,
+    };
+    core_db::costs::insert_cost_line(&mut *ctx.tx, &line).await?;
+    core_db::purchasing::stamp_cost_line_source(
+        &mut *ctx.tx,
+        org_id,
+        line.id,
+        input.receipt_line_id,
+        input.reporting_class,
+    )
+    .await?;
+    ctx.emit(
+        types::TICKET_COST_LINE_ADDED,
+        "ticket_cost_line",
+        Some(line.id.to_string().as_str()),
+        &serde_json::to_value(core_domain::events::TicketCostLineAdded { line: line.clone() })
+            .unwrap_or_default(),
+    )
+    .await?;
+    Ok((line, snapshot))
 }
 
 // --- cost lines ------------------------------------------------------------------
