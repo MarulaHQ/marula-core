@@ -1144,9 +1144,16 @@ fn guard_line_destination(
 ///   empty field set a receipt supplies, so a receipt cannot create an asset
 ///   that violates its own schema. Type-specific values are added on the asset
 ///   surface afterwards.
-/// * A serialized stock item is counted in whole units. Receipt needs exactly
-///   one serial per unit, so a fractional order could never be received or
-///   closed honestly — whichever line kind carried the item.
+/// * A `serialized_unit` line is one serial per unit, so the item it names must
+///   itself be serialized. A consumable item there would demand serials at
+///   receipt and then refuse them, which is a line nobody can receive.
+/// * A serialized item is counted in whole units. Receipt needs exactly one
+///   serial per unit, so a fractional order could never be received or closed
+///   honestly — whichever line kind carried the item. A `stock` line may name a
+///   serialized item; it just has to be whole.
+///
+/// The item is read only when the line could actually fail one of these rules,
+/// so a whole-unit `stock` line costs no extra query.
 async fn validate_line_references(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
@@ -1158,10 +1165,17 @@ async fn validate_line_references(
         let empty = serde_json::json!({});
         crate::routes::documents::validate_fields(&layout, &empty)?;
     }
-    if input.qty_ordered_milli % 1000 != 0 {
+    let fractional = input.qty_ordered_milli % 1000 != 0;
+    if intent.line_kind == LineKind::SerializedUnit || fractional {
         if let Some(stock_item_id) = input.stock_item_id {
             let item = core_db::stock::get_stock_item(&mut *conn, org_id, stock_item_id).await?;
-            if item.kind == "serialized" {
+            if intent.line_kind == LineKind::SerializedUnit && item.kind != "serialized" {
+                return Err(ApiError::Validation(format!(
+                    "line \"{}\" is a serialized_unit line but names a {} item — a serialized unit needs a serialized item, or no item at all",
+                    input.description, item.kind
+                )));
+            }
+            if item.kind == "serialized" && fractional {
                 return Err(ApiError::Validation(format!(
                     "line \"{}\" names a serialized item — it is counted in whole units, and {} milli is not a whole count",
                     input.description, input.qty_ordered_milli

@@ -1343,6 +1343,13 @@ where
     Ok(())
 }
 
+/// The one column `lock_ticket_client` reads: the ticket's client, `None` when
+/// the ticket belongs to no client.
+#[derive(Debug, Clone, Copy, sqlx::FromRow)]
+pub struct TicketClientRow {
+    pub client_id: Option<Uuid>,
+}
+
 /// Reads a ticket's client under a share lock, so a reassignment cannot commit
 /// between the check and the cost line written with it. A `FOR SHARE` lock
 /// conflicts with the update a ticket move performs, and the lock is held until
@@ -1352,16 +1359,18 @@ pub async fn lock_ticket_client(
     org_id: Uuid,
     ticket_id: Uuid,
 ) -> DbResult<Option<Uuid>> {
-    let row: Option<(Option<Uuid>,)> = sqlx::query_as(
+    let row = sqlx::query_as!(
+        TicketClientRow,
         r#"SELECT client_id FROM tickets
             WHERE org_id = $1 AND id = $2
             FOR SHARE"#,
+        org_id,
+        ticket_id,
     )
-    .bind(org_id)
-    .bind(ticket_id)
     .fetch_optional(&mut *conn)
-    .await?;
-    row.map(|(client_id,)| client_id).ok_or(DbError::NotFound)
+    .await?
+    .ok_or(DbError::NotFound)?;
+    Ok(row.client_id)
 }
 
 /// Takes a share lock on the asset layout a line names, so the layout validated
