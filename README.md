@@ -10,6 +10,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/core-AGPL--3.0-5E7F3A" alt="Marula Core is licensed under the AGPL-3.0" height="20"></a>
   <a href="packages/sdk/LICENSE"><img src="https://img.shields.io/badge/sdk%20%2F%20plugins-Apache--2.0-E8B83A" alt="The SDK, plugins and connectors are licensed under the Apache-2.0" height="20"></a>
   <a href="docs/site/LICENSE"><img src="https://img.shields.io/badge/docs-CC--BY--4.0-7C746A" alt="The documentation in docs/site is licensed under CC BY 4.0" height="20"></a>
+  <a href="https://coderabbit.ai"><img src="https://img.shields.io/coderabbit/prs/github/MarulaHQ/marula-core?utm_source=oss&utm_medium=github&utm_campaign=MarulaHQ%2Fmarula-core&labelColor=171717&color=FF570A&label=CodeRabbit+Reviews" alt="CodeRabbit pull request reviews" height="20"></a>
 </p>
 
 <h1 align="center">Marula PSA</h1>

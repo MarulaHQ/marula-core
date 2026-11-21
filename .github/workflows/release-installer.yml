@@ -981,8 +981,12 @@ jobs:
           if ! view_error=$(gh api "repos/${GH_REPO}/releases/tags/${TAG}" --jq '.tag_name' 2>&1 >/dev/null); then
             case "$view_error" in
               *"HTTP 404"*)
+                # The title is the tag. The page is already inside the
+                # repository, so repeating the product name says nothing the
+                # reader cannot see twice above it, and every hand-edited
+                # release so far spelled it differently.
                 gh release create "$TAG" --verify-tag --draft \
-                  --title "Marula Core ${VERSION}" \
+                  --title "$TAG" \
                   --notes "Draft created by the release workflow. Paste the CHANGELOG section here, state the platform signing posture for each platform, then publish. The files are attached already."
                 echo "::warning::Created $TAG as a draft with the assets attached. Add the CHANGELOG section and publish it."
                 ;;
