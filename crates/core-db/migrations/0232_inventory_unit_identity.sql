@@ -73,9 +73,11 @@ ALTER TABLE stock_serials
                            'tools', 'sold', 'recycled', 'destroyed', 'returned'));
 
 -- Plain (not CONCURRENTLY) indexes: sqlx runs each migration inside a
--- transaction, where CONCURRENTLY is illegal. At MSP fleet and stock sizes
--- these tables are thousands of rows, so the write lock is a statement, not an
--- outage.
+-- transaction, where CONCURRENTLY is illegal. Every lock this file takes is
+-- held until the transaction commits, including through the backfills below,
+-- so the honest cost is one transaction-length lock on each table. At MSP fleet
+-- and stock sizes these tables are thousands of rows, which keeps that window
+-- to a statement-scale pause rather than an outage.
 CREATE INDEX idx_stock_serials_custody
   ON stock_serials (org_id, custody_class);
 ALTER TABLE device_assets ADD COLUMN custody_class text;

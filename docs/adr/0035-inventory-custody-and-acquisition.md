@@ -84,10 +84,12 @@ custody row. A drop-ship purchase creates a client asset and a recharge, and
 changes owned quantity by zero.
 
 A purchase made on a client's behalf resolves a recharge rule at the moment it
-is recorded. The rule is `at_cost`, a percentage or fixed markup, or `none`,
-with ticket/project overriding client/agreement overriding the organisation
-default. The resolved rule and the basis it was applied to are stored on the
-recharge line, so a later policy change cannot rewrite history.
+is recorded. The rule is `at_cost`, a percentage markup, a fixed charge, or
+`none`, with ticket/project overriding client/agreement overriding the
+organisation default. A fixed charge replaces the markup: it is the whole
+charge in the rule's currency, not an addition to the receipt cost. The resolved
+rule and the basis it was applied to are stored on the recharge line, so a later
+policy change cannot rewrite history.
 
 ### 3. Cost is layered and never rewritten
 

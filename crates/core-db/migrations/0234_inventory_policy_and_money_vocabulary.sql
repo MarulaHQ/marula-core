@@ -38,11 +38,17 @@
 -- pair here lets a note cite the document it corrects in the meantime; the line
 -- table reuses the same vocabulary when it lands.
 --
--- Lock cost: every `ALTER TABLE ... ADD COLUMN` here takes ACCESS EXCLUSIVE for
--- the catalogue update, and each new CHECK scans the table once while holding
--- it. At MSP fleet and stock sizes these tables are thousands of rows, so the
--- lock is a statement, not an outage. The three new indexes are plain because
--- the migration runner wraps each file in a transaction, where CONCURRENTLY is
+-- Lock cost, stated honestly: every `ALTER TABLE` here takes ACCESS EXCLUSIVE
+-- and PostgreSQL holds it until the transaction commits, so the window spans
+-- the catalogue updates and every CHECK scan in this file, not one statement.
+-- The scans are real: each new CHECK on an existing table (ticket cost lines,
+-- ticket expenses, invoice lines, credit notes) reads every row. At MSP ledger
+-- sizes those tables are thousands of rows and the checks are nullable-value
+-- predicates, so the window is short. Deferring them as `NOT VALID` plus a
+-- separate validation is declined here: it moves the same scan into a second
+-- transaction with the same lock, and the source-pair check is the integrity
+-- guarantee this migration exists to add. The three new indexes are plain
+-- because the runner wraps each file in a transaction, where CONCURRENTLY is
 -- illegal; they sit on nullable columns with few or no rows written yet.
 --
 -- Additive-only: nullable columns, one defaulted enum column, CHECK constraints
