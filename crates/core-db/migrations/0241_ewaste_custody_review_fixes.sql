@@ -1,4 +1,8 @@
--- E-waste custody review fixes (migration 0239).
+-- E-waste custody review fixes (migration 0241).
+--
+-- 0239 is reserved for the billing-join work and 0240 stays reserved, so a
+-- lane that needs a second migration takes the next free number after 0240.
+-- This file does not reuse a reservation.
 --
 -- Migration 0238 is already in the integration branch, so a database that
 -- applied it must receive these corrections additively. The triggers created
