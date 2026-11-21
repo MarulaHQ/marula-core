@@ -166,7 +166,7 @@ function offerTrail() {
 // a repo's own learnings). Only the front matter is read for it.
 function liveFiles(learnings, files) {
   const crypto = require('crypto');
-  const all = files.slice(0, 500).map((f) => {
+  const all = files.map((f) => {
     let text = '';
     try { text = fs.readFileSync(path.join(learnings, f), 'utf8').slice(0, 4000); } catch {}
     const end = text.startsWith('---') ? text.indexOf('\n---', 3) : -1;
