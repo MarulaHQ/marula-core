@@ -40,6 +40,11 @@ use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
+/// The entity family the intake's write sequence lives under. Routes claim and
+/// record with the same name, and the read paths below use it to return the
+/// version a client needs for a conditional write.
+pub const INTAKE_ENTITY: &str = "ewaste_intake";
+
 /// Intake statuses. `open` is the only state that accepts a line, event or
 /// disposition; `closed` is the balanced end of the receipt.
 pub const INTAKE_STATUSES: [&str; 2] = ["open", "closed"];
@@ -282,6 +287,8 @@ pub struct IntakeSummary {
     pub total_in_g: i64,
     pub total_out_g: i64,
     pub remaining_g: i64,
+    /// The intake's write-sequence version, for a conditional close.
+    pub version: i64,
 }
 
 // Inputs --------------------------------------------------------------------
@@ -740,6 +747,27 @@ pub async fn close_intake(
 
 // Reads ----------------------------------------------------------------------
 
+/// The intake's write-sequence version, or `0` before its first write. Read it
+/// in the same transaction as the detail so a client can send a conditional
+/// write against the state it saw.
+pub async fn intake_version(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    intake_id: Uuid,
+) -> DbResult<i64> {
+    let seq = sqlx::query_scalar!(
+        "SELECT seq FROM entity_write_seqs
+          WHERE org_id = $1 AND entity = $2 AND entity_id = $3",
+        org_id,
+        INTAKE_ENTITY,
+        intake_id
+    )
+    .fetch_optional(&mut *conn)
+    .await
+    .map_err(guard_error)?;
+    Ok(seq.unwrap_or(0))
+}
+
 /// One intake, or `DbError::NotFound` when it is not in the org.
 pub async fn get_intake(
     conn: &mut PgConnection,
@@ -770,8 +798,11 @@ pub async fn list_intakes(
         r#"SELECT {columns},
                   coalesce(l.line_count, 0)::bigint AS line_count,
                   coalesce(l.total_in_g, 0)::bigint  AS total_in_g,
-                  coalesce(d.total_out_g, 0)::bigint AS total_out_g
+                  coalesce(d.total_out_g, 0)::bigint AS total_out_g,
+                  coalesce(w.seq, 0)::bigint        AS version
              FROM ewaste_intakes i
+             LEFT JOIN entity_write_seqs w
+               ON w.org_id = i.org_id AND w.entity = $7 AND w.entity_id = i.id
              LEFT JOIN (
                SELECT intake_id, count(*) AS line_count, sum(weight_g) AS total_in_g
                  FROM ewaste_intake_lines
@@ -803,6 +834,7 @@ pub async fn list_intakes(
     .bind(filter.limit)
     .bind(admin)
     .bind(user_id.to_string())
+    .bind(INTAKE_ENTITY)
     .fetch_all(&mut *conn)
     .await
     .map_err(guard_error)?;
@@ -817,6 +849,7 @@ pub async fn list_intakes(
                 total_in_g,
                 total_out_g,
                 remaining_g: total_in_g.saturating_sub(total_out_g),
+                version: row.try_get("version").map_err(DbError::Sql)?,
             })
         })
         .collect()

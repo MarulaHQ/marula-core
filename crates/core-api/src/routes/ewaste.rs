@@ -41,7 +41,7 @@ use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-const ENTITY: &str = "ewaste_intake";
+const ENTITY: &str = ewaste::INTAKE_ENTITY;
 const LIST_LIMIT: i64 = 200;
 
 /// Whose client restrictions apply to a list read. The row-level clause is
@@ -158,6 +158,9 @@ pub struct IntakeDetailResponse {
     pub events: Vec<EwasteEvent>,
     pub dispositions: Vec<EwasteDisposition>,
     pub balance: WeightBalance,
+    /// The intake's write-sequence version. A client echoes it as `version` on
+    /// the next conditional write, notably the close.
+    pub version: i64,
 }
 
 /// The intake response plus the instant-first envelope metadata (IF2).
@@ -180,13 +183,30 @@ async fn load_detail(
     let events = ewaste::list_events(&mut *conn, org_id, intake_id).await?;
     let dispositions = ewaste::list_dispositions(&mut *conn, org_id, intake_id).await?;
     let balance = ewaste::weight_balance(&mut *conn, org_id, intake_id).await?;
+    let version = ewaste::intake_version(&mut *conn, org_id, intake_id).await?;
     Ok(IntakeDetailResponse {
         intake,
         lines,
         events,
         dispositions,
         balance,
+        version,
     })
+}
+
+/// The aggregate as committed by the previous writer. Read after the sequence
+/// lock is held and before this mutation writes. The lock keeps another writer
+/// out, and the sequence row already carries this write's number, so the prior
+/// state is one version behind it.
+async fn prior_detail(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    intake_id: Uuid,
+    write_seq: i64,
+) -> ApiResult<IntakeDetailResponse> {
+    let mut prior = load_detail(conn, org_id, intake_id).await?;
+    prior.version = write_seq.saturating_sub(1);
+    Ok(prior)
 }
 
 // ---- requests --------------------------------------------------------------
@@ -810,7 +830,6 @@ pub async fn add_line(
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
         require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
             .await?;
-        ewaste::add_line(&mut ctx.tx, org_id, user_id, id, &line).await?;
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -820,6 +839,8 @@ pub async fn add_line(
             },
         )
         .await?;
+        let prior = prior_detail(&mut ctx.tx, org_id, id, write_seq).await?;
+        ewaste::add_line(&mut ctx.tx, org_id, user_id, id, &line).await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         ctx.emit(
             "ewaste.line_added",
@@ -839,7 +860,7 @@ pub async fn add_line(
                 entity_id: id,
                 op: "line_add",
                 seq: write_seq,
-                before: None,
+                before: Some(serde_json::to_value(&prior).unwrap_or(Value::Null)),
                 after: serde_json::to_value(&detail).unwrap_or(Value::Null),
                 updated_at: detail.intake.updated_at,
                 key: key.as_deref(),
@@ -954,7 +975,6 @@ pub async fn record_event(
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
         require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
             .await?;
-        ewaste::record_event(&mut ctx.tx, org_id, id, &input).await?;
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -964,6 +984,8 @@ pub async fn record_event(
             },
         )
         .await?;
+        let prior = prior_detail(&mut ctx.tx, org_id, id, write_seq).await?;
+        ewaste::record_event(&mut ctx.tx, org_id, id, &input).await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         ctx.emit(
             "ewaste.event_recorded",
@@ -983,7 +1005,7 @@ pub async fn record_event(
                 entity_id: id,
                 op: "custody_event",
                 seq: write_seq,
-                before: None,
+                before: Some(serde_json::to_value(&prior).unwrap_or(Value::Null)),
                 after: serde_json::to_value(&detail).unwrap_or(Value::Null),
                 updated_at: detail.intake.updated_at,
                 key: key.as_deref(),
@@ -1048,6 +1070,16 @@ pub async fn set_destruction(
         if let Some(document_id) = req.document_id {
             attached_document_exists(&mut ctx.tx, org_id, document_id).await?;
         }
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: ENTITY,
+                entity_id: id,
+                version: req.instant.version,
+            },
+        )
+        .await?;
+        let prior = prior_detail(&mut ctx.tx, org_id, id, write_seq).await?;
         ewaste::set_destruction_state(
             &mut ctx.tx,
             org_id,
@@ -1056,15 +1088,6 @@ pub async fn set_destruction(
             line_id,
             status,
             req.document_id,
-        )
-        .await?;
-        let write_seq = instant::entity_seq(
-            &mut ctx,
-            instant::SeqSpec {
-                entity: ENTITY,
-                entity_id: id,
-                version: req.instant.version,
-            },
         )
         .await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
@@ -1086,7 +1109,7 @@ pub async fn set_destruction(
                 entity_id: id,
                 op: "destruction_state",
                 seq: write_seq,
-                before: None,
+                before: Some(serde_json::to_value(&prior).unwrap_or(Value::Null)),
                 after: serde_json::to_value(&detail).unwrap_or(Value::Null),
                 updated_at: detail.intake.updated_at,
                 key: key.as_deref(),
@@ -1155,8 +1178,6 @@ pub async fn record_disposition(
         if let Some(document_id) = input.document_id {
             attached_document_exists(&mut ctx.tx, org_id, document_id).await?;
         }
-        let disposition =
-            ewaste::record_disposition(&mut ctx.tx, org_id, user_id, id, &input).await?;
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -1166,6 +1187,9 @@ pub async fn record_disposition(
             },
         )
         .await?;
+        let prior = prior_detail(&mut ctx.tx, org_id, id, write_seq).await?;
+        let disposition =
+            ewaste::record_disposition(&mut ctx.tx, org_id, user_id, id, &input).await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         ctx.emit(
             "ewaste.disposition_recorded",
@@ -1187,7 +1211,7 @@ pub async fn record_disposition(
                 entity_id: id,
                 op: "disposition",
                 seq: write_seq,
-                before: None,
+                before: Some(serde_json::to_value(&prior).unwrap_or(Value::Null)),
                 after: serde_json::to_value(&detail).unwrap_or(Value::Null),
                 updated_at: detail.intake.updated_at,
                 key: key.as_deref(),
@@ -1207,8 +1231,9 @@ pub async fn record_disposition(
 
 /// POST /api/ewaste/intakes/{id}/close — the balanced end of a receipt.
 ///
-/// An optional `{"version": n}` body is checked before the close writes; a
-/// bodyless call still works.
+/// The body is optional. It may carry `version`, checked before the close
+/// writes, and an `idempotency_key`, so a retry after a lost response replays
+/// the stored result instead of colliding with the close it already made.
 #[utoipa::path(operation_id = "ewaste_close_intake", post, path = "/api/ewaste/intakes/{id}/close", tag = "ewaste", security(("bearer" = [])),
     params(("id" = Uuid, Path)),
     responses((status = 200, body = IntakeMutationResponse),
@@ -1224,9 +1249,27 @@ pub async fn close_intake(
     require_permission(&authed.principal, commercial(Action::Edit))?;
     let org_id = authed.principal.user.org_id;
     let user_id = authed.principal.user.id;
-    let version = body.and_then(|Json(body)| body.instant.version);
+    let (version, key) = match body {
+        Some(Json(body)) => (body.instant.version, body.instant.idempotency_key),
+        None => (None, None),
+    };
+    let fingerprint = serde_json::json!({ "intake_id": id, "version": version });
 
     let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: ENTITY,
+                entity_id: Some(id),
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            require_replay_visible(&mut ctx.tx, org_id, &authed.principal, &stored).await?;
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
         let intake = ewaste::get_intake(&mut ctx.tx, org_id, id).await?;
         require_intake_client_visible(&mut ctx.tx, org_id, intake.client_id, &authed.principal)
             .await?;
@@ -1242,6 +1285,7 @@ pub async fn close_intake(
             },
         )
         .await?;
+        let prior = prior_detail(&mut ctx.tx, org_id, id, write_seq).await?;
         ewaste::close_intake(&mut ctx.tx, org_id, user_id, id).await?;
         let detail = load_detail(&mut ctx.tx, org_id, id).await?;
         ctx.emit(
@@ -1262,10 +1306,10 @@ pub async fn close_intake(
                 entity_id: id,
                 op: "close",
                 seq: write_seq,
-                before: None,
+                before: Some(serde_json::to_value(&prior).unwrap_or(Value::Null)),
                 after: serde_json::to_value(&detail).unwrap_or(Value::Null),
                 updated_at: detail.intake.updated_at,
-                key: None,
+                key: key.as_deref(),
                 payload: &detail,
                 provenance: Default::default(),
             },
