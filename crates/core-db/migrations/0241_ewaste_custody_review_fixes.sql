@@ -1,13 +1,12 @@
 -- E-waste custody review fixes (migration 0241).
 --
--- 0239 is reserved for the billing-join work and 0240 stays reserved, so a
--- lane that needs a second migration takes the next free number after 0240.
--- This file does not reuse a reservation.
+-- A correction to an applied migration ships as a new file that replaces a
+-- function by name; editing the applied file would change its checksum. That
+-- is why this migration exists rather than a change to 0238.
 --
--- Migration 0238 is already in the integration branch, so a database that
--- applied it must receive these corrections additively. The triggers created
--- by 0238 already point at the function names below; replacing the function
--- bodies is the whole change. No table, index, column or policy is touched.
+-- The triggers created by 0238 already point at the function names below;
+-- replacing the function bodies is the whole change. No table, index, column
+-- or policy is touched.
 --
 --   * `ewaste_intake_line_guard` now enforces one unresolved custody line per
 --     physical unit. It resolves the canonical pair (a serial names its asset,
