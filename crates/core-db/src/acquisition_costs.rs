@@ -312,6 +312,16 @@ impl std::fmt::Display for SplitError {
     }
 }
 
+/// The unit cost the receipt recorded, in the order currency: the movement's
+/// cost, the asset's purchase cost, or the line's own cost when the leg kept no
+/// record of its own (a lot or a service). A later edit to the purchase line
+/// cannot move a split that was computed after the receipt.
+pub fn receipt_unit_cost(line: &ReceiptLineBasis) -> i64 {
+    line.movement_cost_minor
+        .or(line.purchase_cost_minor)
+        .unwrap_or(line.unit_cost_minor)
+}
+
 /// The basis each line carries under the chosen method, in the method's own
 /// unit: order-currency minor units, milli-units, or grams.
 pub fn allocation_basis(
@@ -325,7 +335,7 @@ pub fn allocation_basis(
     for line in lines {
         let basis = match method {
             "extended_value" => i128::from(
-                core_domain::entities::line_amount_minor(line.qty_milli, line.unit_cost_minor)
+                core_domain::entities::line_amount_minor(line.qty_milli, receipt_unit_cost(line))
                     .map_err(|_| SplitError::EmptyBasis("extended value"))?,
             ),
             "quantity" => i128::from(line.qty_milli),
@@ -539,7 +549,9 @@ pub async fn insert_allocations(
     allocations: &[AcquisitionCostAllocation],
 ) -> DbResult<()> {
     if allocations.is_empty() {
-        return Ok(());
+        return Err(DbError::Conflict(
+            "a layer needs a split; an empty allocation set is a writer bug".into(),
+        ));
     }
     let ids: Vec<Uuid> = allocations.iter().map(|a| a.id).collect();
     let line_ids: Vec<Uuid> = allocations.iter().map(|a| a.receipt_line_id).collect();
@@ -909,7 +921,7 @@ pub async fn receipt_valuation(
                     .map_err(|e| DbError::Corrupt(format!("receipt line cost: {e}")))?,
             ),
             None if context.order_currency == base_currency => Some(
-                core_domain::entities::line_amount_minor(line.qty_milli, line.unit_cost_minor)
+                core_domain::entities::line_amount_minor(line.qty_milli, receipt_unit_cost(line))
                     .map_err(|e| DbError::Corrupt(format!("receipt line cost: {e}")))?,
             ),
             None => None,
@@ -938,10 +950,7 @@ pub async fn receipt_valuation(
             description: line.description.clone(),
             qty_milli: line.qty_milli,
             destination_class: line.destination_class.clone(),
-            receipt_unit_cost_minor: line
-                .movement_cost_minor
-                .or(line.purchase_cost_minor)
-                .unwrap_or(line.unit_cost_minor),
+            receipt_unit_cost_minor: receipt_unit_cost(line),
             currency,
             receipt_cost_base_minor: receipt_cost_base,
             capitalised_base_minor: capitalised_line,

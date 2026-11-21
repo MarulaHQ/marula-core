@@ -203,7 +203,15 @@ fn require_currency(currency: &str) -> ApiResult<String> {
 }
 
 fn split_error(e: SplitError) -> ApiError {
-    ApiError::Validation(e.to_string())
+    match e {
+        // The caller asked for a basis the receipt cannot provide: a 422 that
+        // names the line to fix.
+        SplitError::EmptyBasis(_) | SplitError::MissingWeight { .. } | SplitError::NoLines => {
+            ApiError::Validation(e.to_string())
+        }
+        // Arithmetic that did not reconcile is our bug, not the caller's.
+        SplitError::Unbalanced => ApiError::Internal(anyhow::anyhow!(e.to_string())),
+    }
 }
 
 /// The class a layer reports under, given what it is and whether it capitalises.
@@ -648,7 +656,8 @@ pub async fn create(
             instant::SeqSpec {
                 entity: ENTITY,
                 entity_id: cost_id,
-                version: req.instant.version,
+                // A create has no prior version to match.
+                version: None,
             },
         )
         .await?;
@@ -823,6 +832,11 @@ pub async fn reverse(
             })
             .collect();
 
+        if original.posted_ticket_expense_id.is_some() && original.ticket_id.is_none() {
+            return Err(ApiError::Internal(anyhow::anyhow!(
+                "layer {id} posted an expense but names no ticket"
+            )));
+        }
         let expense = if original.posted_ticket_expense_id.is_some() {
             expense_for_layer(
                 org_id,
@@ -896,7 +910,8 @@ pub async fn reverse(
             instant::SeqSpec {
                 entity: ENTITY,
                 entity_id: cost_id,
-                version: req.instant.version,
+                // A create has no prior version to match.
+                version: None,
             },
         )
         .await?;
