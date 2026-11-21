@@ -505,7 +505,7 @@ pub async fn insert_cost(conn: &mut PgConnection, cost: &AcquisitionCost) -> DbR
               posted_ticket_expense_id, reverses_acquisition_cost_id,
               fx_rate_used, fx_rate_date, fx_source, base_amount_minor, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                   $15, $16, $17, $18, $19, $20, $21::text::numeric, $22, $23, $24,
+                   $15, $16, $17, $18, $19, $20, $21, $22::text::numeric, $23, $24,
                    $25, $26)"#,
     )
     .bind(cost.id)

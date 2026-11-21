@@ -1018,8 +1018,10 @@ where
 {
     sqlx::query(
         r#"INSERT INTO purchase_receipt_lines (id, org_id, receipt_id, po_line_id, qty_milli,
-                                                movement_id)
-           VALUES ($1, $2, $3, $4, $5, $6)"#,
+                                                movement_id, weight_g)
+           VALUES ($1, $2, $3, $4, $5, $6,
+                   (SELECT pol.weight_g FROM purchase_order_lines pol
+                     WHERE pol.org_id = $2 AND pol.id = $4))"#,
     )
     .bind(line.id)
     .bind(line.org_id)
@@ -1074,8 +1076,10 @@ where
     sqlx::query!(
         r#"INSERT INTO purchase_receipt_lines
              (id, org_id, receipt_id, po_line_id, qty_milli, movement_id,
-              destination_class, device_asset_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)"#,
+              destination_class, device_asset_id, weight_g)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8,
+                   (SELECT pol.weight_g FROM purchase_order_lines pol
+                     WHERE pol.org_id = $2 AND pol.id = $4))"#,
         line.id,
         line.org_id,
         line.receipt_id,
