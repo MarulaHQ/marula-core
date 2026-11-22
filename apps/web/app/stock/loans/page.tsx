@@ -144,6 +144,15 @@ const CONDITIONS = [
   { value: "damaged", label: "Damaged" },
 ] as const;
 
+/** Where a returned unit goes; empty = back to the class it was issued from. */
+const RETURN_DISPOSITIONS = [
+  { value: "issued", label: "Back where it came from" },
+  { value: "sale_stock", label: "Sale stock" },
+  { value: "pool", label: "Rental pool" },
+  { value: "refurbishment", label: "Refurbishment" },
+  { value: "ewaste", label: "E-waste" },
+] as const;
+
 interface LoanItemRow {
   key: number;
   itemId: string;
@@ -188,6 +197,9 @@ export default function StockLoansPage(): ReactNode {
   const [issueBusy, setIssueBusy] = useState(false);
 
   const [returnLoan, setReturnLoan] = useState<ClientLoanDetailResponse | null>(null);
+  const [returnDispositions, setReturnDispositions] = useState<Record<string, string>>({});
+  const [returnDamage, setReturnDamage] = useState<Record<string, string>>({});
+  const [returnDamageNote, setReturnDamageNote] = useState<Record<string, string>>({});
   const [returnConditions, setReturnConditions] = useState<Record<string, string>>({});
   const [returnNotes, setReturnNotes] = useState("");
   const [returnLocationId, setReturnLocationId] = useState("");
@@ -350,6 +362,9 @@ export default function StockLoansPage(): ReactNode {
 
   function openReturn(detail: ClientLoanDetailResponse): void {
     setReturnLoan(detail);
+    setReturnDispositions({});
+    setReturnDamage({});
+    setReturnDamageNote({});
     const conditions: Record<string, string> = {};
     for (const line of detail.lines) {
       if (line.returned_at == null) conditions[line.id] = "good";
@@ -378,15 +393,34 @@ export default function StockLoansPage(): ReactNode {
       setReturnError("Pick where the stock-sourced units land.");
       return;
     }
+    const badDamage = openLines.find((line) => {
+      const raw = returnDamage[line.id];
+      if (raw === undefined || raw.trim() === "") return false;
+      const minor = Math.round(Number(raw) * 100);
+      return !Number.isFinite(minor) || minor <= 0;
+    });
+    if (badDamage !== undefined) {
+      setReturnError("A damage charge must be a positive amount.");
+      return;
+    }
     setReturnBusy(true);
     const result = await runEnvelopeMutation({
       describe: "Return client loan",
       entityId: detail.loan.id,
       buildBody: (base) => ({
-        lines: openLines.map((line) => ({
-          line_id: line.id,
-          return_condition: returnConditions[line.id] ?? null,
-        })),
+        lines: openLines.map((line) => {
+          const rawDamage = returnDamage[line.id] ?? "";
+          const damage = rawDamage.trim() === "" ? null : Math.round(Number(rawDamage) * 100);
+          const disposition = returnDispositions[line.id] ?? "issued";
+          const note = (returnDamageNote[line.id] ?? "").trim();
+          return {
+            line_id: line.id,
+            return_condition: returnConditions[line.id] ?? null,
+            disposition: disposition === "issued" ? null : disposition,
+            damage_charge_minor: damage,
+            damage_note: note === "" ? null : note,
+          };
+        }),
         notes: returnNotes.trim() === "" ? null : returnNotes,
         to_location_id: returnLocationId === "" ? null : returnLocationId,
         ...base,
@@ -809,6 +843,59 @@ export default function StockLoansPage(): ReactNode {
                           </Badge>
                         )}
                       </p>
+                      <div className="grid gap-1">
+                        <Label htmlFor={`return-disposition-${line.id}`}>Where it goes</Label>
+                        <Select
+                          value={returnDispositions[line.id] ?? "issued"}
+                          onValueChange={(value) =>
+                            setReturnDispositions((cur) => ({ ...cur, [line.id]: value }))
+                          }
+                        >
+                          <SelectTrigger
+                            id={`return-disposition-${line.id}`}
+                            aria-label={`Disposition for ${lineLabel(line)}`}
+                            data-testid={`loans-return-disposition-${line.id}`}
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {RETURN_DISPOSITIONS.map((disposition) => (
+                              <SelectItem key={disposition.value} value={disposition.value}>
+                                {disposition.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      {returnLoan.loan.is_lease ? (
+                        <div className="flex gap-2">
+                          <div className="w-32">
+                            <Label htmlFor={`return-damage-${line.id}`}>Damage charge</Label>
+                            <Input
+                              id={`return-damage-${line.id}`}
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={returnDamage[line.id] ?? ""}
+                              onChange={(e) =>
+                                setReturnDamage((cur) => ({ ...cur, [line.id]: e.target.value }))
+                              }
+                              data-testid={`loans-return-damage-${line.id}`}
+                            />
+                          </div>
+                          <div className="flex-1">
+                            <Label htmlFor={`return-damage-note-${line.id}`}>Damage note</Label>
+                            <Input
+                              id={`return-damage-note-${line.id}`}
+                              value={returnDamageNote[line.id] ?? ""}
+                              onChange={(e) =>
+                                setReturnDamageNote((cur) => ({ ...cur, [line.id]: e.target.value }))
+                              }
+                              data-testid={`loans-return-damage-note-${line.id}`}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
                       <div className="grid gap-1">
                         <Label htmlFor={`return-condition-${line.id}`}>Condition</Label>
                         <Select
