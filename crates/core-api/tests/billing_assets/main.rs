@@ -24,3 +24,4 @@ mod purchasing_flow;
 mod quote_catalog_flow;
 mod stock_flow;
 mod tools_loans_flow;
+mod vendor_rentals_flow;

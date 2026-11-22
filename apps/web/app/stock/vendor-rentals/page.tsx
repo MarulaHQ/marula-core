@@ -109,13 +109,18 @@ export default function VendorRentalsPage(): React.ReactNode {
   const returnSession = useRef(0);
 
   const requestSeq = useRef(0);
+  const filterRef = useRef(statusFilter);
+  filterRef.current = statusFilter;
 
   const refresh = useCallback(async (): Promise<void> => {
     const seq = ++requestSeq.current;
     setLoadError(null);
     try {
+      // Read the filter at request time: a mutation that completes after the
+      // operator changed the filter must refresh what they are looking at.
+      const status = filterRef.current;
       const res = await api.api.GET("/api/v1/vendor-rentals", {
-        params: { query: { status: statusFilter === "all" ? null : statusFilter } },
+        params: { query: { status: status === "all" ? null : status } },
       });
       if (seq !== requestSeq.current) return; // a newer filter owns the screen
       if (res.data === undefined) {
@@ -130,13 +135,13 @@ export default function VendorRentalsPage(): React.ReactNode {
     } finally {
       if (seq === requestSeq.current) setLoading(false);
     }
-  }, [statusFilter]);
+  }, []);
 
   useEffect(() => {
     if (auth.status !== "authed") return;
     setLoading(true);
     void refresh();
-  }, [auth.status, refresh]);
+  }, [auth.status, refresh, statusFilter]);
 
   const openCount = useMemo(() => rentals.filter((r) => r.status === "open").length, [rentals]);
 
@@ -186,11 +191,16 @@ export default function VendorRentalsPage(): React.ReactNode {
         }),
     });
     setCreateBusy(false);
-    if (session !== createSession.current) return; // the dialog moved on
     if (!result.ok) {
-      setCreateError(rejectionText(result, "The vendor rental was refused."));
+      if (session === createSession.current) {
+        setCreateError(rejectionText(result, "The vendor rental was refused."));
+      }
       return;
     }
+    // The write landed: refresh whatever register is on screen, whichever
+    // dialog session the operator has since opened.
+    await refresh();
+    if (session !== createSession.current) return; // the dialog moved on
     setCreateOpen(false);
     setVendorName("");
     setAssetTag("");
@@ -200,7 +210,6 @@ export default function VendorRentalsPage(): React.ReactNode {
     setEndOn("");
     setNotes("");
     setNotice("Vendor rental recorded.");
-    await refresh();
   };
 
   const openReturn = (rental: VendorRental): void => {
@@ -255,14 +264,16 @@ export default function VendorRentalsPage(): React.ReactNode {
       versions: (data) => [[data.rental.id, data.mutation.version]],
     });
     setReturnBusy(false);
-    if (session !== returnSession.current) return; // another unit was opened
     if (!result.ok) {
-      setReturnError(rejectionText(result, "The return was refused."));
+      if (session === returnSession.current) {
+        setReturnError(rejectionText(result, "The return was refused."));
+      }
       return;
     }
+    await refresh();
+    if (session !== returnSession.current) return; // another unit was opened
     setReturning(null);
     setNotice("Vendor rental returned.");
-    await refresh();
   };
 
   if (auth.status === "loading") return <Spinner />;
