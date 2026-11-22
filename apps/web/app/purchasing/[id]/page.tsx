@@ -18,6 +18,7 @@ import {
   DialogActions,
   DialogContent,
   EmptyState,
+  FieldError,
   FieldHint,
   Input,
   Label,
@@ -140,6 +141,18 @@ export default function PurchaseOrderPage(): ReactNode {
     allowOver: false,
   });
   const [receiveBusy, setReceiveBusy] = useState(false);
+  // The receipt a successful receive produced, so a cost layer can follow it
+  // while the documents are still in hand.
+  const [costReceipt, setCostReceipt] = useState<{ id: string; orderCurrency: string } | null>(null);
+  const [costOpen, setCostOpen] = useState(false);
+  const [costKind, setCostKind] = useState("freight");
+  const [costReference, setCostReference] = useState("");
+  const [costDate, setCostDate] = useState("");
+  const [costAmount, setCostAmount] = useState("");
+  const [costMethod, setCostMethod] = useState("extended_value");
+  const [costCapitalise, setCostCapitalise] = useState(true);
+  const [costError, setCostError] = useState<string | null>(null);
+  const [costBusy, setCostBusy] = useState(false);
   const [receiveError, setReceiveError] = useState<string | null>(null);
   const [receiveAllowVisible, setReceiveAllowVisible] = useState(false);
   const [receiveScanNotice, setReceiveScanNotice] = useState<string | null>(null);
@@ -381,7 +394,10 @@ export default function PurchaseOrderPage(): ReactNode {
     setReceiveBusy(true);
     // A receipt is a server-computed document with ledger side effects, so
     // the dialog waits for the response instead of patching locally.
-    const box: { next: PurchaseOrderDetail | null } = { next: null };
+    const box: { next: PurchaseOrderDetail | null; receiptId: string | null } = {
+      next: null,
+      receiptId: null,
+    };
     const result = await runEnvelopeMutation({
       describe: "Receive purchase order",
       buildBody: (base) => ({
@@ -400,7 +416,10 @@ export default function PurchaseOrderPage(): ReactNode {
           params: { path: { id: orderId } },
           body,
         });
-        if (response.data !== undefined) box.next = response.data.order;
+        if (response.data !== undefined) {
+          box.next = response.data.order;
+          box.receiptId = response.data.receipt.id;
+        }
         return response;
       },
       versions: (response) => [[response.receipt.id, response.mutation.version]],
@@ -417,8 +436,62 @@ export default function PurchaseOrderPage(): ReactNode {
       await refresh();
     }
     setReceiveOpen(false);
-    setNotice("Receipt recorded.");
+    setNotice("Receipt recorded. Add freight, duty or handling if the documents came with it.");
     setReceivedLines(received);
+    if (box.receiptId !== null) {
+      setCostReceipt({ id: box.receiptId, orderCurrency: detail?.order.currency ?? "USD" });
+    }
+  }
+
+  async function submitCostLayer(): Promise<void> {
+    const receipt = costReceipt;
+    if (receipt === null) return;
+    setCostError(null);
+    const amount = Math.round(Number(costAmount) * 100);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setCostError("The charge needs a positive amount.");
+      return;
+    }
+    if (costReference.trim() === "") {
+      setCostError("The document needs a reference; the accountant handoff cites it.");
+      return;
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(costDate)) {
+      setCostError("The document carries its own date.");
+      return;
+    }
+    setCostBusy(true);
+    const result = await runEnvelopeMutation({
+      describe: "Record an acquisition cost",
+      optimistic: () => {},
+      revert: () => {},
+      buildBody: (base) => ({
+        kind: costKind,
+        reference: costReference.trim(),
+        document_date: costDate,
+        currency: receipt.orderCurrency,
+        amount_minor: amount,
+        allocation_method: costMethod,
+        capitalise: costCapitalise,
+        ...base,
+      }),
+      request: (client, body) =>
+        client.POST("/api/v1/purchase-receipts/{id}/acquisition-costs", {
+          params: { path: { id: receipt.id } },
+          body: body as components["schemas"]["CreateAcquisitionCostRequest"],
+        }),
+    });
+    setCostBusy(false);
+    if (!result.ok) {
+      setCostError(rejectionText(result, "The cost layer was refused."));
+      return;
+    }
+    setCostOpen(false);
+    setCostReceipt(null);
+    setCostAmount("");
+    setCostReference("");
+    setCostDate("");
+    setNotice("Cost layer recorded on the receipt.");
   }
 
   /**
@@ -843,6 +916,33 @@ export default function PurchaseOrderPage(): ReactNode {
         <p className="text-xs" role="status" style={{ color: "var(--m-status-success-fg)" }} data-testid="purchasing-action-notice">
           {notice}
         </p>
+      )}
+      {costReceipt !== null && (
+        <div
+          className="flex flex-wrap items-center justify-between gap-2 rounded-md border p-3"
+          style={{ borderColor: "var(--m-border)" }}
+          data-testid="purchasing-cost-offer"
+        >
+          <p className="text-xs" style={{ color: "var(--m-text-secondary)" }}>
+            Freight, duty, brokerage, insurance or handling on this receipt? A layer locks its own
+            rate and splits across the lines.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => setCostReceipt(null)}>
+              Not now
+            </Button>
+            <Button
+              onClick={() => {
+                setCostOpen(true);
+                setCostDate(new Date().toISOString().slice(0, 10));
+                setCostError(null);
+              }}
+              data-testid="purchasing-cost-open"
+            >
+              Add a cost layer
+            </Button>
+          </div>
+        </div>
       )}
       {receivedLines.length > 0 && (
         <Card className="m-rise grid gap-2 p-4" data-testid="purchasing-received-dispatch">
@@ -1531,6 +1631,114 @@ export default function PurchaseOrderPage(): ReactNode {
               </Button>
               <Button disabled={receiveBusy} onClick={() => void submitReceive()} data-testid="purchasing-receive-submit">
                 Record receipt
+              </Button>
+            </DialogActions>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={costOpen}
+        onOpenChange={(open) => {
+          setCostOpen(open);
+          if (!open) setCostError(null);
+        }}
+      >
+        <DialogContent
+          title="Add a cost layer"
+          description="A charge document over this receipt. It never edits the receipt; a wrong layer is reversed, not changed."
+        >
+          <div className="grid gap-3 p-1">
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Label>Kind</Label>
+                <Select value={costKind} onValueChange={setCostKind}>
+                  <SelectTrigger className="w-full" aria-label="Cost kind" data-testid="purchasing-cost-kind">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="freight">Freight</SelectItem>
+                    <SelectItem value="duty">Duty</SelectItem>
+                    <SelectItem value="brokerage">Brokerage</SelectItem>
+                    <SelectItem value="insurance">Insurance</SelectItem>
+                    <SelectItem value="handling">Handling</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="w-40">
+                <Label htmlFor="cost-date">Document date</Label>
+                <Input
+                  id="cost-date"
+                  type="date"
+                  value={costDate}
+                  onChange={(e) => setCostDate(e.target.value)}
+                  data-testid="purchasing-cost-date"
+                />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Label htmlFor="cost-reference">Reference</Label>
+                <Input
+                  id="cost-reference"
+                  value={costReference}
+                  onChange={(e) => setCostReference(e.target.value)}
+                  placeholder="Freight invoice number"
+                  data-testid="purchasing-cost-reference"
+                />
+              </div>
+              <div className="w-32">
+                <Label htmlFor="cost-amount">Amount</Label>
+                <Input
+                  id="cost-amount"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={costAmount}
+                  onChange={(e) => setCostAmount(e.target.value)}
+                  data-testid="purchasing-cost-amount"
+                />
+              </div>
+              <div className="w-20">
+                <Label htmlFor="cost-currency">Currency</Label>
+                <Input id="cost-currency" value={costReceipt?.orderCurrency ?? ""} disabled />
+              </div>
+            </div>
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <Label>Split by</Label>
+                <Select value={costMethod} onValueChange={setCostMethod}>
+                  <SelectTrigger className="w-full" aria-label="Allocation method" data-testid="purchasing-cost-method">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="extended_value">Value</SelectItem>
+                    <SelectItem value="quantity">Quantity</SelectItem>
+                    <SelectItem value="weight">Weight</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <label className="flex flex-1 items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={costCapitalise}
+                  onChange={(e) => setCostCapitalise(e.target.checked)}
+                  data-testid="purchasing-cost-capitalise"
+                />
+                Add it to the receipt&apos;s worth
+              </label>
+            </div>
+            <FieldHint>
+              A layer either enters the receipt&apos;s cost or posts to the ticket under its own
+              reporting class; the organisation&apos;s landed-cost mode decides which.
+            </FieldHint>
+            {costError !== null ? <FieldError>{costError}</FieldError> : null}
+            <DialogActions>
+              <Button variant="secondary" onClick={() => setCostOpen(false)}>
+                Cancel
+              </Button>
+              <Button disabled={costBusy} onClick={() => void submitCostLayer()} data-testid="purchasing-cost-save">
+                {costBusy ? "Recording…" : "Record layer"}
               </Button>
             </DialogActions>
           </div>
