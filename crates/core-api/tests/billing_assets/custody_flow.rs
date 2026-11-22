@@ -59,6 +59,49 @@ async fn custody_answers_the_class_vocabulary_and_the_ledger() {
     let slug = format!("custody-{}", Uuid::now_v7().simple());
     let _ = token_email(&slug);
     let token = register_org_token(&app, "Custody Co", &slug).await;
+
+    // An empty organisation still answers the whole vocabulary, with zeroes.
+    let empty = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/v1/inventory/custody",
+            &[auth(&token)],
+            None,
+        )
+        .await,
+    )
+    .await;
+    let fixture_classes: Vec<String> = empty
+        .as_array()
+        .expect("class rows")
+        .iter()
+        .map(|row| row["custody_class"].as_str().unwrap().to_string())
+        .collect();
+    for class in [
+        "sale_stock",
+        "internal_fleet",
+        "rental_in",
+        "rental_out",
+        "client_custody",
+        "ewaste_custody",
+        "tools",
+        "sold",
+        "recycled",
+        "destroyed",
+        "returned",
+    ] {
+        assert!(
+            fixture_classes.iter().any(|c| c == class),
+            "the vocabulary lists {class}"
+        );
+    }
+    assert!(empty
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|row| row["total"] == json!(0)));
+
     let (item, location) = create_serialized(&app, &token).await;
 
     let response = send(
@@ -101,6 +144,74 @@ async fn custody_answers_the_class_vocabulary_and_the_ledger() {
     assert_eq!(sale_stock["serials"], json!(1));
     assert_eq!(sale_stock["total"], json!(1));
 
+    // Two class movements: a loan takes the serial out of sale stock, and the
+    // return puts it back.
+    let client = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/clients",
+        &[auth(&token)],
+        Some(json!({
+            "name": "Acme",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(client.status(), 200, "client");
+    let client: Value = body_json(client).await;
+    let serial_id = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/v1/stock-items/{item}/serials"),
+            &[auth(&token)],
+            None,
+        )
+        .await,
+    )
+    .await[0]["id"]
+        .as_str()
+        .expect("serial id")
+        .to_string();
+    let loan = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/client-loans",
+        &[auth(&token)],
+        Some(json!({
+            "client_id": client["id"],
+            "expected_return_at": (chrono::Utc::now() + chrono::Duration::days(7))
+                .date_naive()
+                .to_string(),
+            "items": [{ "stock_item_id": item, "serial_id": serial_id }],
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    let status = loan.status();
+    let loan: Value = body_json(loan).await;
+    assert_eq!(status, 200, "issue a loan: {loan}");
+    let line_id = loan["lines"][0]["id"]
+        .as_str()
+        .expect("loan line id")
+        .to_string();
+    let back = send(
+        &app,
+        axum::http::Method::POST,
+        &format!(
+            "/api/v1/client-loans/{}/return",
+            loan["loan"]["id"].as_str().unwrap()
+        ),
+        &[auth(&token)],
+        Some(json!({
+            "to_location_id": location,
+            "lines": [{ "line_id": line_id, "return_condition": "good" }],
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(back.status(), 200, "return the loan");
+
     let ledger = body_json(
         send(
             &app,
@@ -112,7 +223,36 @@ async fn custody_answers_the_class_vocabulary_and_the_ledger() {
         .await,
     )
     .await;
-    assert!(ledger.is_array(), "the ledger answers an array");
+    let rows = ledger.as_array().expect("the ledger answers an array");
+    assert!(
+        rows.len() >= 2,
+        "the loan wrote two movements, got {}",
+        rows.len()
+    );
+    assert!(
+        rows[0]["created_at"].as_str() >= rows[1]["created_at"].as_str(),
+        "newest first"
+    );
+    assert_eq!(rows[0]["unit_kind"], json!("serial"));
+    assert_eq!(rows[0]["to_class"], json!("sale_stock"));
+    assert_eq!(rows[0]["from_class"], json!("rental_out"));
+
+    let only_assets = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/v1/inventory/class-movements?unit_kind=asset",
+            &[auth(&token)],
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(
+        only_assets.as_array().expect("array").len(),
+        0,
+        "no asset moves"
+    );
 
     let refused = send(
         &app,

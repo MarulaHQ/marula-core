@@ -85,7 +85,13 @@ export default function CustodyPage(): React.ReactNode {
         return;
       }
       setClasses(classRes.data);
-      setMovements(ledgerRes.data ?? []);
+      if (ledgerRes.data === undefined) {
+        // Keep the ledger that is on screen: a failed refresh is not an empty
+        // ledger, and saying "no movements yet" would be a false answer.
+        setLoadError("The class ledger could not be loaded — the rows below may be stale.");
+        return;
+      }
+      setMovements(ledgerRes.data);
     } catch {
       if (seq === requestSeq.current) {
         setLoadError("Could not load the custody view — try reloading.");

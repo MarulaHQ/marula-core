@@ -4,4 +4,4 @@ bump: minor
 
 ### Added
 
-- See where every physical unit is: the custody class each stock serial and device asset sits in, the counts per class, and the append-only ledger of every move between them.
+- See how the physical units are held: how many stock serials and device assets sit in each custody class, and the append-only ledger of every move between classes, newest first.
