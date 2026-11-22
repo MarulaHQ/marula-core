@@ -645,21 +645,21 @@ async fn seed_g13_org(db: &common::TestDb, n: u64) -> G13Seed {
         (2_i32, "time_materials", "Remote support", 30000_i64),
         (1_i32, "fixed_fee", "Onsite visit", 480000_i64),
     ] {
-        sqlx::query(
+        sqlx::query!(
             "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind,
                  description, period_start, period_end, quantity_minutes,
                  unit_amount_minor, amount_minor, position, source_kind, source_id)
              VALUES ($1,$2,$3,$4,$5,$6,DATE '2026-01-01',DATE '2026-01-31',60,$7,$8,$9, 'contract_line', $4)",
+            Uuid::now_v7(),
+            org,
+            invoice,
+            contract,
+            kind,
+            description,
+            amount,
+            amount,
+            position,
         )
-        .bind(Uuid::now_v7())
-        .bind(org)
-        .bind(invoice)
-        .bind(contract)
-        .bind(kind)
-        .bind(description)
-        .bind(amount)
-        .bind(amount)
-        .bind(position)
         .execute(&mut *tx)
         .await
         .expect("invoice line");

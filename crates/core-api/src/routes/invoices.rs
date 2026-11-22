@@ -963,7 +963,7 @@ pub async fn create_run(
                 updated_at: chrono::Utc::now(),
             };
             invoice.validate()?;
-            let line_rows: Vec<InvoiceLine> = lines
+            let mut line_rows: Vec<InvoiceLine> = lines
                 .iter()
                 .enumerate()
                 .map(|(position, l)| {
@@ -1047,6 +1047,12 @@ pub async fn create_run(
                 )
                 .execute(&mut *ctx.tx)
                 .await?;
+                // The response and the stored replay carry the same source a
+                // later read reports: the charge, not the contract.
+                for (i, line) in rental_lines.iter().enumerate() {
+                    line_rows[rental_base + i].source_kind = "rental_charge".to_string();
+                    line_rows[rental_base + i].source_id = line.charge_id;
+                }
             }
             // Wave-39 aggregate side effects (same transaction: a failure
             // rolls the whole run back):

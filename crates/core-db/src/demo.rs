@@ -2457,22 +2457,22 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     .bind(owner)
     .execute(&mut *tx)
     .await?;
-    sqlx::query(
+    sqlx::query!(
         "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description,
                                     period_start, period_end, quantity_minutes,
                                     unit_amount_minor, amount_minor, position, source_kind, source_id)
          VALUES ($1, $2, $3, $4, 'recurring_base', $5, $6, $7, 0, 50000, 50000, 1, 'contract_line', $4)",
+        demo_uuid(210),
+        DEMO_ORG_ID,
+        invoice_paid_id,
+        contract_recurring,
+        format!(
+            "Acme Managed Support — monthly base ({} … {})",
+            period_from, period_to
+        ),
+        period_from,
+        period_to,
     )
-    .bind(demo_uuid(210))
-    .bind(DEMO_ORG_ID)
-    .bind(invoice_paid_id)
-    .bind(contract_recurring)
-    .bind(format!(
-        "Acme Managed Support — monthly base ({} … {})",
-        period_from, period_to
-    ))
-    .bind(period_from)
-    .bind(period_to)
     .execute(&mut *tx)
     .await?;
     sqlx::query(
@@ -2534,25 +2534,23 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
             continue;
         }
         let amount = (minutes * rate + 30) / 60;
-        sqlx::query(
+        sqlx::query!(
             "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description,
                                         period_start, period_end, quantity_minutes,
                                         unit_amount_minor, amount_minor, position, source_kind, source_id)
              VALUES ($1, $2, $3, $4, 'time_materials', $5, $6, $7, $8, $9, $10, $11, 'contract_line', $4)",
+            demo_uuid(211 + position as u64),
+            DEMO_ORG_ID,
+            invoice_dunning_id,
+            contract_tm,
+            format!("Northwind Break-Fix labor: {minutes} min at {rate}/h ({work_type})"),
+            period_from,
+            period_to,
+            minutes,
+            rate,
+            amount,
+            position,
         )
-        .bind(demo_uuid(211 + position as u64))
-        .bind(DEMO_ORG_ID)
-        .bind(invoice_dunning_id)
-        .bind(contract_tm)
-        .bind(format!(
-            "Northwind Break-Fix labor: {minutes} min at {rate}/h ({work_type})"
-        ))
-        .bind(period_from)
-        .bind(period_to)
-        .bind(minutes)
-        .bind(rate)
-        .bind(amount)
-        .bind(position)
         .execute(&mut *tx)
         .await?;
         position += 1;
@@ -2621,23 +2619,23 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     .bind(bookkeeper)
     .execute(&mut *tx)
     .await?;
-    sqlx::query(
+    sqlx::query!(
         "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description,
                                     period_start, period_end, quantity_minutes,
                                     unit_amount_minor, amount_minor, position, source_kind, source_id)
          VALUES ($1, $2, $3, $4, 'recurring_base', $5, $6, $7, 0, 50000, 50000, 1, 'contract_line', $4)",
-    )
-    .bind(demo_uuid(410))
-    .bind(DEMO_ORG_ID)
-    .bind(invoice_draft_id)
-    .bind(contract_recurring)
-    .bind(format!(
-        "Acme Managed Support — monthly base ({} … {})",
+        demo_uuid(410),
+        DEMO_ORG_ID,
+        invoice_draft_id,
+        contract_recurring,
+        format!(
+            "Acme Managed Support — monthly base ({} … {})",
+            today.with_day(1).unwrap_or(today),
+            today
+        ),
         today.with_day(1).unwrap_or(today),
-        today
-    ))
-    .bind(today.with_day(1).unwrap_or(today))
-    .bind(today)
+        today,
+    )
     .execute(&mut *tx)
     .await?;
     trail_system_write(
@@ -2680,19 +2678,19 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     .bind(bookkeeper)
     .execute(&mut *tx)
     .await?;
-    sqlx::query(
+    sqlx::query!(
         "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description,
                                     period_start, period_end, quantity_minutes,
                                     unit_amount_minor, amount_minor, position, source_kind, source_id)
          VALUES ($1, $2, $3, $4, 'per_incident', $5, $6, $7, 0, 45000, 45000, 1, 'contract_line', $4)",
+        demo_uuid(411),
+        DEMO_ORG_ID,
+        invoice_overdue_id,
+        contract_incident,
+        "Globex P1 coverage — two closed P1 incidents in the period",
+        overdue_issued,
+        overdue_issued,
     )
-    .bind(demo_uuid(411))
-    .bind(DEMO_ORG_ID)
-    .bind(invoice_overdue_id)
-    .bind(contract_incident)
-    .bind("Globex P1 coverage — two closed P1 incidents in the period".to_string())
-    .bind(overdue_issued)
-    .bind(overdue_issued)
     .execute(&mut *tx)
     .await?;
     trail_system_write(

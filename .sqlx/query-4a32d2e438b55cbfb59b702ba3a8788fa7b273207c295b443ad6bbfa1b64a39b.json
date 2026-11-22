@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE invoice_lines SET source_kind = NULL, source_id = NULL WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4a32d2e438b55cbfb59b702ba3a8788fa7b273207c295b443ad6bbfa1b64a39b"
+}

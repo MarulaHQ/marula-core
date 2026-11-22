@@ -1,0 +1,41 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT il.invoice_id, i.client_id,\n                  il.source_kind, il.source_id\n             FROM invoice_lines il\n             JOIN invoices i ON i.org_id = il.org_id AND i.id = il.invoice_id\n            WHERE il.org_id = $1 AND il.id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "invoice_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "source_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "source_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true
+    ]
+  },
+  "hash": "dacdb3be1059e555286b1515b62b93e05dac43c99ff190dec294a60f2048b7c2"
+}

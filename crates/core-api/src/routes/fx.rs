@@ -185,6 +185,50 @@ pub(crate) async fn lock_snapshot(
     }))
 }
 
+/// The rate for `currency -> org base` on `as_of`, without converting an
+/// amount, plus the base currency it resolves to. `None` for the rate when the
+/// fact is already in the base currency. The candidate-billing path needs the
+/// rate itself so each of its lines converts at the same locked rate.
+pub(crate) async fn resolve_lock_rate(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_id: Uuid,
+    currency: &str,
+    as_of: NaiveDate,
+) -> ApiResult<(String, Option<(FxRate, String, NaiveDate, String)>)> {
+    core_db::set_org(tx, org_id).await.map_err(ApiError::from)?;
+    let base = core_db::fx::base_currency(&mut **tx, org_id)
+        .await
+        .map_err(ApiError::from)?;
+    if currency == base {
+        return Ok((base, None));
+    }
+    let provider = ManualFxRateProvider;
+    let req = FxRateRequest {
+        org_id,
+        from: CurrencyCode::new(currency)
+            .map_err(|_| ApiError::Validation(format!("invalid currency code: {currency}")))?,
+        to: CurrencyCode::new(&base)
+            .map_err(|_| ApiError::Validation(format!("invalid base currency code: {base}")))?,
+        as_of,
+    };
+    let rate = provider
+        .resolve_in_tx(&mut *tx, &req)
+        .await
+        .map_err(|e| match e {
+            FxError::NoRate { from, to, as_of } => ApiError::Validation(format!(
+                "no fx rate recorded for {from}->{to} effective {as_of}; record one before entering this cross-currency fact"
+            )),
+            other => ApiError::Internal(anyhow::anyhow!("fx provider error: {other}")),
+        })?;
+    // The snapshot columns for a zero amount: the rate text, its date and the
+    // provider name, with the actual base amounts computed per line by the
+    // caller. One rate object, one text, for every line of the document.
+    let probe = Money::new(0, req.from.clone());
+    let snapshot = FxSnapshot::lock(&probe, &req.to, rate.clone(), as_of, provider.name())
+        .map_err(|e| ApiError::Validation(e.to_string()))?;
+    let (rate_used, rate_date, source, _) = snapshot.columns();
+    Ok((base, Some((rate, rate_used, rate_date, source.to_string()))))
+}
 // --- wire structs ------------------------------------------------------------
 
 #[derive(Debug, Deserialize, Serialize, ToSchema)]

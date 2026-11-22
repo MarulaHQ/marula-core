@@ -93,7 +93,8 @@ pub struct IssueCreditNoteRequest {
 /// One corrected line on the credit being issued.
 #[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
 pub struct CreditLineInput {
-    /// `cost_line`, `expense`, `rental_charge` or `contract_line`.
+    /// `ticket_cost_line`, `ticket_expense`, `rental_charge` or
+    /// `contract_line`.
     pub source_kind: String,
     #[schema(value_type = uuid::Uuid)]
     pub source_id: Uuid,
@@ -290,12 +291,22 @@ pub async fn issue(
         // The lines must account for the whole credit: a document and its
         // detail that disagree are two answers to one question.
         if !req.lines.is_empty() {
-            let sum: i64 = req.lines.iter().map(|line| line.amount_minor).sum();
-            if sum != req.total_minor {
-                return Err(ApiError::Validation(format!(
-                    "the lines sum to {sum} but total_minor is {}",
-                    req.total_minor
-                )));
+            let sum = req.lines.iter().try_fold(0i64, |acc, line| {
+                acc.checked_add(line.amount_minor)
+            });
+            match sum {
+                Some(sum) if sum == req.total_minor => {}
+                Some(sum) => {
+                    return Err(ApiError::Validation(format!(
+                        "the lines sum to {sum} but total_minor is {}",
+                        req.total_minor
+                    )))
+                }
+                None => {
+                    return Err(ApiError::Validation(
+                        "the lines sum beyond the money range".into(),
+                    ))
+                }
             }
         }
         let id = Uuid::now_v7();
@@ -317,30 +328,50 @@ pub async fn issue(
                     "quantity_minutes cannot be negative".into(),
                 ));
             }
-            if !core_db::credit_notes::source_in_org(
+            if !core_db::credit_notes::source_for_client_in_org(
                 &mut ctx.tx,
                 ctx.org_id,
+                req.client_id,
                 &line.source_kind,
                 line.source_id,
             )
             .await?
             {
                 return Err(ApiError::Validation(format!(
-                    "source {} {} is not in this organisation",
+                    "source {} {} is not this client's row in this organisation",
                     line.source_kind, line.source_id
                 )));
             }
+            // A line that names an invoice line must agree with it: the same
+            // document the credit is raised against, the same client, and the
+            // same source. Otherwise the credit would correct one charge while
+            // claiming another.
             if let Some(invoice_line_id) = line.invoice_line_id {
-                if !core_db::credit_notes::invoice_line_for_client_in_org(
+                let binding = core_db::credit_notes::invoice_line_binding(
                     &mut ctx.tx,
                     ctx.org_id,
-                    req.client_id,
                     invoice_line_id,
                 )
-                .await?
-                {
+                .await?;
+                let binding = binding.ok_or_else(|| {
+                    ApiError::Validation("the corrected invoice line is not in this organisation".into())
+                })?;
+                if binding.client_id != req.client_id {
                     return Err(ApiError::Validation(
                         "the corrected invoice line is not this client's line".into(),
+                    ));
+                }
+                if let Some(credit_invoice) = req.invoice_id {
+                    if binding.invoice_id != credit_invoice {
+                        return Err(ApiError::Validation(
+                            "the corrected invoice line belongs to another invoice".into(),
+                        ));
+                    }
+                }
+                if binding.source_kind != line.source_kind || binding.source_id != line.source_id {
+                    return Err(ApiError::Validation(
+                        "the line's source differs from the source of the invoice line it corrects"
+                            .into(),
                     ));
                 }
             }

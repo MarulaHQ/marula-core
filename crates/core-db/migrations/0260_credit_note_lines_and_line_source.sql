@@ -75,6 +75,20 @@ CREATE TRIGGER credit_note_lines_no_delete
   BEFORE DELETE ON credit_note_lines
   FOR EACH ROW EXECUTE FUNCTION credit_note_lines_append_only();
 
+-- A billable ticket expense is its own line kind. The fixed-fee unique index
+-- keys on (contract, kind, period_start, description), so two expenses that
+-- share a description no longer collide: the kind and the source tell them
+-- apart.
+ALTER TABLE invoice_lines DROP CONSTRAINT invoice_lines_kind_check;
+ALTER TABLE invoice_lines
+  ADD CONSTRAINT invoice_lines_kind_check
+  CHECK (kind IN ('recurring_base','retainer_base','retainer_overage',
+                  'time_materials','fixed_fee','per_unit_base','per_incident',
+                  'block_sale','block_drawdown','cap_overage','minimum_trueup',
+                  'change_order','sla_credit','escalator','project_release',
+                  'rental','expense')) NOT VALID;
+ALTER TABLE invoice_lines VALIDATE CONSTRAINT invoice_lines_kind_check;
+
 -- The invoice vocabulary gains two words. A ticket expense billed onto an
 -- invoice is a distinct source from the cost line beside it, and a line the
 -- contract itself produced (a recurring base, a fixed fee) names its contract
@@ -95,8 +109,23 @@ UPDATE invoice_lines
    SET source_kind = 'contract_line', source_id = contract_id
  WHERE source_kind IS NULL;
 
+-- A written invoice line names its source. Two shapes are tolerated on
+-- INSERT because a rolling deploy runs this migration before the new release
+-- starts: the previous release writes a sourceless line, and stamping it with
+-- the contract keeps invoice creation working until it drains. An UPDATE is
+-- always refused when it would take the source away, so nothing can strip a
+-- line once it is written.
 CREATE OR REPLACE FUNCTION invoice_lines_source_required() RETURNS trigger AS $$
 BEGIN
+  IF NEW.source_kind IS NULL AND NEW.source_id IS NULL THEN
+    IF TG_OP = 'UPDATE' THEN
+      RAISE EXCEPTION 'an invoice line cannot lose its source: invoice_line %',
+        NEW.id
+        USING ERRCODE = 'check_violation';
+    END IF;
+    NEW.source_kind := 'contract_line';
+    NEW.source_id := NEW.contract_id;
+  END IF;
   IF NEW.source_kind IS NULL OR NEW.source_id IS NULL THEN
     RAISE EXCEPTION 'an invoice line names its source: invoice_line %',
       NEW.id

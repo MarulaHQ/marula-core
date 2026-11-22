@@ -938,7 +938,7 @@ async fn invoicing_permissions_and_rls() {
     assert_eq!(error_reason(&body_json(response).await), "conflict");
 }
 
-// --- candidate billing (Wave 76 W76-6) ----------------------------------------
+// --- candidate billing --------------------------------------------------------
 
 async fn first_board(app: &Router, org: &Org) -> Uuid {
     let body = body_json(
@@ -1094,4 +1094,79 @@ async fn candidates_bill_once_and_each_line_names_its_source() {
     )
     .await;
     assert_eq!(again.status(), 409, "already billed");
+}
+
+/// Two expenses with one description are two invoice lines, not a collision:
+/// the expense kind is not a period-dedupe kind, so the fixed-fee index never
+/// sees them, and each line names its own expense.
+#[tokio::test]
+async fn expenses_with_one_description_bill_as_two_lines() {
+    let (_state, app) = test_state().await;
+    let slug = format!("bill-exp-{}", Uuid::now_v7().simple());
+    let org = register_org(&app, slug).await;
+    let client = create_client(&app, &org, "Contoso").await;
+    let contract = create_contract(
+        &app,
+        &org,
+        client,
+        json!({
+            "number": format!("C-{}", Uuid::now_v7().simple()),
+            "name": "Expenses agreement",
+            "contract_type": "time_and_materials",
+            "status": "active",
+            "currency": "USD",
+            "effective_from": "2026-01-01",
+            "hourly_rate_minor": 12_000,
+        }),
+    )
+    .await;
+    let contract_id = contract["id"].as_str().unwrap().to_string();
+    let board = first_board(&app, &org).await;
+    let ticket = create_ticket(&app, &org, board, client).await;
+
+    let mut expense_ids = Vec::new();
+    for _ in 0..2 {
+        let response = send(
+            &app,
+            axum::http::Method::POST,
+            &format!("/api/tickets/{ticket}/expenses"),
+            Some(&org.token),
+            Some(json!({
+                "description": "Courier",
+                "amount_minor": 250,
+                "currency": "USD",
+                "billable": true,
+                "idempotency_key": Uuid::now_v7().to_string(),
+            })),
+        )
+        .await;
+        assert_eq!(response.status(), 200, "expense create");
+        let body = body_json(response).await;
+        expense_ids.push(body["expense"]["id"].as_str().unwrap().to_string());
+    }
+
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/invoice-candidates/bill",
+        Some(&org.token),
+        Some(json!({
+            "contract_id": contract_id,
+            "expense_ids": expense_ids,
+            "due_on": "2026-12-31",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    let status = response.status();
+    let billed = body_json(response).await;
+    assert_eq!(status, 200, "expenses bill: {billed}");
+    assert_eq!(billed["invoice"]["total_minor"], json!(500));
+    let lines = billed["lines"].as_array().unwrap();
+    assert_eq!(lines.len(), 2, "two expenses, two lines");
+    for line in lines {
+        assert_eq!(line["kind"], json!("expense"));
+        assert_eq!(line["source_kind"], json!("ticket_expense"));
+    }
+    assert_ne!(lines[0]["source_id"], lines[1]["source_id"]);
 }

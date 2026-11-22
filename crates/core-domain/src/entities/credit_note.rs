@@ -121,9 +121,6 @@ impl CreditNote {
     }
 }
 
-/// One allocation of credit-note value onto an invoice. The money move
-/// itself is the paired invoice payment receipt (provider `credit_note`);
-/// this row is the credit-side ledger.
 /// One corrected line on a credit note. The source pair names what the credit
 /// corrects, using the vocabulary invoice lines carry; `disposition` is what
 /// happened to a physical unit the correction gives back, in the return path's
@@ -178,6 +175,9 @@ pub fn is_credit_line_disposition(disposition: &str) -> bool {
     CREDIT_LINE_DISPOSITIONS.contains(&disposition)
 }
 
+/// One allocation of credit-note value onto an invoice. The money move
+/// itself is the paired invoice payment receipt (provider `credit_note`);
+/// this row is the credit-side ledger.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 #[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
 pub struct CreditNoteApplication {

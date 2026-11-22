@@ -171,9 +171,9 @@ where
                                  currency, period_from, period_to, issued_at, due_on,
                                  total_minor, total_paid_minor, dunning_state,
                                  fx_rate_used, fx_rate_date, fx_source, base_total_minor,
-                                 po_number, created_by)
+                                 po_number, notes, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15,
-                   $16::text::numeric, $17, $18, $19, $20, $21)"#,
+                   $16::text::numeric, $17, $18, $19, $20, $21, $22)"#,
         invoice.id,
         invoice.org_id,
         invoice.run_id,
@@ -194,6 +194,7 @@ where
         invoice.fx_source,
         invoice.base_total_minor,
         invoice.po_number,
+        invoice.notes,
         invoice.created_by,
     )
     .execute(executor)
@@ -247,10 +248,9 @@ where
     let source_kinds: Vec<String> = lines.iter().map(|l| l.source_kind.clone()).collect();
     let source_ids: Vec<Uuid> = lines.iter().map(|l| l.source_id).collect();
     let positions: Vec<i32> = lines.iter().enumerate().map(|(i, _)| i as i32).collect();
-    // Dynamic (not macro) on purpose: the optional FX snapshot columns
-    // ride as text with "" ⇒ NULL sentinels, and the same optional-array
-    // shape is what costs.rs/assets.rs already do dynamically.
-    sqlx::query(
+    // The optional FX snapshot columns ride as text with "" => NULL
+    // sentinels, which the macro types as text and the statement casts.
+    sqlx::query!(
         r#"INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description,
                                       period_start, period_end, quantity_minutes,
                                       unit_amount_minor, amount_minor,
@@ -271,25 +271,25 @@ where
                      unit_amount_minor, amount_minor,
                      fx_rate_used, fx_rate_date, fx_source, base_amount_minor,
                      source_kind, source_id, position)"#,
+        &ids,
+        &orgs,
+        &invoices,
+        &contracts,
+        &kinds,
+        &descriptions,
+        &starts,
+        &ends,
+        &minutes,
+        &units,
+        &amounts,
+        &fx_rates,
+        &fx_dates,
+        &fx_sources,
+        &base_amounts,
+        &source_kinds,
+        &source_ids,
+        &positions,
     )
-    .bind(&ids)
-    .bind(&orgs)
-    .bind(&invoices)
-    .bind(&contracts)
-    .bind(&kinds)
-    .bind(&descriptions)
-    .bind(&starts)
-    .bind(&ends)
-    .bind(&minutes)
-    .bind(&units)
-    .bind(&amounts)
-    .bind(&fx_rates)
-    .bind(&fx_dates)
-    .bind(&fx_sources)
-    .bind(&base_amounts)
-    .bind(&source_kinds)
-    .bind(&source_ids)
-    .bind(&positions)
     .execute(executor)
     .await?;
     Ok(())
@@ -1054,6 +1054,10 @@ where
 /// What the caller wants billed, and under which contract.
 pub struct BillCandidatesRequest {
     pub contract_id: Uuid,
+    /// The rate the invoice and its lines lock, when the contract's currency
+    /// is not the organisation's base. Resolved by the caller in the same
+    /// transaction, the way the invoice run resolves it.
+    pub fx: Option<CandidateFx>,
     pub cost_line_ids: Vec<Uuid>,
     pub expense_ids: Vec<Uuid>,
     pub period_from: Option<chrono::NaiveDate>,
@@ -1061,6 +1065,15 @@ pub struct BillCandidatesRequest {
     pub due_on: chrono::NaiveDate,
     pub notes: Option<String>,
     pub created_by: Uuid,
+}
+
+/// The conversion a candidate invoice locks: the rate itself for per-line
+/// base amounts, and the snapshot columns the header stores.
+pub struct CandidateFx {
+    pub rate: core_domain::fx::FxRate,
+    pub rate_used: String,
+    pub rate_date: chrono::NaiveDate,
+    pub source: String,
 }
 
 /// Bills the named ticket cost lines and expenses onto one new issued invoice,
@@ -1179,6 +1192,34 @@ pub async fn bill_candidates(
         ));
     }
 
+    // One canonical conversion point: every line's base amount applies the
+    // same rate to its own amount, and the header's base total is their sum,
+    // so the reconciliation read model cross-foots exactly.
+    let base_of = |minor: i64| -> DbResult<Option<i64>> {
+        match &req.fx {
+            Some(fx) => {
+                let code = core_domain::money::CurrencyCode::new(&currency)
+                    .map_err(|e| DbError::Conflict(e.to_string()))?;
+                let converted = core_domain::money::Money::new(minor, code)
+                    .convert(&fx.rate)
+                    .map_err(|e| DbError::Conflict(e.to_string()))?;
+                Ok(Some(converted.minor))
+            }
+            None => Ok(None),
+        }
+    };
+    let line_bases: Vec<Option<i64>> = candidates
+        .iter()
+        .map(|candidate| base_of(candidate.amount_minor))
+        .collect::<DbResult<_>>()?;
+    let base_total = match &req.fx {
+        Some(_) => Some(line_bases.iter().flatten().try_fold(0i64, |acc, base| {
+            acc.checked_add(*base)
+                .ok_or_else(|| DbError::Conflict("the base total exceeds the money range".into()))
+        })?),
+        None => None,
+    };
+
     let invoice = Invoice {
         id: invoice_id,
         org_id,
@@ -1197,10 +1238,10 @@ pub async fn bill_candidates(
         dunning_state: DunningState::None,
         dunning_updated_at: None,
         dunning_note: None,
-        fx_rate_used: None,
-        fx_rate_date: None,
-        fx_source: None,
-        base_total_minor: None,
+        fx_rate_used: req.fx.as_ref().map(|fx| fx.rate_used.clone()),
+        fx_rate_date: req.fx.as_ref().map(|fx| fx.rate_date),
+        fx_source: req.fx.as_ref().map(|fx| fx.source.clone()),
+        base_total_minor: base_total,
         po_number: None,
         notes: req.notes.clone(),
         created_by: Some(req.created_by),
@@ -1214,8 +1255,11 @@ pub async fn bill_candidates(
 
     let mut lines = Vec::with_capacity(candidates.len());
     for (position, candidate) in candidates.iter().enumerate() {
+        // An expense is its own kind: the fixed-fee unique index keys on
+        // (contract, kind, period_start, description), so two expenses that
+        // share a description are two lines rather than a collision.
         let kind = if candidate.kind == "ticket_expense" {
-            BillingLineKind::FixedFee
+            BillingLineKind::Expense
         } else {
             BillingLineKind::TimeMaterials
         };
@@ -1231,10 +1275,10 @@ pub async fn bill_candidates(
             quantity_minutes: 0,
             unit_amount_minor: candidate.amount_minor,
             amount_minor: candidate.amount_minor,
-            fx_rate_used: None,
-            fx_rate_date: None,
-            fx_source: None,
-            base_amount_minor: None,
+            base_amount_minor: line_bases[position],
+            fx_rate_used: req.fx.as_ref().map(|fx| fx.rate_used.clone()),
+            fx_rate_date: req.fx.as_ref().map(|fx| fx.rate_date),
+            fx_source: req.fx.as_ref().map(|fx| fx.source.clone()),
             source_kind: candidate.kind.to_string(),
             source_id: candidate.line_id,
             position: position as i32,

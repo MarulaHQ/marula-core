@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description, period_start, period_end, unit_amount_minor, amount_minor, source_kind) VALUES ($1, $2, $3, $4, 'fixed_fee', 'Half', DATE '2026-01-01', DATE '2026-01-31', 500, 500, 'contract_line')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "56d959c43ab1a7c3cc1cdc7181f8bdb7f31990bbae47e3da6d204a44d05a6c18"
+}

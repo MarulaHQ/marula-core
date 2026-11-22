@@ -252,8 +252,9 @@ pub struct InvoiceLine {
     pub fx_source: Option<String>,
     pub base_amount_minor: Option<i64>,
     /// What this line bills, in the vocabulary `credit_note_lines` also uses:
-    /// `contract_line`, `rental_charge`, `cost_line` or `expense`. A rental
-    /// line is re-labelled with its charge id once the charge is written.
+    /// `contract_line`, `rental_charge`, `ticket_cost_line` or
+    /// `ticket_expense`. A rental line is re-labelled with its charge id once
+    /// the charge is written.
     pub source_kind: String,
     #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
     pub source_id: uuid::Uuid,

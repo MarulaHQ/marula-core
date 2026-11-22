@@ -313,49 +313,64 @@ where
     Ok(rows)
 }
 
-/// Whether the row a credit line names exists in this organisation. The source
-/// vocabulary is polymorphic, so each kind names its own table. A credit that
-/// cites a row outside the org, or one that never existed, is a claim about
-/// nothing.
-pub async fn source_in_org(
+/// Whether the row a credit line names exists in this organisation AND
+/// belongs to the client the credit is raised for. The source vocabulary is
+/// polymorphic, so each kind names its own table; a ticket line belongs to its
+/// ticket's client, and a contract line or rental charge to its contract's.
+pub async fn source_for_client_in_org(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
+    client_id: Uuid,
     source_kind: &str,
     source_id: Uuid,
 ) -> DbResult<bool> {
     let found: Option<bool> = match source_kind {
         "ticket_cost_line" => {
             sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM ticket_cost_lines WHERE org_id = $1 AND id = $2)",
+                r#"SELECT EXISTS(
+                 SELECT 1 FROM ticket_cost_lines c
+                   JOIN tickets t ON t.org_id = c.org_id AND t.id = c.ticket_id
+                  WHERE c.org_id = $1 AND c.id = $2 AND t.client_id = $3)"#,
                 org_id,
                 source_id,
+                client_id,
             )
             .fetch_one(&mut *conn)
             .await?
         }
         "ticket_expense" => {
             sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM ticket_expenses WHERE org_id = $1 AND id = $2)",
+                r#"SELECT EXISTS(
+                 SELECT 1 FROM ticket_expenses e
+                   JOIN tickets t ON t.org_id = e.org_id AND t.id = e.ticket_id
+                  WHERE e.org_id = $1 AND e.id = $2 AND t.client_id = $3)"#,
                 org_id,
                 source_id,
+                client_id,
             )
             .fetch_one(&mut *conn)
             .await?
         }
         "rental_charge" => {
             sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM rental_charges WHERE org_id = $1 AND id = $2)",
+                r#"SELECT EXISTS(
+                 SELECT 1 FROM rental_charges
+                  WHERE org_id = $1 AND id = $2 AND client_id = $3)"#,
                 org_id,
                 source_id,
+                client_id,
             )
             .fetch_one(&mut *conn)
             .await?
         }
         "contract_line" => {
             sqlx::query_scalar!(
-                "SELECT EXISTS(SELECT 1 FROM contracts WHERE org_id = $1 AND id = $2)",
+                r#"SELECT EXISTS(
+                 SELECT 1 FROM contracts
+                  WHERE org_id = $1 AND id = $2 AND client_id = $3)"#,
                 org_id,
                 source_id,
+                client_id,
             )
             .fetch_one(&mut *conn)
             .await?
@@ -369,25 +384,37 @@ pub async fn source_in_org(
     Ok(found.unwrap_or(false))
 }
 
-/// Whether an invoice line belongs to this organisation and to the client the
-/// credit is raised for. A credit that names another client's line would put
-/// one client's charge on another client's credit.
-pub async fn invoice_line_for_client_in_org(
+/// What a corrected invoice line is: the invoice it sits on, the client that
+/// invoice belongs to, and the source it already names. A credit that names a
+/// line must agree with all three, or it would put one charge on another
+/// document and claim a source the line does not carry.
+pub struct InvoiceLineBinding {
+    pub invoice_id: Uuid,
+    pub client_id: Uuid,
+    pub source_kind: String,
+    pub source_id: Uuid,
+}
+
+pub async fn invoice_line_binding(
     conn: &mut sqlx::PgConnection,
     org_id: Uuid,
-    client_id: Uuid,
     invoice_line_id: Uuid,
-) -> DbResult<bool> {
-    let found = sqlx::query_scalar!(
-        r#"SELECT EXISTS(
-             SELECT 1 FROM invoice_lines il
-               JOIN invoices i ON i.org_id = il.org_id AND i.id = il.invoice_id
-              WHERE il.org_id = $1 AND il.id = $2 AND i.client_id = $3)"#,
+) -> DbResult<Option<InvoiceLineBinding>> {
+    let row = sqlx::query!(
+        r#"SELECT il.invoice_id, i.client_id,
+                  il.source_kind, il.source_id
+             FROM invoice_lines il
+             JOIN invoices i ON i.org_id = il.org_id AND i.id = il.invoice_id
+            WHERE il.org_id = $1 AND il.id = $2"#,
         org_id,
         invoice_line_id,
-        client_id,
     )
-    .fetch_one(&mut *conn)
+    .fetch_optional(&mut *conn)
     .await?;
-    Ok(found.unwrap_or(false))
+    Ok(row.map(|r| InvoiceLineBinding {
+        invoice_id: r.invoice_id,
+        client_id: r.client_id,
+        source_kind: r.source_kind.unwrap_or_else(|| "contract_line".to_string()),
+        source_id: r.source_id.unwrap_or_default(),
+    }))
 }

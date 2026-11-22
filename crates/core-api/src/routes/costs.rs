@@ -1084,6 +1084,44 @@ pub async fn list_candidates(
     ))
 }
 
+/// The tickets whose lines the request names, so board access can be checked
+/// before anything is marked billed.
+async fn candidate_ticket_ids(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    cost_line_ids: &[Uuid],
+    expense_ids: &[Uuid],
+) -> ApiResult<Vec<Uuid>> {
+    let mut tickets: Vec<Uuid> = Vec::new();
+    if !cost_line_ids.is_empty() {
+        let rows = sqlx::query_scalar!(
+            r#"SELECT DISTINCT ticket_id FROM ticket_cost_lines
+                WHERE org_id = $1 AND id = ANY($2)"#,
+            org_id,
+            cost_line_ids,
+        )
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(ApiError::from)?;
+        tickets.extend(rows);
+    }
+    if !expense_ids.is_empty() {
+        let rows = sqlx::query_scalar!(
+            r#"SELECT DISTINCT ticket_id FROM ticket_expenses
+                WHERE org_id = $1 AND id = ANY($2)"#,
+            org_id,
+            expense_ids,
+        )
+        .fetch_all(&mut *conn)
+        .await
+        .map_err(ApiError::from)?;
+        tickets.extend(rows);
+    }
+    tickets.sort_unstable();
+    tickets.dedup();
+    Ok(tickets)
+}
+
 /// What to bill, and under which contract.
 #[derive(Debug, Deserialize, Serialize, ToSchema)]
 pub struct BillCandidatesRequest {
@@ -1174,12 +1212,41 @@ pub async fn bill_candidates(
             &authed.principal,
         )
         .await?;
+        // Board access is the same gate the ticket-cost reads and mutations
+        // apply. A caller who cannot see a candidate's board cannot bill its
+        // line: the invoice would reveal the description and mark it billed.
+        for ticket_id in
+            candidate_ticket_ids(&mut ctx.tx, org_id, &req.cost_line_ids, &req.expense_ids).await?
+        {
+            ticket_for_board_check(
+                &mut ctx.tx,
+                &authed.principal,
+                org_id,
+                ticket_id,
+                BoardOp::WorkTicket,
+            )
+            .await?;
+        }
+        let today = chrono::Utc::now().date_naive();
+        let (_base, resolved) =
+            crate::routes::fx::resolve_lock_rate(&mut ctx.tx, org_id, &contract.currency, today)
+                .await?;
+        let fx =
+            resolved.map(
+                |(rate, rate_used, rate_date, source)| core_db::invoices::CandidateFx {
+                    rate,
+                    rate_used,
+                    rate_date,
+                    source,
+                },
+            );
 
         let (invoice, lines) = core_db::invoices::bill_candidates(
             &mut ctx.tx,
             org_id,
             &core_db::invoices::BillCandidatesRequest {
                 contract_id: req.contract_id,
+                fx,
                 cost_line_ids: req.cost_line_ids.clone(),
                 expense_ids: req.expense_ids.clone(),
                 period_from: req.period_from,

@@ -481,6 +481,10 @@ pub enum BillingLineKind {
     /// lease several units over the same period, so the line kind is not a
     /// period-dedupe kind.
     Rental,
+    /// A ticket expense billed onto the client's invoice. Its source is the
+    /// `ticket_expenses` row, so two expenses with one description are two
+    /// lines rather than a collision.
+    Expense,
 }
 
 impl BillingLineKind {
@@ -502,6 +506,7 @@ impl BillingLineKind {
             BillingLineKind::Escalator => "escalator",
             BillingLineKind::ProjectRelease => "project_release",
             BillingLineKind::Rental => "rental",
+            BillingLineKind::Expense => "expense",
         }
     }
 
@@ -541,6 +546,7 @@ impl FromStr for BillingLineKind {
             "escalator" => Ok(Self::Escalator),
             "project_release" => Ok(Self::ProjectRelease),
             "rental" => Ok(Self::Rental),
+            "expense" => Ok(Self::Expense),
             other => Err(DomainError::Validation(format!(
                 "invalid billing line kind: {other}"
             ))),

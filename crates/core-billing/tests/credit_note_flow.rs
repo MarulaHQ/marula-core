@@ -807,7 +807,7 @@ async fn dunning_statement_queues_to_contacts() {
     );
 }
 
-// --- credit lines (Wave 76 W76-6) ---------------------------------------------
+// --- credit lines -------------------------------------------------------------
 
 /// A credit can now name what it corrects. The lines must account for the
 /// document, a physical line must say what happened to the unit, and a service

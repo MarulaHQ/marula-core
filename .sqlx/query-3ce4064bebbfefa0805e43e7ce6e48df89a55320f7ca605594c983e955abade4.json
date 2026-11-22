@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT EXISTS(SELECT 1 FROM ticket_expenses WHERE org_id = $1 AND id = $2)",
+  "query": "SELECT EXISTS(\n                 SELECT 1 FROM contracts\n                  WHERE org_id = $1 AND id = $2 AND client_id = $3)",
   "describe": {
     "columns": [
       {
@@ -12,6 +12,7 @@
     "parameters": {
       "Left": [
         "Uuid",
+        "Uuid",
         "Uuid"
       ]
     },
@@ -19,5 +20,5 @@
       null
     ]
   },
-  "hash": "bc9319053b7d42168d12c5270077bdf88f7bc934b2d6baf2adfa77958db35724"
+  "hash": "3ce4064bebbfefa0805e43e7ce6e48df89a55320f7ca605594c983e955abade4"
 }
