@@ -190,17 +190,20 @@ export default function VendorRentalsPage(): React.ReactNode {
           body: body as components["schemas"]["CreateVendorRentalRequest"],
         }),
     });
-    setCreateBusy(false);
     if (!result.ok) {
+      setCreateBusy(false);
       if (session === createSession.current) {
         setCreateError(rejectionText(result, "The vendor rental was refused."));
       }
       return;
     }
-    // The write landed: refresh whatever register is on screen, whichever
-    // dialog session the operator has since opened.
+    // Busy until the refresh and the cleanup finish: a second submission in
+    // the same dialog must not race the first one's close.
     await refresh();
-    if (session !== createSession.current) return; // the dialog moved on
+    if (session !== createSession.current) {
+      setCreateBusy(false);
+      return;
+    }
     setCreateOpen(false);
     setVendorName("");
     setAssetTag("");
@@ -209,6 +212,7 @@ export default function VendorRentalsPage(): React.ReactNode {
     setDeposit("");
     setEndOn("");
     setNotes("");
+    setCreateBusy(false);
     setNotice("Vendor rental recorded.");
   };
 
@@ -263,16 +267,20 @@ export default function VendorRentalsPage(): React.ReactNode {
         }),
       versions: (data) => [[data.rental.id, data.mutation.version]],
     });
-    setReturnBusy(false);
     if (!result.ok) {
+      setReturnBusy(false);
       if (session === returnSession.current) {
         setReturnError(rejectionText(result, "The return was refused."));
       }
       return;
     }
     await refresh();
-    if (session !== returnSession.current) return; // another unit was opened
+    if (session !== returnSession.current) {
+      setReturnBusy(false);
+      return;
+    }
     setReturning(null);
+    setReturnBusy(false);
     setNotice("Vendor rental returned.");
   };
 

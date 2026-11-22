@@ -97,6 +97,40 @@ async fn a_vendor_rental_names_its_unit_and_returns_with_a_condition() {
     assert_eq!(body["rental"]["damage_minor"], json!(1_500));
     assert_eq!(body["rental"]["asset_tag"], json!("VR-001"));
 
+    // A second return is a typed refusal, and the first one's record stands.
+    let again = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/v1/vendor-rentals/{rental_id}/return"),
+        &[auth(&token)],
+        Some(json!({
+            "return_condition": "damaged",
+            "damage_minor": 9_000,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(
+        again.status(),
+        409,
+        "a closed rental cannot be returned twice"
+    );
+    let closed = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/v1/vendor-rentals?status=returned",
+            &[auth(&token)],
+            None,
+        )
+        .await,
+    )
+    .await;
+    let closed_rows = closed.as_array().expect("a register array");
+    assert_eq!(closed_rows.len(), 1);
+    assert_eq!(closed_rows[0]["return_condition"], json!("fair"));
+    assert_eq!(closed_rows[0]["damage_minor"], json!(1_500));
+
     let empty = body_json(
         send(
             &app,

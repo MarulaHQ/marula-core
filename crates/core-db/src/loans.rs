@@ -2530,7 +2530,7 @@ pub async fn create_vendor_rental(
     // RETURNING names the target table only, so the joined projection cannot
     // ride it: insert, then read the row back through the joined read in the
     // same transaction.
-    sqlx::query(
+    sqlx::query!(
         r#"INSERT INTO vendor_rentals
              (id, org_id, device_asset_id, vendor_id, vendor_name, agreement_ref,
               start_on, end_on, cost_minor, currency, cycle, deposit_minor,
@@ -2538,26 +2538,26 @@ pub async fn create_vendor_rental(
               notes, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
                    $15, $16, $17, $18, $19)"#,
+        id,
+        org_id,
+        asset_id,
+        req.vendor_id,
+        req.vendor_name.as_deref(),
+        req.agreement_ref.as_deref(),
+        req.start_on,
+        req.end_on,
+        req.cost_minor,
+        &req.currency,
+        &req.cycle,
+        req.deposit_minor,
+        req.deposit_currency.as_deref(),
+        req.fx_rate_used.as_deref(),
+        req.fx_rate_date,
+        req.fx_source.as_deref(),
+        req.base_cost_minor,
+        req.notes.as_deref(),
+        user_id,
     )
-    .bind(id)
-    .bind(org_id)
-    .bind(asset_id)
-    .bind(req.vendor_id)
-    .bind(req.vendor_name.as_deref())
-    .bind(req.agreement_ref.as_deref())
-    .bind(req.start_on)
-    .bind(req.end_on)
-    .bind(req.cost_minor)
-    .bind(&req.currency)
-    .bind(&req.cycle)
-    .bind(req.deposit_minor)
-    .bind(req.deposit_currency.as_deref())
-    .bind(req.fx_rate_used.as_deref())
-    .bind(req.fx_rate_date)
-    .bind(req.fx_source.as_deref())
-    .bind(req.base_cost_minor)
-    .bind(req.notes.as_deref())
-    .bind(user_id)
     .execute(&mut *conn)
     .await?;
     let row: VendorRow = sqlx::query_as(&format!(
@@ -2680,20 +2680,20 @@ pub async fn return_vendor_rental(
         }
     }
 
-    let affected = sqlx::query(
+    let affected = sqlx::query!(
         r#"UPDATE vendor_rentals
               SET status = 'returned', returned_at = now(), return_condition = $3,
                   damage_minor = $4, lost = $5, loss_minor = $6,
                   notes = COALESCE($7, notes), updated_at = now()
             WHERE org_id = $1 AND id = $2 AND status = 'open'"#,
+        org_id,
+        id,
+        condition,
+        req.damage_minor,
+        req.lost,
+        req.loss_minor,
+        req.notes.as_deref(),
     )
-    .bind(org_id)
-    .bind(id)
-    .bind(condition)
-    .bind(req.damage_minor)
-    .bind(req.lost)
-    .bind(req.loss_minor)
-    .bind(req.notes.as_deref())
     .execute(&mut *conn)
     .await?;
     // The joined projection cannot ride RETURNING (the target table has no
