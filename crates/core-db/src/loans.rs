@@ -2315,6 +2315,10 @@ pub struct VendorRentalRequest {
 pub struct VendorRental {
     pub id: Uuid,
     pub device_asset_id: Uuid,
+    /// The rented unit's tag and name, read from the asset so a register row
+    /// names the thing rather than an opaque id.
+    pub asset_tag: String,
+    pub asset_name: String,
     pub vendor_id: Option<Uuid>,
     pub vendor_name: Option<String>,
     pub agreement_ref: Option<String>,
@@ -2361,6 +2365,8 @@ struct VendorRow {
     notes: Option<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    asset_tag: String,
+    asset_name: String,
 }
 
 fn vendor_from_row(r: VendorRow) -> VendorRental {
@@ -2387,13 +2393,16 @@ fn vendor_from_row(r: VendorRow) -> VendorRental {
         notes: r.notes,
         created_at: r.created_at,
         updated_at: r.updated_at,
+        asset_tag: r.asset_tag,
+        asset_name: r.asset_name,
     }
 }
 
-const VENDOR_COLS: &str = "id, device_asset_id, vendor_id, vendor_name, agreement_ref,
-     start_on, end_on, cost_minor, currency, cycle, deposit_minor, deposit_currency,
-     base_cost_minor, status, returned_at, return_condition, damage_minor, lost,
-     loss_minor, notes, created_at, updated_at";
+const VENDOR_COLS: &str = "v.id, v.device_asset_id, v.vendor_id, v.vendor_name, v.agreement_ref,
+     v.start_on, v.end_on, v.cost_minor, v.currency, v.cycle, v.deposit_minor,
+     v.deposit_currency, v.base_cost_minor, v.status, v.returned_at,
+     v.return_condition, v.damage_minor, v.lost, v.loss_minor, v.notes,
+     v.created_at, v.updated_at, da.tag AS asset_tag, da.name AS asset_name";
 
 /// Creates the agreement, and the asset when the caller has none: a unit rented
 /// from a vendor is born in `rental_in` with `ownership = rented`, exactly the
@@ -2558,7 +2567,9 @@ pub async fn get_vendor_rental(
     id: Uuid,
 ) -> DbResult<VendorRental> {
     let row: Option<VendorRow> = sqlx::query_as(&format!(
-        r#"SELECT {VENDOR_COLS} FROM vendor_rentals WHERE org_id = $1 AND id = $2"#
+        r#"SELECT {VENDOR_COLS} FROM vendor_rentals v
+             JOIN device_assets da ON da.org_id = v.org_id AND da.id = v.device_asset_id
+            WHERE v.org_id = $1 AND v.id = $2"#
     ))
     .bind(org_id)
     .bind(id)
@@ -2574,9 +2585,10 @@ pub async fn list_vendor_rentals(
     limit: i64,
 ) -> DbResult<Vec<VendorRental>> {
     let rows: Vec<VendorRow> = sqlx::query_as(&format!(
-        r#"SELECT {VENDOR_COLS} FROM vendor_rentals
-            WHERE org_id = $1 AND ($2::text IS NULL OR status = $2)
-            ORDER BY start_on DESC, id
+        r#"SELECT {VENDOR_COLS} FROM vendor_rentals v
+             JOIN device_assets da ON da.org_id = v.org_id AND da.id = v.device_asset_id
+            WHERE v.org_id = $1 AND ($2::text IS NULL OR v.status = $2)
+            ORDER BY v.start_on DESC, v.id
             LIMIT $3"#
     ))
     .bind(org_id)

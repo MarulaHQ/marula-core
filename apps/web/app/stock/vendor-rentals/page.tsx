@@ -30,21 +30,26 @@ import {
   SelectValue,
   Spinner,
   SurfaceHeader,
+  formatDayKey,
   Table,
   Td,
   Th,
   Tr,
 } from "@marula-core/ui";
 import type { components } from "@marula-core/sdk";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { rejectionText } from "../../../lib/error-copy";
-import { LocalTime } from "../../../components/local-time";
+
 import { money } from "../../../lib/format";
 
-type VendorRental = components["schemas"]["VendorRentalView"];
+type VendorRental = components["schemas"]["VendorRentalView"] & {
+  // Present once the re-cut SDK lands; optional so the page compiles before it.
+  asset_tag?: string | null;
+  asset_name?: string | null;
+};
 
 const CYCLES = [
   { value: "monthly", label: "Monthly" },
@@ -62,8 +67,12 @@ function idPrefix(id: string): string {
   return id.slice(0, 8);
 }
 
+/** The reader's calendar day, not UTC's: a date input is a calendar, not an instant. */
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  const month = String(now.getMonth() + 1).padStart(2, "0");
+  const day = String(now.getDate()).padStart(2, "0");
+  return `${now.getFullYear()}-${month}-${day}`;
 }
 
 export default function VendorRentalsPage(): React.ReactNode {
@@ -87,6 +96,7 @@ export default function VendorRentalsPage(): React.ReactNode {
   const [notes, setNotes] = useState("");
   const [createError, setCreateError] = useState<string | null>(null);
   const [createBusy, setCreateBusy] = useState(false);
+  const createSession = useRef(0);
 
   const [returning, setReturning] = useState<VendorRental | null>(null);
   const [returnCondition, setReturnCondition] = useState("good");
@@ -96,19 +106,30 @@ export default function VendorRentalsPage(): React.ReactNode {
   const [returnNotes, setReturnNotes] = useState("");
   const [returnError, setReturnError] = useState<string | null>(null);
   const [returnBusy, setReturnBusy] = useState(false);
+  const returnSession = useRef(0);
+
+  const requestSeq = useRef(0);
 
   const refresh = useCallback(async (): Promise<void> => {
+    const seq = ++requestSeq.current;
     setLoadError(null);
-    const res = await api.api.GET("/api/v1/vendor-rentals", {
-      params: { query: { status: statusFilter === "all" ? null : statusFilter } },
-    });
-    if (res.data === undefined) {
-      setLoadError("Could not load the vendor rentals — try reloading.");
-      setLoading(false);
-      return;
+    try {
+      const res = await api.api.GET("/api/v1/vendor-rentals", {
+        params: { query: { status: statusFilter === "all" ? null : statusFilter } },
+      });
+      if (seq !== requestSeq.current) return; // a newer filter owns the screen
+      if (res.data === undefined) {
+        setLoadError("Could not load the vendor rentals — try reloading.");
+        return;
+      }
+      setRentals(res.data);
+    } catch {
+      if (seq === requestSeq.current) {
+        setLoadError("Could not load the vendor rentals — try reloading.");
+      }
+    } finally {
+      if (seq === requestSeq.current) setLoading(false);
     }
-    setRentals(res.data);
-    setLoading(false);
   }, [statusFilter]);
 
   useEffect(() => {
@@ -120,6 +141,7 @@ export default function VendorRentalsPage(): React.ReactNode {
   const openCount = useMemo(() => rentals.filter((r) => r.status === "open").length, [rentals]);
 
   const submitCreate = async (): Promise<void> => {
+    const session = createSession.current;
     setCreateError(null);
     const costMinor = Math.round(Number(cost) * 100);
     if (!Number.isFinite(costMinor) || costMinor <= 0) {
@@ -164,6 +186,7 @@ export default function VendorRentalsPage(): React.ReactNode {
         }),
     });
     setCreateBusy(false);
+    if (session !== createSession.current) return; // the dialog moved on
     if (!result.ok) {
       setCreateError(rejectionText(result, "The vendor rental was refused."));
       return;
@@ -181,6 +204,7 @@ export default function VendorRentalsPage(): React.ReactNode {
   };
 
   const openReturn = (rental: VendorRental): void => {
+    returnSession.current += 1;
     setReturning(rental);
     setReturnCondition("good");
     setLost(false);
@@ -193,6 +217,7 @@ export default function VendorRentalsPage(): React.ReactNode {
   const submitReturn = async (): Promise<void> => {
     const rental = returning;
     if (rental === null) return;
+    const session = returnSession.current;
     setReturnError(null);
     const damageMinor = damage.trim() === "" ? null : Math.round(Number(damage) * 100);
     const lossMinor = loss.trim() === "" ? null : Math.round(Number(loss) * 100);
@@ -230,6 +255,7 @@ export default function VendorRentalsPage(): React.ReactNode {
       versions: (data) => [[data.rental.id, data.mutation.version]],
     });
     setReturnBusy(false);
+    if (session !== returnSession.current) return; // another unit was opened
     if (!result.ok) {
       setReturnError(rejectionText(result, "The return was refused."));
       return;
@@ -258,7 +284,13 @@ export default function VendorRentalsPage(): React.ReactNode {
                 <SelectItem value="all">All</SelectItem>
               </SelectContent>
             </Select>
-            <Button onClick={() => setCreateOpen(true)} data-testid="vendor-rentals-new">
+            <Button
+            onClick={() => {
+              createSession.current += 1;
+              setCreateOpen(true);
+            }}
+            data-testid="vendor-rentals-new"
+          >
               Record a rental
             </Button>
           </div>
@@ -298,7 +330,10 @@ export default function VendorRentalsPage(): React.ReactNode {
               {rentals.map((rental) => (
                 <Tr key={rental.id}>
                   <Td>
-                    <span className="font-medium">Unit {idPrefix(rental.device_asset_id)}</span>
+                    <span className="font-medium">
+                      {rental.asset_tag ?? `Unit ${idPrefix(rental.device_asset_id)}`}
+                      {rental.asset_name ? ` · ${rental.asset_name}` : ""}
+                    </span>
                     {rental.agreement_ref ? (
                       <span className="ml-1.5 text-xs" style={{ color: "var(--m-text-muted)" }}>
                         {rental.agreement_ref}
@@ -315,11 +350,9 @@ export default function VendorRentalsPage(): React.ReactNode {
                       ? "—"
                       : money(rental.deposit_minor, rental.deposit_currency ?? rental.currency)}
                   </Td>
+                  <Td className="text-sm">{formatDayKey(rental.start_on, "day")}</Td>
                   <Td className="text-sm">
-                    <LocalTime value={rental.start_on} kind="date" />
-                  </Td>
-                  <Td className="text-sm">
-                    {rental.end_on == null ? "Open" : <LocalTime value={rental.end_on} kind="date" />}
+                    {rental.end_on == null ? "Open" : formatDayKey(rental.end_on, "day")}
                   </Td>
                   <Td>
                     {rental.lost ? (
@@ -347,6 +380,7 @@ export default function VendorRentalsPage(): React.ReactNode {
       <Dialog
         open={createOpen}
         onOpenChange={(open) => {
+          if (open) createSession.current += 1;
           setCreateOpen(open);
           if (!open) setCreateError(null);
         }}
@@ -495,7 +529,10 @@ export default function VendorRentalsPage(): React.ReactNode {
         <DialogContent title="Return a vendor rental" data-testid="vendor-rentals-return">
           <div className="grid gap-3 p-1">
             <p className="text-sm" style={{ color: "var(--m-text-secondary)" }}>
-              {returning?.vendor_name ?? "Vendor"} · unit {returning === null ? "" : idPrefix(returning.device_asset_id)}
+              {returning?.vendor_name ?? "Vendor"} ·{" "}
+              {returning === null
+                ? ""
+                : (returning.asset_tag ?? `unit ${idPrefix(returning.device_asset_id)}`)}
             </p>
             <div>
               <Label>Was it lost?</Label>
