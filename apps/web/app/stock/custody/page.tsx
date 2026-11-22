@@ -68,6 +68,9 @@ export default function CustodyPage(): React.ReactNode {
   // Which filter the rows on screen actually belong to; a failed refresh keeps
   // the old rows, so the label must not claim the new filter.
   const [movementFilter, setMovementFilter] = useState("all");
+  // True only once the current filter's read has failed; while it is running,
+  // the retained rows are simply old, not a failure.
+  const [ledgerStale, setLedgerStale] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const requestSeq = useRef(0);
@@ -75,6 +78,7 @@ export default function CustodyPage(): React.ReactNode {
   const refresh = useCallback(async (): Promise<void> => {
     const seq = ++requestSeq.current;
     setLoadError(null);
+    setLedgerStale(false);
     try {
       const [classRes, ledgerRes] = await Promise.all([
         api.api.GET("/api/v1/inventory/custody"),
@@ -91,6 +95,7 @@ export default function CustodyPage(): React.ReactNode {
       if (ledgerRes.data === undefined) {
         // Keep the ledger that is on screen: a failed refresh is not an empty
         // ledger, and saying "no movements yet" would be a false answer.
+        setLedgerStale(true);
         setLoadError("The class ledger could not be loaded — the rows below may be stale.");
         return;
       }
@@ -98,6 +103,7 @@ export default function CustodyPage(): React.ReactNode {
       setMovementFilter(unitKind);
     } catch {
       if (seq === requestSeq.current) {
+        setLedgerStale(true);
         setLoadError("Could not load the custody view — try reloading.");
       }
     } finally {
@@ -184,7 +190,7 @@ export default function CustodyPage(): React.ReactNode {
         </Select>
       </div>
 
-      {movementFilter !== unitKind && movements.length > 0 ? (
+      {ledgerStale && movementFilter !== unitKind && movements.length > 0 ? (
         <p className="text-xs" style={{ color: "var(--m-status-warning-fg)" }}>
           Showing {movementFilter === "all" ? "both kinds" : movementFilter === "serial" ? "stock serials" : "device assets"} from the last successful read; the current filter did not load.
         </p>
