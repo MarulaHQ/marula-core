@@ -58,6 +58,11 @@ import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { money } from "../../../lib/format";
 import { perCurrencySum } from "../../../lib/money-summary";
 import { downloadRowsCsv } from "../../../lib/csv-download";
+import {
+  creditLinesMatchTotal,
+  creditLinesTotal,
+  isUuid,
+} from "../../../lib/credit-lines";
 import { useDataSurfacePrefs } from "../../../lib/data-surface-prefs";
 import {
   MoneyCard,
@@ -72,6 +77,25 @@ type Client = components["schemas"]["Client"];
 type Invoice = components["schemas"]["Invoice"];
 
 const VIEW_FINANCIALS = "financial:read";
+
+/** What a corrected line names; the stored vocabulary. */
+const LINE_SOURCES = [
+  { value: "ticket_cost_line", label: "Ticket cost line" },
+  { value: "ticket_expense", label: "Ticket expense" },
+  { value: "rental_charge", label: "Rental charge" },
+  { value: "contract_line", label: "Contract line" },
+] as const;
+
+/** What came back, when the correction returns goods. `none` = a service credit. */
+const LINE_DISPOSITIONS = [
+  { value: "none", label: "Nothing came back (service)" },
+  { value: "sale_stock", label: "Back to sale stock" },
+  { value: "pool", label: "Back to the rental pool" },
+  { value: "refurbishment", label: "For refurbishment" },
+  { value: "ewaste", label: "To e-waste" },
+] as const;
+
+type CreditLineDraft = import("../../../lib/credit-lines").CreditLineDraft;
 
 /** Lifecycle is derived, never stored (only issued | void exist). */
 function lifecycleOf(note: CreditNote): { label: string; tone: "success" | "warning" | "danger" | "neutral" } {
@@ -170,6 +194,12 @@ function CreditNotesInner() {
   const [issueReason, setIssueReason] = useState("");
   const [issueBusy, setIssueBusy] = useState(false);
   const [issueError, setIssueError] = useState<string | null>(null);
+  const [issueLines, setIssueLines] = useState<CreditLineDraft[]>([]);
+  const [lineKind, setLineKind] = useState("ticket_cost_line");
+  const [lineSource, setLineSource] = useState("");
+  const [lineDescription, setLineDescription] = useState("");
+  const [lineAmount, setLineAmount] = useState("");
+  const [lineDisposition, setLineDisposition] = useState("none");
 
   // Money action dialog (apply / refund)
   const [action, setAction] = useState<{ kind: "apply" | "refund"; note: CreditNote } | null>(null);
@@ -237,6 +267,41 @@ function CreditNotesInner() {
     [invoices, action, issueClientId, issueInvoiceId, issueCurrency],
   );
 
+  const addIssueLine = () => {
+    setIssueError(null);
+    const amount = Math.round(Number(lineAmount) * 100);
+    if (lineSource.trim() === "" || lineDescription.trim() === "") {
+      setIssueError("A corrected line needs the row it corrects and a description.");
+      return;
+    }
+    if (!isUuid(lineSource)) {
+      setIssueError("The source is the id of the row this line corrects.");
+      return;
+    }
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setIssueError("A corrected line carries a positive amount.");
+      return;
+    }
+    const disposition = lineDisposition === "none" ? null : lineDisposition;
+    setIssueLines((prev) => [
+      ...prev,
+      {
+        source_kind: lineKind,
+        source_id: lineSource.trim(),
+        description: lineDescription.trim(),
+        amount_minor: amount,
+        physical: disposition !== null,
+        disposition,
+      },
+    ]);
+    setLineSource("");
+    setLineDescription("");
+    setLineAmount("");
+    setLineDisposition("none");
+  };
+
+  const issueLinesTotal = creditLinesTotal(issueLines);
+
   const issue = async () => {
     setIssueBusy(true);
     setIssueError(null);
@@ -248,6 +313,14 @@ function CreditNotesInner() {
     }
     if (issueInvoiceId === "none" && !/^[A-Z]{3}$/.test(issueCurrency)) {
       setIssueError("Free-standing credits need a 3-letter currency code.");
+      setIssueBusy(false);
+      return;
+    }
+    if (issueLines.length > 0 && !creditLinesMatchTotal(issueLines, total)) {
+      setIssueError(
+        "The corrected lines must sum to the credit value: " +
+          `${money(issueLinesTotal, issueCurrency)} against ${money(total, issueCurrency)}.`,
+      );
       setIssueBusy(false);
       return;
     }
@@ -265,6 +338,17 @@ function CreditNotesInner() {
         currency: issueInvoiceId === "none" ? issueCurrency.toUpperCase() : null,
         total_minor: total,
         reason: issueReason.trim() === "" ? null : issueReason.trim(),
+        lines: issueLines.map((line) => ({
+          source_kind: line.source_kind,
+          source_id: line.source_id,
+          invoice_line_id: null,
+          description: line.description,
+          quantity_minutes: 0,
+          amount_minor: line.amount_minor,
+          base_amount_minor: null,
+          physical: line.physical,
+          disposition: line.disposition,
+        })),
       }),
       request: (client, body) => client.POST("/api/v1/credit-notes", { body }),
     });
@@ -280,6 +364,7 @@ function CreditNotesInner() {
     setIssueOpen(false);
     setIssueTotal("");
     setIssueReason("");
+    setIssueLines([]);
     void refresh();
   };
 
@@ -797,7 +882,7 @@ function CreditNotesInner() {
       </footer>
 
       {/* Issue dialog */}
-      <Dialog open={issueOpen} onOpenChange={(o) => { setIssueOpen(o); if (!o) setIssueError(null); }}>
+      <Dialog open={issueOpen} onOpenChange={(o) => { setIssueOpen(o); if (!o) { setIssueError(null); setIssueLines([]); } }}>
         <DialogContent
           title="Issue credit note"
           description="Against an invoice (inherits its currency) or as free-standing client credit."
@@ -855,6 +940,77 @@ function CreditNotesInner() {
             <div>
               <Label htmlFor="cn-reason">Reason (optional)</Label>
               <Input id="cn-reason" value={issueReason} onChange={(e) => setIssueReason(e.target.value)} placeholder="Goodwill credit — missed SLA" />
+            </div>
+            <div className="rounded-md border p-3" style={{ borderColor: "var(--m-border)" }}>
+              <div className="flex items-center justify-between gap-2">
+                <Label>Corrected lines (optional)</Label>
+                <span className="text-[12px] tabular-nums" style={{ color: issueLines.length > 0 && issueLinesTotal !== Math.round(Number(issueTotal) * 100) ? "var(--m-status-warning-fg)" : "var(--m-text-muted)" }}>
+                  {money(issueLinesTotal, issueCurrency)}
+                </span>
+              </div>
+              <p className="mt-1 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
+                Name the row each line corrects. The lines must sum to the credit value, and a
+                line that returns goods names where they went.
+              </p>
+              {issueLines.length > 0 ? (
+                <ul className="mt-2 grid gap-1">
+                  {issueLines.map((line, index) => (
+                    <li key={`${line.source_id}-${index}`} className="flex items-center gap-2 text-[12px]">
+                      <Badge tone="neutral">{LINE_SOURCES.find((k) => k.value === line.source_kind)?.label ?? line.source_kind}</Badge>
+                      <span className="min-w-0 flex-1 truncate">{line.description}</span>
+                      {line.disposition !== null ? <Badge tone="neutral">{line.disposition}</Badge> : null}
+                      <span className="tabular-nums">{money(line.amount_minor, issueCurrency)}</span>
+                      <Button variant="ghost" onClick={() => setIssueLines((prev) => prev.filter((_, i) => i !== index))} aria-label={`Remove line ${line.description}`}>
+                        Remove
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+              <div className="mt-2 grid gap-2">
+                <div className="flex gap-2">
+                  <div className="w-44">
+                    <Select value={lineKind} onValueChange={setLineKind}>
+                      <SelectTrigger className="w-full" aria-label="Line source kind">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LINE_SOURCES.map((k) => (
+                          <SelectItem key={k.value} value={k.value}>
+                            {k.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Input aria-label="Line source id" placeholder="Row id" value={lineSource} onChange={(e) => setLineSource(e.target.value)} />
+                </div>
+                <div className="flex gap-2">
+                  <Input aria-label="Line description" placeholder="What is corrected" value={lineDescription} onChange={(e) => setLineDescription(e.target.value)} />
+                  <div className="w-28">
+                    <Input aria-label="Line amount" type="number" min="0" step="0.01" placeholder="0.00" value={lineAmount} onChange={(e) => setLineAmount(e.target.value)} />
+                  </div>
+                </div>
+                <div className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <Select value={lineDisposition} onValueChange={setLineDisposition}>
+                      <SelectTrigger className="w-full" aria-label="What came back">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {LINE_DISPOSITIONS.map((d) => (
+                          <SelectItem key={d.value} value={d.value}>
+                            {d.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Button variant="ghost" onClick={addIssueLine}>
+                    Add line
+                  </Button>
+                </div>
+              </div>
             </div>
             {issueError !== null ? (
               <p role="alert" className="text-[13px]" style={{ color: "var(--m-status-danger-fg)" }}>
@@ -955,6 +1111,31 @@ function CreditNotesInner() {
                   <p className="text-[13px]" style={{ color: "var(--m-text-secondary)" }}>
                     {detail.reason}
                   </p>
+                ) : null}
+                {detail.lines.length > 0 ? (
+                  <div>
+                    <Label>Corrected lines</Label>
+                    <Table>
+                      <thead>
+                        <tr>
+                          <Th>Corrects</Th>
+                          <Th>What</Th>
+                          <Th>Came back</Th>
+                          <Th className="text-right">Amount</Th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {detail.lines.map((line) => (
+                          <Tr key={line.id}>
+                            <Td className="text-[12px]">{LINE_SOURCES.find((k) => k.value === line.source_kind)?.label ?? line.source_kind}</Td>
+                            <Td className="text-[12px]">{line.description}</Td>
+                            <Td className="text-[12px]">{line.disposition ?? "—"}</Td>
+                            <Td className="text-right tabular-nums text-[12px]">{money(line.amount_minor, detail.currency)}</Td>
+                          </Tr>
+                        ))}
+                      </tbody>
+                    </Table>
+                  </div>
                 ) : null}
                 <div>
                   <Label>Application ledger</Label>
