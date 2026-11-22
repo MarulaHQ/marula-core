@@ -18144,7 +18144,7 @@ export interface components {
          * @description Which billing rule produced a candidate line.
          * @enum {string}
          */
-        BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee" | "per_unit_base" | "per_incident" | "block_sale" | "block_drawdown" | "cap_overage" | "minimum_trueup" | "change_order" | "sla_credit" | "escalator" | "project_release" | "rental";
+        BillingLineKind: "recurring_base" | "retainer_base" | "retainer_overage" | "time_materials" | "fixed_fee" | "per_unit_base" | "per_incident" | "block_sale" | "block_drawdown" | "cap_overage" | "minimum_trueup" | "change_order" | "sla_credit" | "escalator" | "project_release" | "rental" | "expense";
         /**
          * @description How the project turns delivered work into money. The value rides the
          *     milestone event payload so core-billing can route without re-reading the
@@ -22392,7 +22392,10 @@ export interface components {
             quantity_minutes?: number;
             /** Format: uuid */
             source_id: string;
-            /** @description `cost_line`, `expense`, `rental_charge` or `contract_line`. */
+            /**
+             * @description `ticket_cost_line`, `ticket_expense`, `rental_charge` or
+             *     `contract_line`.
+             */
             source_kind: string;
         };
         /**
@@ -22447,6 +22450,11 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
             payment?: components["schemas"]["InvoicePayment"] | null;
         };
+        /**
+         * @description One allocation of credit-note value onto an invoice. The money move
+         *     itself is the paired invoice payment receipt (provider `credit_note`);
+         *     this row is the credit-side ledger.
+         */
         CreditNoteApplication: {
             /** Format: int64 */
             amount_minor: number;
@@ -22480,10 +22488,7 @@ export interface components {
             remaining_minor: number;
         };
         /**
-         * @description One allocation of credit-note value onto an invoice. The money move
-         *     itself is the paired invoice payment receipt (provider `credit_note`);
-         *     this row is the credit-side ledger.
-         *     One corrected line on a credit note. The source pair names what the credit
+         * @description One corrected line on a credit note. The source pair names what the credit
          *     corrects, using the vocabulary invoice lines carry; `disposition` is what
          *     happened to a physical unit the correction gives back, in the return path's
          *     vocabulary.
@@ -26881,8 +26886,9 @@ export interface components {
             source_id: string;
             /**
              * @description What this line bills, in the vocabulary `credit_note_lines` also uses:
-             *     `contract_line`, `rental_charge`, `cost_line` or `expense`. A rental
-             *     line is re-labelled with its charge id once the charge is written.
+             *     `contract_line`, `rental_charge`, `ticket_cost_line` or
+             *     `ticket_expense`. A rental line is re-labelled with its charge id once
+             *     the charge is written.
              */
             source_kind: string;
             /** Format: int64 */
