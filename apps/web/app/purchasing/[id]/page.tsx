@@ -447,10 +447,13 @@ export default function PurchaseOrderPage(): ReactNode {
     if (box.receiptId !== null) {
       // A different receipt starts a different draft: nothing from the last
       // one carries over.
-      if (costReceipt?.id !== box.receiptId) {
+      if (currentReceiptId.current !== box.receiptId) {
         setCostReference("");
         setCostAmount("");
         setCostDate("");
+        setCostKind("freight");
+        setCostMethod("extended_value");
+        setCostCapitalise(true);
         setCostKey(null);
       }
       setCostReceipt({ id: box.receiptId, orderCurrency: detail?.order.currency ?? "USD" });
@@ -504,15 +507,18 @@ export default function PurchaseOrderPage(): ReactNode {
     });
     setCostBusy(false);
     if (!result.ok) {
-      // The key survives the failure: a retry is the same charge.
-      setCostError(rejectionText(result, "The cost layer was refused."));
+      // The key survives the failure: a retry is the same charge. The error
+      // belongs to the dialog only while this receipt still owns it.
+      if (currentReceiptId.current === submittedId) {
+        setCostError(rejectionText(result, "The cost layer was refused."));
+      }
       return;
     }
-    setCostKey(null);
     if (currentReceiptId.current !== submittedId) {
       // A different receipt owns the open dialog now; its offer stands.
       return;
     }
+    setCostKey(null);
     setCostOpen(false);
     setCostReceipt(null);
     currentReceiptId.current = null;
