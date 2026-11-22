@@ -6308,6 +6308,28 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/invoice-candidates/bill": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/invoice-candidates/bill — issue one invoice for the named
+         *     candidates, under one contract. The lines keep their source, the candidates
+         *     are marked billed in the same transaction, and an already-billed candidate
+         *     refuses the request. Totals move only by this issued document.
+         */
+        post: operations["invoice_candidates_bill"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/invoices": {
         parameters: {
             query?: never;
@@ -18013,8 +18035,29 @@ export interface components {
             /** Format: date-time */
             started_at: string;
         };
+        /** @description What to bill, and under which contract. */
+        BillCandidatesRequest: components["schemas"]["MutationParams"] & {
+            /** Format: uuid */
+            contract_id: string;
+            /** @description Ticket cost lines to bill. */
+            cost_line_ids?: string[];
+            /** Format: date */
+            due_on: string;
+            /** @description Ticket expenses to bill. */
+            expense_ids?: string[];
+            notes?: string | null;
+            /** Format: date */
+            period_from?: string | null;
+            /** Format: date */
+            period_to?: string | null;
+        };
         BillMutationResponse: {
             bill: components["schemas"]["PurchaseBill"];
+            mutation: components["schemas"]["MutationMeta"];
+        };
+        BilledCandidatesResponse: {
+            invoice: components["schemas"]["Invoice"];
+            lines: components["schemas"]["InvoiceLine"][];
             mutation: components["schemas"]["MutationMeta"];
         };
         /**
@@ -22321,6 +22364,37 @@ export interface components {
             ses: components["schemas"]["CredentialView"];
             smtp: components["schemas"]["CredentialView"];
         };
+        /** @description One corrected line on the credit being issued. */
+        CreditLineInput: {
+            /**
+             * Format: int64
+             * @description The credit for this line, positive minor units; signed the same way the
+             *     credit is (the document is the sign).
+             */
+            amount_minor: number;
+            /** Format: int64 */
+            base_amount_minor?: number | null;
+            description: string;
+            /**
+             * @description What happened to the unit, when the correction gives one back:
+             *     `sale_stock`, `pool`, `refurbishment` or `ewaste`. Required when
+             *     `physical`, refused when not.
+             */
+            disposition?: string | null;
+            /**
+             * Format: uuid
+             * @description The invoice line this credit corrects, when the caller knows it.
+             */
+            invoice_line_id?: string | null;
+            /** @description Whether this correction gives a physical unit back. */
+            physical?: boolean;
+            /** Format: int64 */
+            quantity_minutes?: number;
+            /** Format: uuid */
+            source_id: string;
+            /** @description `cost_line`, `expense`, `rental_charge` or `contract_line`. */
+            source_kind: string;
+        };
         /**
          * @description The credit document. `issued_against_invoice_id` is the issuing
          *     context (may be `None` for a free-standing client credit);
@@ -22373,11 +22447,6 @@ export interface components {
             mutation: components["schemas"]["MutationMeta"];
             payment?: components["schemas"]["InvoicePayment"] | null;
         };
-        /**
-         * @description One allocation of credit-note value onto an invoice. The money move
-         *     itself is the paired invoice payment receipt (provider `credit_note`);
-         *     this row is the credit-side ledger.
-         */
         CreditNoteApplication: {
             /** Format: int64 */
             amount_minor: number;
@@ -22400,10 +22469,53 @@ export interface components {
         CreditNoteDetail: components["schemas"]["CreditNote"] & {
             applications: components["schemas"]["CreditNoteApplication"][];
             /**
+             * @description The corrected lines, in written order. Empty for a credit raised
+             *     against the document total.
+             */
+            lines: components["schemas"]["CreditNoteLine"][];
+            /**
              * Format: int64
              * @description Still-available credit, minor units.
              */
             remaining_minor: number;
+        };
+        /**
+         * @description One allocation of credit-note value onto an invoice. The money move
+         *     itself is the paired invoice payment receipt (provider `credit_note`);
+         *     this row is the credit-side ledger.
+         *     One corrected line on a credit note. The source pair names what the credit
+         *     corrects, using the vocabulary invoice lines carry; `disposition` is what
+         *     happened to a physical unit the correction gives back, in the return path's
+         *     vocabulary.
+         */
+        CreditNoteLine: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: int64 */
+            base_amount_minor?: number | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: uuid */
+            credit_note_id: string;
+            description: string;
+            /** @description What happened to the unit. Required when `physical`, absent otherwise. */
+            disposition?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            invoice_line_id?: string | null;
+            /** Format: uuid */
+            org_id: string;
+            /** @description Whether this correction gives a physical unit back. */
+            physical: boolean;
+            /** Format: int32 */
+            position: number;
+            /** Format: int64 */
+            quantity_minutes: number;
+            /** Format: uuid */
+            source_id: string;
+            /** @description One of [`CREDIT_LINE_SOURCE_KINDS`]. */
+            source_kind: string;
         };
         /** @description GET /api/credit-notes query. */
         CreditNoteListQuery: {
@@ -26765,6 +26877,14 @@ export interface components {
              * @description Labor minutes on the line (T&M / overage); 0 for amount lines.
              */
             quantity_minutes: number;
+            /** Format: uuid */
+            source_id: string;
+            /**
+             * @description What this line bills, in the vocabulary `credit_note_lines` also uses:
+             *     `contract_line`, `rental_charge`, `cost_line` or `expense`. A rental
+             *     line is re-labelled with its charge id once the charge is written.
+             */
+            source_kind: string;
             /** Format: int64 */
             unit_amount_minor: number;
         };
@@ -26915,6 +27035,11 @@ export interface components {
              *     set, the credit's currency is the invoice's.
              */
             invoice_id?: string | null;
+            /**
+             * @description What this credit corrects, line by line. When present the lines must
+             *     sum to `total_minor`, so the document and its detail cannot disagree.
+             */
+            lines?: components["schemas"]["CreditLineInput"][];
             reason?: string | null;
             /**
              * Format: int64
@@ -51292,6 +51417,50 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["InvoiceCandidateView"][];
                 };
+            };
+        };
+    };
+    invoice_candidates_bill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BillCandidatesRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BilledCandidatesResponse"];
+                };
+            };
+            /** @description contract or candidate not visible in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description a candidate is already billed, or the currencies disagree */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
