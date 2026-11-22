@@ -1,0 +1,60 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT m.id, m.unit_kind, m.from_class, m.to_class, m.reason, m.created_at,\n                  COALESCE(si.name || ' · ' || ss.serial_number,\n                           da.tag || ' · ' || da.name,\n                           m.unit_kind) AS \"unit_label!\"\n             FROM inventory_class_movements m\n             LEFT JOIN stock_serials ss\n               ON ss.org_id = m.org_id AND ss.id = m.serial_id\n             LEFT JOIN stock_items si\n               ON si.org_id = ss.org_id AND si.id = ss.stock_item_id\n             LEFT JOIN device_assets da\n               ON da.org_id = m.org_id AND da.id = m.device_asset_id\n            WHERE m.org_id = $1\n              AND ($2::text IS NULL OR m.unit_kind = $2)\n            ORDER BY m.created_at DESC, m.id\n            LIMIT $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "unit_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "from_class",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "to_class",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "reason",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "unit_label!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      null
+    ]
+  },
+  "hash": "2f692645714082aaf26ed939a777da4ff11e39f86f97206e74048973d87d2387"
+}
