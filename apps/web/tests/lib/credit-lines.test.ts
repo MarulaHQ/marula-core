@@ -21,3 +21,19 @@ describe("credit lines", () => {
     expect(isUuid("not-a-row")).toBe(false);
   });
 });
+
+describe("credit lines, empty input", () => {
+  it("sum to zero", () => {
+    expect(creditLinesTotal([])).toBe(0);
+  });
+
+  it("only match a zero total when there is nothing to account for", () => {
+    expect(creditLinesMatchTotal([], 1000)).toBe(false);
+    expect(creditLinesMatchTotal([], 0)).toBe(true);
+  });
+
+  it("refuse an empty source id", () => {
+    expect(isUuid("")).toBe(false);
+    expect(isUuid("   ")).toBe(false);
+  });
+});

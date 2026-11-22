@@ -18,7 +18,11 @@ export function creditLinesTotal(lines: Pick<CreditLineDraft, "amount_minor">[])
   return lines.reduce((sum, line) => sum + line.amount_minor, 0);
 }
 
-/** Whether the lines account for the document exactly. */
+/**
+ * Whether the lines account for the document exactly. Arithmetic only: an
+ * empty set sums to zero and therefore "matches" a zero total. Whether a credit
+ * may carry no lines at all is the form's policy, and it checks the count.
+ */
 export function creditLinesMatchTotal(
   lines: Pick<CreditLineDraft, "amount_minor">[],
   totalMinor: number,

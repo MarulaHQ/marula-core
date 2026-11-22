@@ -301,6 +301,13 @@ function CreditNotesInner() {
   };
 
   const issueLinesTotal = creditLinesTotal(issueLines);
+  // The request inherits the invoice's currency, so the line labels and the
+  // mismatch message must read the same currency rather than the free-standing
+  // default.
+  const issueLineCurrency = useMemo(() => {
+    if (issueInvoiceId === "none") return issueCurrency;
+    return invoices.find((i) => i.id === issueInvoiceId)?.currency ?? issueCurrency;
+  }, [issueInvoiceId, invoices, issueCurrency]);
 
   const issue = async () => {
     setIssueBusy(true);
@@ -319,7 +326,7 @@ function CreditNotesInner() {
     if (issueLines.length > 0 && !creditLinesMatchTotal(issueLines, total)) {
       setIssueError(
         "The corrected lines must sum to the credit value: " +
-          `${money(issueLinesTotal, issueCurrency)} against ${money(total, issueCurrency)}.`,
+          `${money(issueLinesTotal, issueLineCurrency)} against ${money(total, issueLineCurrency)}.`,
       );
       setIssueBusy(false);
       return;
@@ -945,7 +952,7 @@ function CreditNotesInner() {
               <div className="flex items-center justify-between gap-2">
                 <Label>Corrected lines (optional)</Label>
                 <span className="text-[12px] tabular-nums" style={{ color: issueLines.length > 0 && issueLinesTotal !== Math.round(Number(issueTotal) * 100) ? "var(--m-status-warning-fg)" : "var(--m-text-muted)" }}>
-                  {money(issueLinesTotal, issueCurrency)}
+                  {money(issueLinesTotal, issueLineCurrency)}
                 </span>
               </div>
               <p className="mt-1 text-[12px]" style={{ color: "var(--m-text-muted)" }}>
@@ -959,7 +966,7 @@ function CreditNotesInner() {
                       <Badge tone="neutral">{LINE_SOURCES.find((k) => k.value === line.source_kind)?.label ?? line.source_kind}</Badge>
                       <span className="min-w-0 flex-1 truncate">{line.description}</span>
                       {line.disposition !== null ? <Badge tone="neutral">{line.disposition}</Badge> : null}
-                      <span className="tabular-nums">{money(line.amount_minor, issueCurrency)}</span>
+                      <span className="tabular-nums">{money(line.amount_minor, issueLineCurrency)}</span>
                       <Button variant="ghost" onClick={() => setIssueLines((prev) => prev.filter((_, i) => i !== index))} aria-label={`Remove line ${line.description}`}>
                         Remove
                       </Button>
