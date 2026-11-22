@@ -87,7 +87,9 @@ ALTER TABLE invoice_lines
                   'block_sale','block_drawdown','cap_overage','minimum_trueup',
                   'change_order','sla_credit','escalator','project_release',
                   'rental','expense')) NOT VALID;
-ALTER TABLE invoice_lines VALIDATE CONSTRAINT invoice_lines_kind_check;
+-- The validation scan runs in 0261, outside this transaction: this file holds
+-- an ACCESS EXCLUSIVE lock on invoice_lines from the statement above until it
+-- commits, and validating here would block reads for the length of the scan.
 
 -- The invoice vocabulary gains two words. A ticket expense billed onto an
 -- invoice is a distinct source from the cost line beside it, and a line the

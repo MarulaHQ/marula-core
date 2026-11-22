@@ -410,15 +410,25 @@ pub async fn create_run(
                 .filter(|k| period_kinds(&k.kind))
                 .map(|k| (k.contract_id, k.kind.clone(), k.period_start))
                 .collect();
-        let billed_fees: std::collections::HashSet<(Uuid, chrono::NaiveDate, String)> = billed_keys
-            .iter()
-            .filter(|k| !period_kinds(&k.kind))
-            .filter(|k| {
-                k.kind != BillingLineKind::TimeMaterials.as_str()
-                    && k.kind != BillingLineKind::RetainerOverage.as_str()
-            })
-            .map(|k| (k.contract_id, k.period_start, k.description.clone()))
-            .collect();
+        // The kind is part of the key: a billed expense with the same
+        // description and start as a scheduled fee must not suppress the fee.
+        let billed_fees: std::collections::HashSet<(Uuid, String, chrono::NaiveDate, String)> =
+            billed_keys
+                .iter()
+                .filter(|k| !period_kinds(&k.kind))
+                .filter(|k| {
+                    k.kind != BillingLineKind::TimeMaterials.as_str()
+                        && k.kind != BillingLineKind::RetainerOverage.as_str()
+                })
+                .map(|k| {
+                    (
+                        k.contract_id,
+                        k.kind.clone(),
+                        k.period_start,
+                        k.description.clone(),
+                    )
+                })
+                .collect();
 
         let today = chrono::Utc::now().date_naive();
         let due_on = today + chrono::Duration::days(due_in_days as i64);
@@ -620,6 +630,7 @@ pub async fn create_run(
                             l.kind != BillingLineKind::FixedFee
                                 || !billed_fees.contains(&(
                                     contract.id,
+                                    l.kind.as_str().to_string(),
                                     l.period_start,
                                     l.description.clone(),
                                 ))
