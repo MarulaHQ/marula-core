@@ -473,9 +473,10 @@ export default function PurchaseOrderPage(): ReactNode {
       return;
     }
     setCostBusy(true);
-    if (costKey === null) {
-      setCostKey(crypto.randomUUID());
-    }
+    // The key is chosen before the request and reused verbatim on a retry, so
+    // a lost success cannot become a second charge.
+    const key = costKey ?? crypto.randomUUID();
+    if (costKey === null) setCostKey(key);
     const result = await runEnvelopeMutation({
       describe: "Record an acquisition cost",
       optimistic: () => {},
@@ -489,7 +490,7 @@ export default function PurchaseOrderPage(): ReactNode {
         allocation_method: costMethod,
         capitalise: costCapitalise,
         ...base,
-        idempotency_key: costKey ?? base.idempotency_key,
+        idempotency_key: key,
       }),
       request: (client, body) =>
         client.POST("/api/v1/purchase-receipts/{id}/acquisition-costs", {
@@ -1679,7 +1680,7 @@ export default function PurchaseOrderPage(): ReactNode {
             <div className="flex gap-2">
               <div className="flex-1">
                 <Label>Kind</Label>
-                <Select value={costKind} onValueChange={(v) => { setCostKind(v); setCostKey(null); }}>
+                <Select value={costKind} disabled={costBusy} onValueChange={(v) => { setCostKind(v); setCostKey(null); }}>
                   <SelectTrigger className="w-full" aria-label="Cost kind" data-testid="purchasing-cost-kind">
                     <SelectValue />
                   </SelectTrigger>
@@ -1697,6 +1698,7 @@ export default function PurchaseOrderPage(): ReactNode {
                 <Input
                   id="cost-date"
                   type="date"
+                  disabled={costBusy}
                   value={costDate}
                   onChange={(e) => { setCostDate(e.target.value); setCostKey(null); }}
                   data-testid="purchasing-cost-date"
@@ -1708,6 +1710,7 @@ export default function PurchaseOrderPage(): ReactNode {
                 <Label htmlFor="cost-reference">Reference</Label>
                 <Input
                   id="cost-reference"
+                  disabled={costBusy}
                   value={costReference}
                   onChange={(e) => { setCostReference(e.target.value); setCostKey(null); }}
                   placeholder="Freight invoice number"
@@ -1721,6 +1724,7 @@ export default function PurchaseOrderPage(): ReactNode {
                   type="number"
                   min="0"
                   step="0.01"
+                  disabled={costBusy}
                   value={costAmount}
                   onChange={(e) => { setCostAmount(e.target.value); setCostKey(null); }}
                   data-testid="purchasing-cost-amount"
@@ -1734,7 +1738,7 @@ export default function PurchaseOrderPage(): ReactNode {
             <div className="flex gap-2">
               <div className="flex-1">
                 <Label>Split by</Label>
-                <Select value={costMethod} onValueChange={(v) => { setCostMethod(v); setCostKey(null); }}>
+                <Select value={costMethod} disabled={costBusy} onValueChange={(v) => { setCostMethod(v); setCostKey(null); }}>
                   <SelectTrigger className="w-full" aria-label="Allocation method" data-testid="purchasing-cost-method">
                     <SelectValue />
                   </SelectTrigger>
@@ -1748,6 +1752,7 @@ export default function PurchaseOrderPage(): ReactNode {
               <label className="flex flex-1 items-center gap-2 text-sm">
                 <input
                   type="checkbox"
+                  disabled={costBusy}
                   checked={costCapitalise}
                   onChange={(e) => { setCostCapitalise(e.target.checked); setCostKey(null); }}
                   data-testid="purchasing-cost-capitalise"
