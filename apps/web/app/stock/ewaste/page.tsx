@@ -692,7 +692,11 @@ export default function EwastePage(): React.ReactNode {
                                 </Badge>
                                 {line.destruction_status !== "completed" &&
                                 detail.intake.status === "open" ? (
-                                  <Button variant="ghost" onClick={() => void markDestroyed(line)}>
+                                  <Button
+                                    variant="ghost"
+                                    disabled={detailBusy}
+                                    onClick={() => void markDestroyed(line)}
+                                  >
                                     Mark destroyed
                                   </Button>
                                 ) : null}
