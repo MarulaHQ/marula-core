@@ -100,6 +100,8 @@ export default function EwastePage(): React.ReactNode {
   const createSession = useRef(0);
 
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
+  const detailSeq = useRef(0);
   const [detailBusy, setDetailBusy] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
 
@@ -160,7 +162,7 @@ export default function EwastePage(): React.ReactNode {
       setCreateError("A line needs a category.");
       return;
     }
-    if (!Number.isFinite(qty) || qty < 1) {
+    if (!Number.isInteger(qty) || qty < 1) {
       setCreateError("A line needs a whole quantity.");
       return;
     }
@@ -244,21 +246,24 @@ export default function EwastePage(): React.ReactNode {
   };
 
   const openDetail = async (id: string): Promise<void> => {
+    const seq = ++detailSeq.current;
+    setDetailOpen(true);
     setDetailBusy(true);
     setDetailError(null);
     try {
       const res = await api.api.GET("/api/v1/ewaste/intakes/{id}", {
         params: { path: { id } },
       } satisfies { params: { path: { id: string } } });
+      if (seq !== detailSeq.current) return; // a newer intake owns the dialog
       if (res.data === undefined) {
         setDetailError("Could not open that intake.");
         return;
       }
       setDetail(res.data);
     } catch {
-      setDetailError("Could not open that intake.");
+      if (seq === detailSeq.current) setDetailError("Could not open that intake.");
     } finally {
-      setDetailBusy(false);
+      if (seq === detailSeq.current) setDetailBusy(false);
     }
   };
 
@@ -324,6 +329,32 @@ export default function EwastePage(): React.ReactNode {
     setNotice("Disposition recorded.");
   };
 
+  const markDestroyed = async (line: Line): Promise<void> => {
+    const current = detail;
+    if (current === null) return;
+    setDetailBusy(true);
+    setDetailError(null);
+    const result = await runEnvelopeMutation({
+      describe: "Complete data destruction",
+      optimistic: () => {},
+      revert: () => {},
+      buildBody: (base) => ({ ...base, status: "completed", document_id: null }),
+      request: (client, body) =>
+        client.POST("/api/v1/ewaste/intakes/{id}/lines/{line_id}/destruction", {
+          params: { path: { id: current.intake.id, line_id: line.id } },
+          body: body as components["schemas"]["SetDestructionRequest"],
+        }),
+    });
+    setDetailBusy(false);
+    if (!result.ok) {
+      setDetailError(rejectionText(result, "Data destruction was refused."));
+      return;
+    }
+    await openDetail(current.intake.id);
+    await refresh();
+    setNotice("Data destruction recorded.");
+  };
+
   const closeIntake = async (): Promise<void> => {
     const current = detail;
     if (current === null) return;
@@ -334,13 +365,14 @@ export default function EwastePage(): React.ReactNode {
       entityId: current.intake.id,
       optimistic: () => {},
       revert: () => {},
-      buildBody: (base) => ({ ...base }),
+      // The version the detail read returned is the one the close is
+      // conditional on; the mutation cache is not seeded by a read.
+      buildBody: (base) => ({ ...base, version: current.version }),
       request: (client, body) =>
         client.POST("/api/v1/ewaste/intakes/{id}/close", {
           params: { path: { id: current.intake.id } },
           body: body as components["schemas"]["CloseIntakeRequest"],
         }),
-      versions: () => [[current.intake.id, current.version]],
     });
     setDetailBusy(false);
     if (!result.ok) {
@@ -417,7 +449,11 @@ export default function EwastePage(): React.ReactNode {
                     </Badge>
                   </Td>
                   <Td className="text-right">
-                    <Button variant="secondary" onClick={() => void openDetail(row.intake.id)}>
+                    <Button
+                      variant="secondary"
+                      disabled={detailBusy}
+                      onClick={() => void openDetail(row.intake.id)}
+                    >
                       Open
                     </Button>
                   </Td>
@@ -588,14 +624,20 @@ export default function EwastePage(): React.ReactNode {
 
       {/* Detail */}
       <Dialog
-        open={detail !== null}
+        open={detailOpen}
         onOpenChange={(open) => {
-          if (!open) setDetail(null);
+          if (!open) {
+            detailSeq.current += 1;
+            setDetailOpen(false);
+            setDetail(null);
+            setDetailError(null);
+          }
         }}
       >
         <DialogContent title={detail === null ? "Consignment" : `Consignment ${detail.intake.reference ?? detail.intake.id.slice(0, 8)}`}>
           <div className="grid gap-3 overflow-auto p-1" style={{ maxHeight: "80vh" }}>
-            {detailBusy && detail === null ? <Spinner /> : null}
+            {detail === null && detailError !== null ? <FieldError>{detailError}</FieldError> : null}
+            {detail === null && detailError === null ? <Spinner /> : null}
             {detail !== null ? (
               <>
                 <div className="flex flex-wrap gap-2 text-sm">
@@ -629,9 +671,17 @@ export default function EwastePage(): React.ReactNode {
                           <Td className="text-right tabular-nums text-sm">{grams(line.disposed_weight_g)}</Td>
                           <Td className="text-sm">
                             {line.data_bearing ? (
-                              <Badge tone={line.destruction_status === "completed" ? "success" : "warning"}>
-                                {line.destruction_status}
-                              </Badge>
+                              <span className="inline-flex items-center gap-1.5">
+                                <Badge tone={line.destruction_status === "completed" ? "success" : "warning"}>
+                                  {line.destruction_status}
+                                </Badge>
+                                {line.destruction_status !== "completed" &&
+                                detail.intake.status === "open" ? (
+                                  <Button variant="ghost" onClick={() => void markDestroyed(line)}>
+                                    Mark destroyed
+                                  </Button>
+                                ) : null}
+                              </span>
                             ) : (
                               "—"
                             )}
