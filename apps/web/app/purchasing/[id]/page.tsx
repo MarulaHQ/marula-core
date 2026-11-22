@@ -153,6 +153,9 @@ export default function PurchaseOrderPage(): ReactNode {
   const [costCapitalise, setCostCapitalise] = useState(true);
   const [costError, setCostError] = useState<string | null>(null);
   const [costBusy, setCostBusy] = useState(false);
+  // One key per draft: a retry after an unclear failure must not record the
+  // same charge twice, and a changed draft gets a fresh key.
+  const [costKey, setCostKey] = useState<string | null>(null);
   const [receiveError, setReceiveError] = useState<string | null>(null);
   const [receiveAllowVisible, setReceiveAllowVisible] = useState(false);
   const [receiveScanNotice, setReceiveScanNotice] = useState<string | null>(null);
@@ -439,6 +442,14 @@ export default function PurchaseOrderPage(): ReactNode {
     setNotice("Receipt recorded. Add freight, duty or handling if the documents came with it.");
     setReceivedLines(received);
     if (box.receiptId !== null) {
+      // A different receipt starts a different draft: nothing from the last
+      // one carries over.
+      if (costReceipt?.id !== box.receiptId) {
+        setCostReference("");
+        setCostAmount("");
+        setCostDate("");
+        setCostKey(null);
+      }
       setCostReceipt({ id: box.receiptId, orderCurrency: detail?.order.currency ?? "USD" });
     }
   }
@@ -446,6 +457,7 @@ export default function PurchaseOrderPage(): ReactNode {
   async function submitCostLayer(): Promise<void> {
     const receipt = costReceipt;
     if (receipt === null) return;
+    const submittedId = receipt.id;
     setCostError(null);
     const amount = Math.round(Number(costAmount) * 100);
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -461,6 +473,9 @@ export default function PurchaseOrderPage(): ReactNode {
       return;
     }
     setCostBusy(true);
+    if (costKey === null) {
+      setCostKey(crypto.randomUUID());
+    }
     const result = await runEnvelopeMutation({
       describe: "Record an acquisition cost",
       optimistic: () => {},
@@ -474,6 +489,7 @@ export default function PurchaseOrderPage(): ReactNode {
         allocation_method: costMethod,
         capitalise: costCapitalise,
         ...base,
+        idempotency_key: costKey ?? base.idempotency_key,
       }),
       request: (client, body) =>
         client.POST("/api/v1/purchase-receipts/{id}/acquisition-costs", {
@@ -483,7 +499,13 @@ export default function PurchaseOrderPage(): ReactNode {
     });
     setCostBusy(false);
     if (!result.ok) {
+      // The key survives the failure: a retry is the same charge.
       setCostError(rejectionText(result, "The cost layer was refused."));
+      return;
+    }
+    setCostKey(null);
+    if (costReceipt?.id !== submittedId) {
+      // A different receipt owns the open dialog now; its offer stands.
       return;
     }
     setCostOpen(false);
@@ -934,7 +956,12 @@ export default function PurchaseOrderPage(): ReactNode {
             <Button
               onClick={() => {
                 setCostOpen(true);
-                setCostDate(new Date().toISOString().slice(0, 10));
+                {
+                  const now = new Date();
+                  const month = String(now.getMonth() + 1).padStart(2, "0");
+                  const day = String(now.getDate()).padStart(2, "0");
+                  setCostDate(`${now.getFullYear()}-${month}-${day}`);
+                }
                 setCostError(null);
               }}
               data-testid="purchasing-cost-open"
@@ -1652,7 +1679,7 @@ export default function PurchaseOrderPage(): ReactNode {
             <div className="flex gap-2">
               <div className="flex-1">
                 <Label>Kind</Label>
-                <Select value={costKind} onValueChange={setCostKind}>
+                <Select value={costKind} onValueChange={(v) => { setCostKind(v); setCostKey(null); }}>
                   <SelectTrigger className="w-full" aria-label="Cost kind" data-testid="purchasing-cost-kind">
                     <SelectValue />
                   </SelectTrigger>
@@ -1671,7 +1698,7 @@ export default function PurchaseOrderPage(): ReactNode {
                   id="cost-date"
                   type="date"
                   value={costDate}
-                  onChange={(e) => setCostDate(e.target.value)}
+                  onChange={(e) => { setCostDate(e.target.value); setCostKey(null); }}
                   data-testid="purchasing-cost-date"
                 />
               </div>
@@ -1682,7 +1709,7 @@ export default function PurchaseOrderPage(): ReactNode {
                 <Input
                   id="cost-reference"
                   value={costReference}
-                  onChange={(e) => setCostReference(e.target.value)}
+                  onChange={(e) => { setCostReference(e.target.value); setCostKey(null); }}
                   placeholder="Freight invoice number"
                   data-testid="purchasing-cost-reference"
                 />
@@ -1695,7 +1722,7 @@ export default function PurchaseOrderPage(): ReactNode {
                   min="0"
                   step="0.01"
                   value={costAmount}
-                  onChange={(e) => setCostAmount(e.target.value)}
+                  onChange={(e) => { setCostAmount(e.target.value); setCostKey(null); }}
                   data-testid="purchasing-cost-amount"
                 />
               </div>
@@ -1707,7 +1734,7 @@ export default function PurchaseOrderPage(): ReactNode {
             <div className="flex gap-2">
               <div className="flex-1">
                 <Label>Split by</Label>
-                <Select value={costMethod} onValueChange={setCostMethod}>
+                <Select value={costMethod} onValueChange={(v) => { setCostMethod(v); setCostKey(null); }}>
                   <SelectTrigger className="w-full" aria-label="Allocation method" data-testid="purchasing-cost-method">
                     <SelectValue />
                   </SelectTrigger>
@@ -1722,7 +1749,7 @@ export default function PurchaseOrderPage(): ReactNode {
                 <input
                   type="checkbox"
                   checked={costCapitalise}
-                  onChange={(e) => setCostCapitalise(e.target.checked)}
+                  onChange={(e) => { setCostCapitalise(e.target.checked); setCostKey(null); }}
                   data-testid="purchasing-cost-capitalise"
                 />
                 Add it to the receipt&apos;s worth
