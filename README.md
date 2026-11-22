@@ -82,20 +82,14 @@ One line per platform, doing the same work: it downloads the archive for your
 platform, checks the release signature, unpacks it, and opens the installer. You
 need Docker with Compose 2.24 or newer.
 
-For a server, download it to a file first and pass `--dir /srv/marula --apply`,
-which finishes without the wizard; [installing on a
-machine](docs/install.md#one-line) shows that form and why it is the one to use
-when you are passing arguments. The Windows script takes the same flags, which
-means calling it as a scriptblock rather than piping it into `iex`:
+For a server, download it to a file first and pass `--dir /srv/marula --apply`; [installing on a
+machine](docs/install.md#one-line) explains more and all the parameters of the install CLI. 
 
 ```powershell
 & ([scriptblock]::Create((irm https://getmarula.com/install/latest/windows))) -Version 0.6.2 --dir C:\srv\marula --apply
 ```
 
-[Installing on a machine](docs/install.md) covers the rest: the archive by hand,
-the air-gapped bundle, the eight secrets, the three shapes, upgrades and backups.
-The Windows path is new. Its logic is tested against a local release fixture, and
-the install itself has not been run on a Windows machine yet; [that
+[Installing on a machine](docs/install.md) covers the rest. NB: Windows installer is untested at this stage - please submit any feedback as an issue. [that
 page](docs/install.md#windows) says exactly what was and was not checked.
 
 Working on the code instead?
