@@ -13,7 +13,7 @@ is planned. Every row is checked against the code, not against a plan.
 **Surfaces:** Web, Native, Desktop, Portal, API, CLI.
 
 Last checked against `main` on 2026-11-21. The API column counts the documented
-surface: 788 paths in 65 groups, pinned in `fixtures/openapi/v1/openapi.json`.
+surface: 794 paths in 66 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 
 ## 1. Service desk
 
@@ -104,6 +104,7 @@ surface: 788 paths in 65 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 | Purchase intent and recharges | A purchase declares what it is for and where it lands, and a client purchase resolves its recharge rule at cost, markup, fixed or none | API | Built | `crates/core-api/src/routes/purchasing.rs` |
 | Rentals | An owned rental pool, client leases billed through invoice runs, and vendor rentals with returns | API | Built | `crates/core-api/src/routes/loans.rs` |
 | E-waste custody | Client e-waste intake and disposition, with certificates where required and a destruction state | API | Built | `crates/core-api/src/routes/ewaste.rs` |
+| Invoice sourcing and credit lines | Every invoice line names the source it bills; selected ticket cost lines and expenses bill onto one invoice; a credit names the lines it corrects, with a disposition when goods come back | API | Built | `crates/core-api/src/routes/costs.rs`, `crates/core-api/src/routes/credit_notes.rs` |
 | Labels and printing | Templates, preview and ZPL through the desktop shell | Web, Desktop, API | Shipped | `crates/core-api/src/routes/labels.rs`, `desktop/src/printers.rs` |
 | Scanning | Keyboard-wedge and camera scans resolved to records | Web, Native, API | Shipped | `crates/core-api/src/routes/labels.rs`, `native/app/(tabs)/scan.tsx` |
 | Imports | Dry run, chunked staging, saved templates and finish | Web, API | Shipped | `crates/core-api/src/routes/imports.rs` |
