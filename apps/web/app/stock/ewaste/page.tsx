@@ -245,6 +245,15 @@ export default function EwastePage(): React.ReactNode {
     setNotice("Consignment received.");
   };
 
+  /** Dismiss the dialog and invalidate any read still in flight. */
+  const closeDetail = (): void => {
+    detailSeq.current += 1;
+    setDetailOpen(false);
+    setDetail(null);
+    setDetailError(null);
+    setDetailBusy(false);
+  };
+
   const openDetail = async (id: string): Promise<void> => {
     const seq = ++detailSeq.current;
     setDetailOpen(true);
@@ -626,12 +635,7 @@ export default function EwastePage(): React.ReactNode {
       <Dialog
         open={detailOpen}
         onOpenChange={(open) => {
-          if (!open) {
-            detailSeq.current += 1;
-            setDetailOpen(false);
-            setDetail(null);
-            setDetailError(null);
-          }
+          if (!open) closeDetail();
         }}
       >
         <DialogContent title={detail === null ? "Consignment" : `Consignment ${detail.intake.reference ?? detail.intake.id.slice(0, 8)}`}>
@@ -733,7 +737,7 @@ export default function EwastePage(): React.ReactNode {
 
                 {detailError !== null ? <FieldError>{detailError}</FieldError> : null}
                 <DialogActions>
-                  <Button variant="secondary" onClick={() => setDetail(null)}>
+                  <Button variant="secondary" onClick={closeDetail}>
                     Close
                   </Button>
                   {detail.intake.status === "open" ? (
