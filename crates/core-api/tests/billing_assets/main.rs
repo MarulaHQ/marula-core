@@ -17,6 +17,7 @@
 
 mod common;
 
+mod accounting_package_flow;
 mod assets_flow;
 mod billing_verification_flow;
 mod custody_flow;

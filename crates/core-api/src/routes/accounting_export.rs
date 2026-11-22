@@ -52,7 +52,7 @@ use axum::{
     http::Extensions,
     Json,
 };
-use chrono::NaiveDate;
+use chrono::{DateTime, NaiveDate, Utc};
 use core_db::accounting_export::{
     ClaimOutcome, ClaimSpec, ExportReceiptRow, ExportRun, ExportState, ExportVendor, RecordKind,
     RunFilters, TaxMapping,
@@ -1927,4 +1927,283 @@ mod tests {
             xero_reason(&X::Network("dns".into()))
         );
     }
+}
+
+// --- accountant package ------------------------------------------------------
+
+/// One class and the account it posts to.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ClassAccountView {
+    pub reporting_class: String,
+    pub account_code: String,
+    pub account_name: String,
+}
+
+/// PUT /accounting/class-accounts body.
+#[derive(Debug, Deserialize, ToSchema)]
+pub struct SetClassAccountRequest {
+    pub reporting_class: String,
+    pub account_code: String,
+    pub account_name: String,
+}
+
+/// One package line, with the account it resolves to.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct PackageRecordView {
+    /// invoice | credit_note | acquisition_cost | rental_charge
+    pub kind: String,
+    /// `kind:id` — the trail from an exported row back to one Marula record.
+    pub stable_ref: String,
+    pub document_ref: Option<String>,
+    #[schema(value_type = String)]
+    pub occurred_on: NaiveDate,
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub client_id: Option<Uuid>,
+    pub currency: String,
+    pub amount_minor: i64,
+    pub base_amount_minor: Option<i64>,
+    pub reporting_class: Option<String>,
+    pub account_code: String,
+    pub memo: Option<String>,
+}
+
+/// A total per account, in the org base currency where a row has one.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AccountTotalView {
+    pub account_code: String,
+    pub account_name: String,
+    pub base_total_minor: i64,
+}
+
+/// A total per record kind.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct KindTotalView {
+    pub kind: String,
+    pub rows: i64,
+    pub base_total_minor: i64,
+}
+
+/// The accountant package: one period, every money row, every class resolved to
+/// an account, and the stable reference that names each row.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AccountingPackageView {
+    pub generated_at: DateTime<Utc>,
+    #[schema(value_type = String)]
+    pub period_from: NaiveDate,
+    #[schema(value_type = String)]
+    pub period_to: NaiveDate,
+    pub base_currency: String,
+    pub class_accounts: Vec<ClassAccountView>,
+    pub records: Vec<PackageRecordView>,
+    pub totals_by_account: Vec<AccountTotalView>,
+    pub totals_by_kind: Vec<KindTotalView>,
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct PackageQuery {
+    #[param(value_type = String)]
+    pub from: NaiveDate,
+    #[param(value_type = String)]
+    pub to: NaiveDate,
+}
+
+/// GET /accounting/class-accounts — every class the org posts to, defaults
+/// filled in for the ones it has not chosen.
+#[utoipa::path(operation_id = "accounting_class_accounts_list", get, path = "/api/accounting/class-accounts", tag = "accounting", security(("bearer" = [])),
+    responses((status = 200, body = [ClassAccountView])))]
+pub async fn list_class_accounts(
+    State(state): State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<Vec<ClassAccountView>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: Module::Commercial,
+            action: Action::View,
+        },
+    )?;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let rows =
+        core_db::accounting_export::class_accounts(&mut tx, authed.principal.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| ClassAccountView {
+                reporting_class: r.reporting_class,
+                account_code: r.account_code,
+                account_name: r.account_name,
+            })
+            .collect(),
+    ))
+}
+
+/// PUT /accounting/class-accounts — choose the account one class posts to.
+#[utoipa::path(operation_id = "accounting_class_accounts_set", put, path = "/api/accounting/class-accounts", tag = "accounting", security(("bearer" = [])),
+    request_body = SetClassAccountRequest,
+    responses((status = 200, body = ClassAccountView),
+              (status = 422, description = "class or account is empty")))]
+pub async fn set_class_account(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<SetClassAccountRequest>,
+) -> ApiResult<Json<ClassAccountView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: Module::Commercial,
+            action: Action::Edit,
+        },
+    )?;
+    let class = req.reporting_class.trim().to_lowercase();
+    let code = req.account_code.trim().to_string();
+    let name = req.account_name.trim().to_string();
+    if class.is_empty() || code.is_empty() || name.is_empty() {
+        return Err(ApiError::Validation(
+            "a class, an account code and an account name are all required".into(),
+        ));
+    }
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let saved = core_db::accounting_export::upsert_class_account(
+        &mut tx,
+        authed.principal.user.org_id,
+        &class,
+        &code,
+        &name,
+    )
+    .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(ClassAccountView {
+        reporting_class: saved.reporting_class,
+        account_code: saved.account_code,
+        account_name: saved.account_name,
+    }))
+}
+
+/// GET /accounting/package — the period's package, ready to hand an accountant.
+#[utoipa::path(operation_id = "accounting_package", get, path = "/api/accounting/package", tag = "accounting", security(("bearer" = [])),
+    params(PackageQuery),
+    responses((status = 200, body = AccountingPackageView),
+              (status = 422, description = "the period is inverted")))]
+pub async fn accounting_package(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Query(q): Query<PackageQuery>,
+) -> ApiResult<Json<AccountingPackageView>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: Module::Commercial,
+            action: Action::View,
+        },
+    )?;
+    if q.to < q.from {
+        return Err(ApiError::Validation(
+            "the period ends before it starts".into(),
+        ));
+    }
+    let org_id = authed.principal.user.org_id;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+        .await
+        .map_err(ApiError::from)?;
+    let accounts = core_db::accounting_export::class_accounts(&mut tx, org_id).await?;
+    let records =
+        core_db::accounting_export::package_records(&mut tx, org_id, q.from, q.to).await?;
+    let base_currency = core_db::fx::base_currency(&mut *tx, org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+
+    let account_of = |class: Option<&str>| -> (String, String) {
+        let wanted = class.unwrap_or("other");
+        accounts
+            .iter()
+            .find(|a| a.reporting_class == wanted)
+            .or_else(|| accounts.iter().find(|a| a.reporting_class == "other"))
+            .map(|a| (a.account_code.clone(), a.account_name.clone()))
+            .unwrap_or_else(|| ("5900".to_string(), "Other cost".to_string()))
+    };
+
+    let views: Vec<PackageRecordView> = records
+        .iter()
+        .map(|r| {
+            let (code, _) = account_of(r.reporting_class.as_deref());
+            PackageRecordView {
+                kind: r.kind.clone(),
+                stable_ref: r.stable_ref.clone(),
+                document_ref: r.document_ref.clone(),
+                occurred_on: r.occurred_on,
+                client_id: r.client_id,
+                currency: r.currency.clone(),
+                amount_minor: r.amount_minor,
+                base_amount_minor: r.base_amount_minor,
+                reporting_class: r.reporting_class.clone(),
+                account_code: code,
+                memo: r.memo.clone(),
+            }
+        })
+        .collect();
+
+    let mut by_account: std::collections::BTreeMap<String, (String, i64)> = Default::default();
+    let mut by_kind: std::collections::BTreeMap<String, (i64, i64)> = Default::default();
+    for r in &views {
+        let money = r.base_amount_minor.unwrap_or(r.amount_minor);
+        let (_, name) = account_of(r.reporting_class.as_deref());
+        let entry = by_account
+            .entry(r.account_code.clone())
+            .or_insert((name, 0));
+        entry.1 = entry.1.saturating_add(money);
+        let kind = by_kind.entry(r.kind.clone()).or_insert((0, 0));
+        kind.0 += 1;
+        kind.1 = kind.1.saturating_add(money);
+    }
+
+    Ok(Json(AccountingPackageView {
+        generated_at: Utc::now(),
+        period_from: q.from,
+        period_to: q.to,
+        base_currency,
+        class_accounts: accounts
+            .into_iter()
+            .map(|a| ClassAccountView {
+                reporting_class: a.reporting_class,
+                account_code: a.account_code,
+                account_name: a.account_name,
+            })
+            .collect(),
+        records: views,
+        totals_by_account: by_account
+            .into_iter()
+            .map(
+                |(account_code, (account_name, base_total_minor))| AccountTotalView {
+                    account_code,
+                    account_name,
+                    base_total_minor,
+                },
+            )
+            .collect(),
+        totals_by_kind: by_kind
+            .into_iter()
+            .map(|(kind, (rows, base_total_minor))| KindTotalView {
+                kind,
+                rows,
+                base_total_minor,
+            })
+            .collect(),
+    }))
 }
