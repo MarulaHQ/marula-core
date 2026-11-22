@@ -508,6 +508,19 @@ pub async fn return_loan(
         let mut targets: Vec<core_db::loans::LoanReturnTarget> =
             Vec::with_capacity(req.lines.len());
         for line in &req.lines {
+            // The note is stored inside the charge's description, so a note
+            // with no charge would be accepted and silently lost.
+            if line
+                .damage_note
+                .as_deref()
+                .is_some_and(|note| !note.trim().is_empty())
+                && line.damage_charge_minor.is_none()
+            {
+                return Err(ApiError::Validation(
+                    "a damage note needs a damage charge: the note is recorded with the charge"
+                        .into(),
+                ));
+            }
             let damage_charge = match line.damage_charge_minor {
                 None => None,
                 Some(amount) => {

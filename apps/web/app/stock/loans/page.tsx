@@ -403,6 +403,15 @@ export default function StockLoansPage(): ReactNode {
       setReturnError("A damage charge must be a positive amount.");
       return;
     }
+    const noteWithoutCharge = openLines.find((line) => {
+      const note = (returnDamageNote[line.id] ?? "").trim();
+      const amount = (returnDamage[line.id] ?? "").trim();
+      return note !== "" && amount === "";
+    });
+    if (noteWithoutCharge !== undefined) {
+      setReturnError("A damage note needs a damage charge; the note is stored with the charge.");
+      return;
+    }
     setReturnBusy(true);
     const result = await runEnvelopeMutation({
       describe: "Return client loan",
@@ -870,7 +879,9 @@ export default function StockLoansPage(): ReactNode {
                       {returnLoan.loan.is_lease ? (
                         <div className="flex gap-2">
                           <div className="w-32">
-                            <Label htmlFor={`return-damage-${line.id}`}>Damage charge</Label>
+                            <Label htmlFor={`return-damage-${line.id}`}>
+                              Damage charge{returnLoan.loan.lease_currency ? ` (${returnLoan.loan.lease_currency})` : ""}
+                            </Label>
                             <Input
                               id={`return-damage-${line.id}`}
                               type="number"
