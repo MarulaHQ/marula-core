@@ -29,6 +29,7 @@ import {
   SelectTrigger,
   SelectValue,
   Spinner,
+  SurfaceHeader,
   Table,
   Td,
   Th,
@@ -242,32 +243,27 @@ export default function VendorRentalsPage(): React.ReactNode {
 
   return (
     <div className="grid gap-4">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div>
-          <h1 className="text-xl font-semibold" style={{ color: "var(--m-text)" }}>
-            Vendor rentals
-          </h1>
-          <p className="text-sm" style={{ color: "var(--m-text-secondary)" }}>
-            Gear rented in from a supplier: {openCount} open, {rentals.length} in view. Not owned
-            stock, never in inventory value.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-36" aria-label="Vendor rental status">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="open">Open</SelectItem>
-              <SelectItem value="returned">Returned</SelectItem>
-              <SelectItem value="all">All</SelectItem>
-            </SelectContent>
-          </Select>
-          <Button onClick={() => setCreateOpen(true)} data-testid="vendor-rentals-new">
-            Record a rental
-          </Button>
-        </div>
-      </div>
+      <SurfaceHeader
+        title="Vendor rentals"
+        description={`Gear rented in from a supplier: ${openCount} open, ${rentals.length} in view. Not owned stock, never in inventory value.`}
+        actions={
+          <div className="flex items-center gap-2">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-36" aria-label="Vendor rental status">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="open">Open</SelectItem>
+                <SelectItem value="returned">Returned</SelectItem>
+                <SelectItem value="all">All</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button onClick={() => setCreateOpen(true)} data-testid="vendor-rentals-new">
+              Record a rental
+            </Button>
+          </div>
+        }
+      />
 
       {notice !== null ? (
         <p role="status" className="text-sm" style={{ color: "var(--m-status-success-fg)" }}>
