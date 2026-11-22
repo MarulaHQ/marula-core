@@ -2315,6 +2315,10 @@ pub struct VendorRentalRequest {
 pub struct VendorRental {
     pub id: Uuid,
     pub device_asset_id: Uuid,
+    /// The rented unit's tag and name, read from the asset so a register row
+    /// names the thing rather than an opaque id.
+    pub asset_tag: String,
+    pub asset_name: String,
     pub vendor_id: Option<Uuid>,
     pub vendor_name: Option<String>,
     pub agreement_ref: Option<String>,
@@ -2361,6 +2365,8 @@ struct VendorRow {
     notes: Option<String>,
     created_at: DateTime<Utc>,
     updated_at: DateTime<Utc>,
+    asset_tag: String,
+    asset_name: String,
 }
 
 fn vendor_from_row(r: VendorRow) -> VendorRental {
@@ -2387,13 +2393,16 @@ fn vendor_from_row(r: VendorRow) -> VendorRental {
         notes: r.notes,
         created_at: r.created_at,
         updated_at: r.updated_at,
+        asset_tag: r.asset_tag,
+        asset_name: r.asset_name,
     }
 }
 
-const VENDOR_COLS: &str = "id, device_asset_id, vendor_id, vendor_name, agreement_ref,
-     start_on, end_on, cost_minor, currency, cycle, deposit_minor, deposit_currency,
-     base_cost_minor, status, returned_at, return_condition, damage_minor, lost,
-     loss_minor, notes, created_at, updated_at";
+const VENDOR_COLS: &str = "v.id, v.device_asset_id, v.vendor_id, v.vendor_name, v.agreement_ref,
+     v.start_on, v.end_on, v.cost_minor, v.currency, v.cycle, v.deposit_minor,
+     v.deposit_currency, v.base_cost_minor, v.status, v.returned_at,
+     v.return_condition, v.damage_minor, v.lost, v.loss_minor, v.notes,
+     v.created_at, v.updated_at, da.tag AS asset_tag, da.name AS asset_name";
 
 /// Creates the agreement, and the asset when the caller has none: a unit rented
 /// from a vendor is born in `rental_in` with `ownership = rented`, exactly the
@@ -2518,35 +2527,46 @@ pub async fn create_vendor_rental(
     };
 
     let id = Uuid::now_v7();
-    let row: VendorRow = sqlx::query_as(&format!(
+    // RETURNING names the target table only, so the joined projection cannot
+    // ride it: insert, then read the row back through the joined read in the
+    // same transaction.
+    sqlx::query!(
         r#"INSERT INTO vendor_rentals
              (id, org_id, device_asset_id, vendor_id, vendor_name, agreement_ref,
               start_on, end_on, cost_minor, currency, cycle, deposit_minor,
               deposit_currency, fx_rate_used, fx_rate_date, fx_source, base_cost_minor,
               notes, created_by)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                   $15, $16, $17, $18, $19)
-           RETURNING {VENDOR_COLS}"#
+                   $15, $16, $17, $18, $19)"#,
+        id,
+        org_id,
+        asset_id,
+        req.vendor_id,
+        req.vendor_name.as_deref(),
+        req.agreement_ref.as_deref(),
+        req.start_on,
+        req.end_on,
+        req.cost_minor,
+        &req.currency,
+        &req.cycle,
+        req.deposit_minor,
+        req.deposit_currency.as_deref(),
+        req.fx_rate_used.as_deref(),
+        req.fx_rate_date,
+        req.fx_source.as_deref(),
+        req.base_cost_minor,
+        req.notes.as_deref(),
+        user_id,
+    )
+    .execute(&mut *conn)
+    .await?;
+    let row: VendorRow = sqlx::query_as(&format!(
+        r#"SELECT {VENDOR_COLS} FROM vendor_rentals v
+             JOIN device_assets da ON da.org_id = v.org_id AND da.id = v.device_asset_id
+            WHERE v.org_id = $1 AND v.id = $2"#
     ))
-    .bind(id)
     .bind(org_id)
-    .bind(asset_id)
-    .bind(req.vendor_id)
-    .bind(req.vendor_name.as_deref())
-    .bind(req.agreement_ref.as_deref())
-    .bind(req.start_on)
-    .bind(req.end_on)
-    .bind(req.cost_minor)
-    .bind(&req.currency)
-    .bind(&req.cycle)
-    .bind(req.deposit_minor)
-    .bind(req.deposit_currency.as_deref())
-    .bind(req.fx_rate_used.as_deref())
-    .bind(req.fx_rate_date)
-    .bind(req.fx_source.as_deref())
-    .bind(req.base_cost_minor)
-    .bind(req.notes.as_deref())
-    .bind(user_id)
+    .bind(id)
     .fetch_one(&mut *conn)
     .await?;
     Ok(vendor_from_row(row))
@@ -2558,7 +2578,9 @@ pub async fn get_vendor_rental(
     id: Uuid,
 ) -> DbResult<VendorRental> {
     let row: Option<VendorRow> = sqlx::query_as(&format!(
-        r#"SELECT {VENDOR_COLS} FROM vendor_rentals WHERE org_id = $1 AND id = $2"#
+        r#"SELECT {VENDOR_COLS} FROM vendor_rentals v
+             JOIN device_assets da ON da.org_id = v.org_id AND da.id = v.device_asset_id
+            WHERE v.org_id = $1 AND v.id = $2"#
     ))
     .bind(org_id)
     .bind(id)
@@ -2574,9 +2596,10 @@ pub async fn list_vendor_rentals(
     limit: i64,
 ) -> DbResult<Vec<VendorRental>> {
     let rows: Vec<VendorRow> = sqlx::query_as(&format!(
-        r#"SELECT {VENDOR_COLS} FROM vendor_rentals
-            WHERE org_id = $1 AND ($2::text IS NULL OR status = $2)
-            ORDER BY start_on DESC, id
+        r#"SELECT {VENDOR_COLS} FROM vendor_rentals v
+             JOIN device_assets da ON da.org_id = v.org_id AND da.id = v.device_asset_id
+            WHERE v.org_id = $1 AND ($2::text IS NULL OR v.status = $2)
+            ORDER BY v.start_on DESC, v.id
             LIMIT $3"#
     ))
     .bind(org_id)
@@ -2657,26 +2680,39 @@ pub async fn return_vendor_rental(
         }
     }
 
-    let row: Option<VendorRow> = sqlx::query_as(&format!(
+    let affected = sqlx::query!(
         r#"UPDATE vendor_rentals
               SET status = 'returned', returned_at = now(), return_condition = $3,
                   damage_minor = $4, lost = $5, loss_minor = $6,
                   notes = COALESCE($7, notes), updated_at = now()
-            WHERE org_id = $1 AND id = $2 AND status = 'open'
-            RETURNING {VENDOR_COLS}"#
+            WHERE org_id = $1 AND id = $2 AND status = 'open'"#,
+        org_id,
+        id,
+        condition,
+        req.damage_minor,
+        req.lost,
+        req.loss_minor,
+        req.notes.as_deref(),
+    )
+    .execute(&mut *conn)
+    .await?;
+    // The joined projection cannot ride RETURNING (the target table has no
+    // `v` or `da`), so the closed row is read back through the joined read.
+    if affected.rows_affected() == 0 {
+        return Err(DbError::Conflict(
+            "this vendor rental is already closed".into(),
+        ));
+    }
+    let row: VendorRow = sqlx::query_as(&format!(
+        r#"SELECT {VENDOR_COLS} FROM vendor_rentals v
+             JOIN device_assets da ON da.org_id = v.org_id AND da.id = v.device_asset_id
+            WHERE v.org_id = $1 AND v.id = $2"#
     ))
     .bind(org_id)
     .bind(id)
-    .bind(condition)
-    .bind(req.damage_minor)
-    .bind(req.lost)
-    .bind(req.loss_minor)
-    .bind(req.notes.as_deref())
-    .fetch_optional(&mut *conn)
+    .fetch_one(&mut *conn)
     .await?;
-    let rental = row
-        .map(vendor_from_row)
-        .ok_or_else(|| DbError::Conflict("this vendor rental is already closed".into()))?;
+    let rental = vendor_from_row(row);
 
     if !req.lost {
         // The unit goes back to the vendor: terminal `returned`, with the

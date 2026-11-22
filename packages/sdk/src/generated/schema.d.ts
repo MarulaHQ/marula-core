@@ -39307,6 +39307,9 @@ export interface components {
         };
         VendorRentalView: {
             agreement_ref?: string | null;
+            asset_name: string;
+            /** @description The rented unit's tag and name, so the register names the thing. */
+            asset_tag: string;
             /**
              * Format: int64
              * @description The cycle cost in the organisation base currency, locked when it was

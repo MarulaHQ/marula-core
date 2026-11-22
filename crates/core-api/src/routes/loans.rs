@@ -927,6 +927,9 @@ pub struct VendorRentalView {
     pub id: Uuid,
     #[schema(value_type = Uuid)]
     pub device_asset_id: Uuid,
+    /// The rented unit's tag and name, so the register names the thing.
+    pub asset_tag: String,
+    pub asset_name: String,
     #[schema(value_type = Option<Uuid>)]
     pub vendor_id: Option<Uuid>,
     #[schema(nullable = true)]
@@ -973,6 +976,8 @@ impl From<core_db::loans::VendorRental> for VendorRentalView {
         Self {
             id: v.id,
             device_asset_id: v.device_asset_id,
+            asset_tag: v.asset_tag,
+            asset_name: v.asset_name,
             vendor_id: v.vendor_id,
             vendor_name: v.vendor_name,
             agreement_ref: v.agreement_ref,
