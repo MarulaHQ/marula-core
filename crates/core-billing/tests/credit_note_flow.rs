@@ -806,3 +806,163 @@ async fn dunning_statement_queues_to_contacts() {
         "validation_failed"
     );
 }
+
+// --- credit lines -------------------------------------------------------------
+
+/// A credit can now name what it corrects. The lines must account for the
+/// document, a physical line must say what happened to the unit, and a service
+/// line must not.
+#[tokio::test]
+async fn credit_lines_name_sources_and_physical_ones_need_a_disposition() {
+    let (_state, app) = test_state().await;
+    let slug = format!("crn-lines-{}", Uuid::now_v7().simple());
+    let org = register_org(&app, slug).await;
+    let client_id = create_client(&app, &org, "Acme").await;
+    // A credit names rows that exist: the contract below is the source for
+    // both lines, and a random id is the negative case.
+    let contract = create_contract(
+        &app,
+        &org,
+        client_id,
+        json!({
+            "number": format!("C-{}", Uuid::now_v7().simple()),
+            "name": "Goodwill agreement",
+            "contract_type": "time_and_materials",
+            "status": "active",
+            "currency": "USD",
+            "effective_from": "2026-01-01",
+            "hourly_rate_minor": 12_000,
+        }),
+    )
+    .await;
+    let source_a = Uuid::parse_str(contract["id"].as_str().unwrap()).unwrap();
+    let source_b = source_a;
+    let missing = Uuid::now_v7();
+    let physical_line = |disposition: Option<&str>| {
+        json!({
+            "source_kind": "contract_line",
+            "source_id": source_a,
+            "description": "Rack rail kit",
+            "amount_minor": 600,
+            "physical": true,
+            "disposition": disposition,
+        })
+    };
+    let service_line = json!({
+        "source_kind": "contract_line",
+        "source_id": source_b,
+        "description": "Goodwill labour",
+        "amount_minor": 400,
+    });
+
+    // A source that is not in this organisation is refused.
+    let response = issue_credit(
+        &app,
+        &org,
+        json!({
+            "client_id": client_id,
+            "total_minor": 600,
+            "currency": "USD",
+            "lines": [{
+                "source_kind": "contract_line",
+                "source_id": missing,
+                "description": "Nothing",
+                "amount_minor": 600,
+            }],
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 422, "source must exist in the org");
+
+    // The lines must sum to the document.
+    let response = issue_credit(
+        &app,
+        &org,
+        json!({
+            "client_id": client_id,
+            "total_minor": 500,
+            "currency": "USD",
+            "lines": [physical_line(Some("sale_stock")), service_line],
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 422, "lines must account for the total");
+
+    // A physical correction names the unit's outcome.
+    let response = issue_credit(
+        &app,
+        &org,
+        json!({
+            "client_id": client_id,
+            "total_minor": 600,
+            "currency": "USD",
+            "lines": [physical_line(None)],
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 422, "physical without disposition");
+
+    // A service correction carries none.
+    let response = issue_credit(
+        &app,
+        &org,
+        json!({
+            "client_id": client_id,
+            "total_minor": 400,
+            "currency": "USD",
+            "lines": [{
+                "source_kind": "contract_line",
+                "source_id": source_b,
+                "description": "Goodwill labour",
+                "amount_minor": 400,
+                "disposition": "ewaste",
+            }],
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 422, "service with disposition");
+
+    // The valid document carries both lines and both sources.
+    let response = issue_credit(
+        &app,
+        &org,
+        json!({
+            "client_id": client_id,
+            "total_minor": 1_000,
+            "currency": "USD",
+            "reason": "Returned goods and goodwill",
+            "lines": [physical_line(Some("sale_stock")), service_line],
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "credit with lines");
+    let body = body_json(response).await;
+    let note_id = body["credit_note"]["id"]
+        .as_str()
+        .or(body["id"].as_str())
+        .expect("credit note id");
+
+    let detail = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            &format!("/api/credit-notes/{note_id}"),
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    let lines = detail["lines"].as_array().expect("lines in detail");
+    assert_eq!(lines.len(), 2, "both corrected lines are returned");
+    assert_eq!(lines[0]["source_kind"], json!("contract_line"));
+    assert_eq!(lines[0]["source_id"], json!(source_a));
+    assert_eq!(lines[0]["disposition"], json!("sale_stock"));
+    assert_eq!(lines[1]["source_kind"], json!("contract_line"));
+    assert_eq!(lines[1]["disposition"], json!(null));
+}

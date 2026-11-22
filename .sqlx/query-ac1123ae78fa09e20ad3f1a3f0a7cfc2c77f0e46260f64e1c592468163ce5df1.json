@@ -1,0 +1,24 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n                 SELECT 1 FROM ticket_expenses e\n                   JOIN tickets t ON t.org_id = e.org_id AND t.id = e.ticket_id\n                  WHERE e.org_id = $1 AND e.id = $2 AND t.client_id = $3)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "ac1123ae78fa09e20ad3f1a3f0a7cfc2c77f0e46260f64e1c592468163ce5df1"
+}

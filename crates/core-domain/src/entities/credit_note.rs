@@ -121,6 +121,60 @@ impl CreditNote {
     }
 }
 
+/// One corrected line on a credit note. The source pair names what the credit
+/// corrects, using the vocabulary invoice lines carry; `disposition` is what
+/// happened to a physical unit the correction gives back, in the return path's
+/// vocabulary.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+#[cfg_attr(feature = "openapi", derive(utoipa::ToSchema))]
+pub struct CreditNoteLine {
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub org_id: OrgId,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub credit_note_id: uuid::Uuid,
+    /// One of [`CREDIT_LINE_SOURCE_KINDS`].
+    pub source_kind: String,
+    #[cfg_attr(feature = "openapi", schema(value_type = uuid::Uuid))]
+    pub source_id: uuid::Uuid,
+    #[cfg_attr(feature = "openapi", schema(value_type = Option<uuid::Uuid>))]
+    pub invoice_line_id: Option<uuid::Uuid>,
+    pub description: String,
+    pub quantity_minutes: i64,
+    pub amount_minor: i64,
+    pub base_amount_minor: Option<i64>,
+    /// Whether this correction gives a physical unit back.
+    pub physical: bool,
+    /// What happened to the unit. Required when `physical`, absent otherwise.
+    pub disposition: Option<String>,
+    pub position: i32,
+    pub created_at: chrono::DateTime<Utc>,
+}
+
+/// The kinds a credit line may name. A credit either corrects a money line
+/// (a cost line, an expense, a contract line) or a rental charge.
+pub const CREDIT_LINE_SOURCE_KINDS: [&str; 4] = [
+    "ticket_cost_line",
+    "ticket_expense",
+    "rental_charge",
+    "contract_line",
+];
+
+/// The dispositions a physical correction may record; the return path's
+/// vocabulary, so a credit and a return read the same.
+pub const CREDIT_LINE_DISPOSITIONS: [&str; 4] = ["sale_stock", "pool", "refurbishment", "ewaste"];
+
+/// Whether `kind` names something a credit line may correct.
+pub fn is_credit_line_source_kind(kind: &str) -> bool {
+    CREDIT_LINE_SOURCE_KINDS.contains(&kind)
+}
+
+/// Whether `disposition` is a physical outcome the credit path understands.
+pub fn is_credit_line_disposition(disposition: &str) -> bool {
+    CREDIT_LINE_DISPOSITIONS.contains(&disposition)
+}
+
 /// One allocation of credit-note value onto an invoice. The money move
 /// itself is the paired invoice payment receipt (provider `credit_note`);
 /// this row is the credit-side ledger.

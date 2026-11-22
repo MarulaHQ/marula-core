@@ -10835,3 +10835,132 @@ async fn a_receipt_line_reports_its_device_asset_base_cost() {
     assert_eq!(context.lines[0].purchase_cost_minor, Some(1000));
     assert_eq!(context.lines[0].purchase_base_cost_minor, Some(1200));
 }
+
+/// Every written invoice line names its source, and the rule is the schema's.
+/// A sourceless insert is stamped with its contract so a rolling deploy keeps
+/// working while the previous release drains. A half-named source is refused,
+/// and a later update cannot take the source away.
+#[tokio::test]
+async fn an_invoice_line_cannot_be_written_without_a_source() {
+    let db = test_db().await;
+    let seeded = seed_org(&db.app, 9_501).await;
+    let org = seeded.org;
+    let mut tx = org_tx(&db.app, org).await;
+
+    let client = fixed_uuid(9_502);
+    sqlx::query!(
+        "INSERT INTO clients (id, org_id, name) VALUES ($1, $2, 'Source Co')",
+        client,
+        org,
+    )
+    .execute(&mut *tx)
+    .await
+    .expect("client");
+    let contract = fixed_uuid(9_503);
+    sqlx::query!(
+        "INSERT INTO contracts (id, org_id, client_id, number, name, contract_type, currency, \
+         effective_from) VALUES ($1, $2, $3, 'C-SRC-1', 'Source contract', \
+         'time_and_materials', 'USD', DATE '2026-01-01')",
+        contract,
+        org,
+        client,
+    )
+    .execute(&mut *tx)
+    .await
+    .expect("contract");
+    let invoice = fixed_uuid(9_504);
+    sqlx::query!(
+        "INSERT INTO invoices (id, org_id, client_id, contract_id, number, currency, issued_at, \
+         due_on, total_minor) VALUES ($1, $2, $3, $4, 'INV-SRC-1', 'USD', \
+         DATE '2026-01-31', DATE '2026-02-28', 1000)",
+        invoice,
+        org,
+        client,
+        contract,
+    )
+    .execute(&mut *tx)
+    .await
+    .expect("invoice");
+
+    // A writer that predates the rule names no source; the trigger stamps the
+    // contract so its invoice still issues.
+    let stamped = fixed_uuid(9_505);
+    sqlx::query!(
+        "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description, \
+         period_start, period_end, unit_amount_minor, amount_minor) VALUES ($1, $2, $3, $4, \
+         'recurring_base', 'Managed service', DATE '2026-01-01', DATE '2026-01-31', 1000, 1000)",
+        stamped,
+        org,
+        invoice,
+        contract,
+    )
+    .execute(&mut *tx)
+    .await
+    .expect("a sourceless insert is stamped, not refused");
+    let kind: Option<String> = sqlx::query_scalar!(
+        "SELECT source_kind FROM invoice_lines WHERE org_id = $1 AND id = $2",
+        org,
+        stamped,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .expect("the stamped source reads back");
+    let id: Option<Uuid> = sqlx::query_scalar!(
+        "SELECT source_id FROM invoice_lines WHERE org_id = $1 AND id = $2",
+        org,
+        stamped,
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .expect("the stamped source reads back");
+    assert_eq!(kind.as_deref(), Some("contract_line"));
+    assert_eq!(id, Some(contract));
+
+    // Half a source is not a source.
+    sqlx::query("SAVEPOINT partial")
+        .execute(&mut *tx)
+        .await
+        .expect("savepoint");
+    let partial = sqlx::query!(
+        "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description, \
+         period_start, period_end, unit_amount_minor, amount_minor, source_kind) \
+         VALUES ($1, $2, $3, $4, 'fixed_fee', 'Half', DATE '2026-01-01', DATE '2026-01-31', \
+         500, 500, 'contract_line')",
+        fixed_uuid(9_506),
+        org,
+        invoice,
+        contract,
+    )
+    .execute(&mut *tx)
+    .await;
+    let error = partial.expect_err("a kind without an id is refused");
+    assert!(
+        error.to_string().contains("names its source"),
+        "expected the source refusal, got: {error}"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT partial")
+        .execute(&mut *tx)
+        .await
+        .expect("roll back the refusal");
+
+    // A written source cannot be taken away.
+    sqlx::query("SAVEPOINT stripped")
+        .execute(&mut *tx)
+        .await
+        .expect("savepoint");
+    let stripped = sqlx::query!(
+        "UPDATE invoice_lines SET source_kind = NULL, source_id = NULL WHERE id = $1",
+        stamped,
+    )
+    .execute(&mut *tx)
+    .await;
+    let error = stripped.expect_err("an update cannot take the source away");
+    assert!(
+        error.to_string().contains("lose its source"),
+        "expected the source refusal on update, got: {error}"
+    );
+    sqlx::query("ROLLBACK TO SAVEPOINT stripped")
+        .execute(&mut *tx)
+        .await
+        .expect("roll back the refusal");
+}

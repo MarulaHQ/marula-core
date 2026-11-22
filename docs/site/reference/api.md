@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.6.3** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**793 paths · 1053 operations · 1659 schemas.**
+**794 paths · 1054 operations · 1663 schemas.**
 
 ## accounting
 
@@ -656,6 +656,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | Method | Path | Operation | Request body |
 |---|---|---|---|
 | `GET` | `/api/v1/invoice-candidates` <a id="invoice_candidates_list"></a> | GET /api/invoice-candidates — every billable, not-yet-billed cost line and expense in the org, oldest first. The invoicing run consumes rows by writing `invoice_line_id` through the costs module's marker. | — |
+| `POST` | `/api/v1/invoice-candidates/bill` <a id="invoice_candidates_bill"></a> | POST /api/invoice-candidates/bill — issue one invoice for the named candidates, under one contract. The lines keep their source, the candidates are marked billed in the same transaction, and an already-billed candidate refuses the request. Totals move only by this issued document. | [BillCandidatesRequest](#schema-billcandidatesrequest) |
 
 ## invoices
 
@@ -1817,6 +1818,8 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-batchcandidateresponse"></a>`BatchCandidateResponse` | object |  |
 | <a id="schema-batchcreatedresponse"></a>`BatchCreatedResponse` | object |  |
 | <a id="schema-batchviewresponse"></a>`BatchViewResponse` | object |  |
+| <a id="schema-billcandidatesrequest"></a>`BillCandidatesRequest` | composite | What to bill, and under which contract. |
+| <a id="schema-billedcandidatesresponse"></a>`BilledCandidatesResponse` | object |  |
 | <a id="schema-billingcandidateline"></a>`BillingCandidateLine` | object | One draft invoice-line candidate. This is a PREVIEW shape: nothing persists until invoice run. |
 | <a id="schema-billingevaluation"></a>`BillingEvaluation` | object | The result of evaluating one contract's billing rules over a window. |
 | <a id="schema-billingfrequency"></a>`BillingFrequency` | string | Billing period length. Period boundaries derive from the contract's `billing_anchor`: the anchor is the first period's start date and each subsequent period starts one frequency step later (calendar-aware clamping lives in core-billing's period arithmetic). |
@@ -2108,10 +2111,12 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-credentialbindingview"></a>`CredentialBindingView` | object | What the consent screen shows for one binding: the profile, the header, and the vault record's NAME. Never a field, a value, ciphertext or a key. |
 | <a id="schema-credentialsview"></a>`CredentialsView` | object |  |
 | <a id="schema-credentialview"></a>`CredentialView` | object |  |
+| <a id="schema-creditlineinput"></a>`CreditLineInput` | object | One corrected line on the credit being issued. |
 | <a id="schema-creditnote"></a>`CreditNote` | object | The credit document. `issued_against_invoice_id` is the issuing context (may be `None` for a free-standing client credit); applications may target any issued invoice of the same client and currency. |
 | <a id="schema-creditnoteallocationresponse"></a>`CreditNoteAllocationResponse` | composite | Apply/refund response: the credit plus the affected invoice (and the receipt for applies) so the client reconciles both sides in one shot. |
 | <a id="schema-creditnoteapplication"></a>`CreditNoteApplication` | object | One allocation of credit-note value onto an invoice. The money move itself is the paired invoice payment receipt (provider `credit_note`); this row is the credit-side ledger. |
 | <a id="schema-creditnotedetail"></a>`CreditNoteDetail` | composite | The credit document plus its allocation ledger (GET /{id}). |
+| <a id="schema-creditnoteline"></a>`CreditNoteLine` | object | One corrected line on a credit note. The source pair names what the credit corrects, using the vocabulary invoice lines carry; `disposition` is what happened to a physical unit the correction gives back, in the return path's vocabulary. |
 | <a id="schema-creditnotelistquery"></a>`CreditNoteListQuery` | object | GET /api/credit-notes query. |
 | <a id="schema-creditnotemutationresponse"></a>`CreditNoteMutationResponse` | composite | Instant-first mutation response (IF2) for credit-note mutations. |
 | <a id="schema-creditnotestatus"></a>`CreditNoteStatus` | string | Document lifecycle of a credit note. `applied` / `refunded` / `partially applied` are DERIVED from the counters, never stored — allocation moves continuously; only a void is a state. |
@@ -3356,4 +3361,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 34 operation groups; schema count 1659 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 34 operation groups; schema count 1663 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

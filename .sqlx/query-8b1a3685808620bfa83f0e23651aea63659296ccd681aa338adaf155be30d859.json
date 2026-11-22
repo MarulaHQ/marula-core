@@ -1,0 +1,47 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT e.description, e.currency, e.amount_minor, t.client_id,\n                      (e.invoice_line_id IS NOT NULL) AS \"billed!\"\n                 FROM ticket_expenses e\n                 JOIN tickets t ON t.org_id = e.org_id AND t.id = e.ticket_id\n                WHERE e.org_id = $1 AND e.id = $2 AND e.billable\n                FOR UPDATE OF e",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "amount_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 3,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "billed!",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "8b1a3685808620bfa83f0e23651aea63659296ccd681aa338adaf155be30d859"
+}

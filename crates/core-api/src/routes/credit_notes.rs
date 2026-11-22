@@ -42,7 +42,9 @@ use axum::{
     Json, Router,
 };
 use core_domain::entities::{
-    CreditNote, CreditNoteApplication, CreditNoteStatus, Invoice, InvoicePayment, InvoiceStatus,
+    is_credit_line_disposition, is_credit_line_source_kind, CreditNote, CreditNoteApplication,
+    CreditNoteLine, CreditNoteStatus, Invoice, InvoicePayment, InvoiceStatus,
+    CREDIT_LINE_SOURCE_KINDS,
 };
 use core_domain::events::{
     types, CreditNoteApplied, CreditNoteIssued, CreditNoteRefunded, InvoicePaymentRecorded,
@@ -80,8 +82,40 @@ pub struct IssueCreditNoteRequest {
     /// `invoice_id` is set it must match the invoice's currency.
     pub currency: Option<String>,
     pub reason: Option<String>,
+    /// What this credit corrects, line by line. When present the lines must
+    /// sum to `total_minor`, so the document and its detail cannot disagree.
+    #[serde(default)]
+    pub lines: Vec<CreditLineInput>,
     #[serde(flatten, default)]
     pub instant: MutationParams,
+}
+
+/// One corrected line on the credit being issued.
+#[derive(Debug, Clone, Deserialize, Serialize, ToSchema)]
+pub struct CreditLineInput {
+    /// `ticket_cost_line`, `ticket_expense`, `rental_charge` or
+    /// `contract_line`.
+    pub source_kind: String,
+    #[schema(value_type = uuid::Uuid)]
+    pub source_id: Uuid,
+    /// The invoice line this credit corrects, when the caller knows it.
+    #[schema(value_type = Option<uuid::Uuid>)]
+    pub invoice_line_id: Option<Uuid>,
+    pub description: String,
+    #[serde(default)]
+    pub quantity_minutes: i64,
+    /// The credit for this line, positive minor units; signed the same way the
+    /// credit is (the document is the sign).
+    pub amount_minor: i64,
+    #[schema(value_type = Option<i64>)]
+    pub base_amount_minor: Option<i64>,
+    /// Whether this correction gives a physical unit back.
+    #[serde(default)]
+    pub physical: bool,
+    /// What happened to the unit, when the correction gives one back:
+    /// `sale_stock`, `pool`, `refurbishment` or `ewaste`. Required when
+    /// `physical`, refused when not.
+    pub disposition: Option<String>,
 }
 
 /// The credit document plus its allocation ledger (GET /{id}).
@@ -92,6 +126,9 @@ pub struct CreditNoteDetail {
     /// Still-available credit, minor units.
     pub remaining_minor: i64,
     pub applications: Vec<CreditNoteApplication>,
+    /// The corrected lines, in written order. Empty for a credit raised
+    /// against the document total.
+    pub lines: Vec<CreditNoteLine>,
 }
 
 /// GET /api/credit-notes query.
@@ -251,7 +288,130 @@ pub async fn issue(
             })?,
         };
 
+        // The lines must account for the whole credit: a document and its
+        // detail that disagree are two answers to one question.
+        if !req.lines.is_empty() {
+            let sum = req.lines.iter().try_fold(0i64, |acc, line| {
+                acc.checked_add(line.amount_minor)
+            });
+            match sum {
+                Some(sum) if sum == req.total_minor => {}
+                Some(sum) => {
+                    return Err(ApiError::Validation(format!(
+                        "the lines sum to {sum} but total_minor is {}",
+                        req.total_minor
+                    )))
+                }
+                None => {
+                    return Err(ApiError::Validation(
+                        "the lines sum beyond the money range".into(),
+                    ))
+                }
+            }
+        }
         let id = Uuid::now_v7();
+        let mut lines: Vec<CreditNoteLine> = Vec::with_capacity(req.lines.len());
+        for (position, line) in req.lines.iter().enumerate() {
+            if !is_credit_line_source_kind(&line.source_kind) {
+                return Err(ApiError::Validation(format!(
+                    "source_kind must be one of {}",
+                    CREDIT_LINE_SOURCE_KINDS.join(", ")
+                )));
+            }
+            if line.amount_minor <= 0 {
+                return Err(ApiError::Validation(
+                    "a credit line carries a positive amount".into(),
+                ));
+            }
+            if line.quantity_minutes < 0 {
+                return Err(ApiError::Validation(
+                    "quantity_minutes cannot be negative".into(),
+                ));
+            }
+            if !core_db::credit_notes::source_for_client_in_org(
+                &mut ctx.tx,
+                ctx.org_id,
+                req.client_id,
+                &line.source_kind,
+                line.source_id,
+            )
+            .await?
+            {
+                return Err(ApiError::Validation(format!(
+                    "source {} {} is not this client's row in this organisation",
+                    line.source_kind, line.source_id
+                )));
+            }
+            // A line that names an invoice line must agree with it: the same
+            // document the credit is raised against, the same client, and the
+            // same source. Otherwise the credit would correct one charge while
+            // claiming another.
+            if let Some(invoice_line_id) = line.invoice_line_id {
+                let binding = core_db::credit_notes::invoice_line_binding(
+                    &mut ctx.tx,
+                    ctx.org_id,
+                    invoice_line_id,
+                )
+                .await?;
+                let binding = binding.ok_or_else(|| {
+                    ApiError::Validation("the corrected invoice line is not in this organisation".into())
+                })?;
+                if binding.client_id != req.client_id {
+                    return Err(ApiError::Validation(
+                        "the corrected invoice line is not this client's line".into(),
+                    ));
+                }
+                if let Some(credit_invoice) = req.invoice_id {
+                    if binding.invoice_id != credit_invoice {
+                        return Err(ApiError::Validation(
+                            "the corrected invoice line belongs to another invoice".into(),
+                        ));
+                    }
+                }
+                if binding.source_kind != line.source_kind || binding.source_id != line.source_id {
+                    return Err(ApiError::Validation(
+                        "the line's source differs from the source of the invoice line it corrects"
+                            .into(),
+                    ));
+                }
+            }
+            match (line.physical, line.disposition.as_deref()) {
+                (true, Some(disposition)) if is_credit_line_disposition(disposition) => {}
+                (true, Some(disposition)) => {
+                    return Err(ApiError::Validation(format!(
+                        "disposition must be one of sale_stock, pool, refurbishment, ewaste (got {disposition})"
+                    )))
+                }
+                (true, None) => {
+                    return Err(ApiError::Validation(
+                        "a physical credit line names what happened to the unit".into(),
+                    ))
+                }
+                (false, Some(_)) => {
+                    return Err(ApiError::Validation(
+                        "a service credit line carries no disposition".into(),
+                    ))
+                }
+                (false, None) => {}
+            }
+            lines.push(CreditNoteLine {
+                id: Uuid::now_v7(),
+                org_id: ctx.org_id,
+                credit_note_id: id,
+                source_kind: line.source_kind.clone(),
+                source_id: line.source_id,
+                invoice_line_id: line.invoice_line_id,
+                description: line.description.trim().to_string(),
+                quantity_minutes: line.quantity_minutes,
+                amount_minor: line.amount_minor,
+                base_amount_minor: line.base_amount_minor,
+                physical: line.physical,
+                disposition: line.disposition.clone(),
+                position: position as i32,
+                created_at: chrono::Utc::now(),
+            });
+        }
+
         let number = core_db::invoices::next_number(&mut *ctx.tx, ctx.org_id, "CRN-").await?;
         let note = CreditNote {
             id,
@@ -271,6 +431,7 @@ pub async fn issue(
         };
         note.validate().map_err(ApiError::from)?;
         core_db::credit_notes::insert_credit_note(&mut *ctx.tx, &note).await?;
+        core_db::credit_notes::insert_lines(&mut ctx.tx, ctx.org_id, id, &lines).await?;
         let write_seq = instant::entity_seq(
             &mut ctx,
             instant::SeqSpec {
@@ -419,12 +580,15 @@ pub async fn get_one(
     let applications =
         core_db::credit_notes::list_applications(&mut *tx, authed.principal.user.org_id, id)
             .await?;
+    let lines =
+        core_db::credit_notes::list_lines(&mut *tx, authed.principal.user.org_id, id).await?;
     tx.commit().await.map_err(ApiError::from)?;
     let remaining_minor = note.remaining_minor();
     Ok(Json(CreditNoteDetail {
         credit_note: note,
         remaining_minor,
         applications,
+        lines,
     }))
 }
 

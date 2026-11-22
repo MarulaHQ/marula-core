@@ -410,15 +410,25 @@ pub async fn create_run(
                 .filter(|k| period_kinds(&k.kind))
                 .map(|k| (k.contract_id, k.kind.clone(), k.period_start))
                 .collect();
-        let billed_fees: std::collections::HashSet<(Uuid, chrono::NaiveDate, String)> = billed_keys
-            .iter()
-            .filter(|k| !period_kinds(&k.kind))
-            .filter(|k| {
-                k.kind != BillingLineKind::TimeMaterials.as_str()
-                    && k.kind != BillingLineKind::RetainerOverage.as_str()
-            })
-            .map(|k| (k.contract_id, k.period_start, k.description.clone()))
-            .collect();
+        // The kind is part of the key: a billed expense with the same
+        // description and start as a scheduled fee must not suppress the fee.
+        let billed_fees: std::collections::HashSet<(Uuid, String, chrono::NaiveDate, String)> =
+            billed_keys
+                .iter()
+                .filter(|k| !period_kinds(&k.kind))
+                .filter(|k| {
+                    k.kind != BillingLineKind::TimeMaterials.as_str()
+                        && k.kind != BillingLineKind::RetainerOverage.as_str()
+                })
+                .map(|k| {
+                    (
+                        k.contract_id,
+                        k.kind.clone(),
+                        k.period_start,
+                        k.description.clone(),
+                    )
+                })
+                .collect();
 
         let today = chrono::Utc::now().date_naive();
         let due_on = today + chrono::Duration::days(due_in_days as i64);
@@ -620,6 +630,7 @@ pub async fn create_run(
                             l.kind != BillingLineKind::FixedFee
                                 || !billed_fees.contains(&(
                                     contract.id,
+                                    l.kind.as_str().to_string(),
                                     l.period_start,
                                     l.description.clone(),
                                 ))
@@ -963,7 +974,7 @@ pub async fn create_run(
                 updated_at: chrono::Utc::now(),
             };
             invoice.validate()?;
-            let line_rows: Vec<InvoiceLine> = lines
+            let mut line_rows: Vec<InvoiceLine> = lines
                 .iter()
                 .enumerate()
                 .map(|(position, l)| {
@@ -984,6 +995,10 @@ pub async fn create_run(
                         fx_rate_date: issue_rate_columns.as_ref().map(|s| s.rate_date),
                         fx_source: issue_rate_columns.as_ref().map(|s| s.source.clone()),
                         base_amount_minor: issue_rate_columns.as_ref().map(|_| base_minor),
+                        // The contract is what this line bills unless the
+                        // rental path re-labels it with its charge id.
+                        source_kind: "contract_line".to_string(),
+                        source_id: contract.id,
                         position: position as i32,
                     })
                 })
@@ -1043,6 +1058,12 @@ pub async fn create_run(
                 )
                 .execute(&mut *ctx.tx)
                 .await?;
+                // The response and the stored replay carry the same source a
+                // later read reports: the charge, not the contract.
+                for (i, line) in rental_lines.iter().enumerate() {
+                    line_rows[rental_base + i].source_kind = "rental_charge".to_string();
+                    line_rows[rental_base + i].source_id = line.charge_id;
+                }
             }
             // Wave-39 aggregate side effects (same transaction: a failure
             // rolls the whole run back):
