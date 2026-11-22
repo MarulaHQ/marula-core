@@ -30,8 +30,8 @@ async function pickOption(page: Page, trigger: ReturnType<Page["getByTestId"]>, 
 }
 
 test("the custody view counts the unit it just received", async ({ authedPage, ownerTokens }) => {
-  const post = (path: string, body?: unknown) =>
-    authedFetch(ownerTokens.access_token)(path, { method: "POST", body });
+  const post = <T>(path: string, body?: unknown) =>
+    authedFetch(ownerTokens.access_token)<T>(path, { method: "POST", body });
   const run = Date.now() % 1000000;
   const get = authedFetch(ownerTokens.access_token);
   const custodyOf = async (): Promise<{ serials: number; assets: number }> => {
@@ -105,8 +105,8 @@ test("a vendor rental is recorded and returned from its register", async ({ auth
 });
 
 test("a client's e-waste is received, disposed and closed", async ({ authedPage, ownerTokens }) => {
-  const post = (path: string, body?: unknown) =>
-    authedFetch(ownerTokens.access_token)(path, { method: "POST", body });
+  const post = <T>(path: string, body?: unknown) =>
+    authedFetch(ownerTokens.access_token)<T>(path, { method: "POST", body });
   const run = Date.now() % 1000000;
   const client = await post<Client>("/clients", { name: `E2E Ewaste ${run}` });
 
@@ -134,8 +134,8 @@ test("a client's e-waste is received, disposed and closed", async ({ authedPage,
 });
 
 test("a credit note names the contract line it corrects", async ({ authedPage, ownerTokens }) => {
-  const post = (path: string, body?: unknown) =>
-    authedFetch(ownerTokens.access_token)(path, { method: "POST", body });
+  const post = <T>(path: string, body?: unknown) =>
+    authedFetch(ownerTokens.access_token)<T>(path, { method: "POST", body });
   const run = Date.now() % 1000000;
   const client = await post<Client>("/clients", { name: `E2E Credit ${run}` });
   const contract = await post<{ id: string }>("/contracts", {
@@ -168,4 +168,19 @@ test("a credit note names the contract line it corrects", async ({ authedPage, o
   await numberButton.click();
   await expect(authedPage.getByText("Corrected lines")).toBeVisible({ timeout: 10_000 });
   await expect(authedPage.getByText(`Goodwill ${run}`)).toBeVisible();
+});
+
+test("a vendor rental without a cost is refused and leaves the register alone", async ({ authedPage }) => {
+  const run = Date.now() % 1000000;
+  const tag = `VR-NOCOST-${run}`;
+
+  await authedPage.goto("/stock/vendor-rentals");
+  await authedPage.getByTestId("vendor-rentals-new").click();
+  await authedPage.getByTestId("vendor-rentals-tag").fill(tag);
+  await authedPage.getByTestId("vendor-rentals-name").fill("Loaned switch");
+  await authedPage.getByTestId("vendor-rentals-save").click();
+
+  // The form refuses before sending: no cost, no layer, no register row.
+  await expect(authedPage.getByText("The cycle cost must be greater than zero.")).toBeVisible();
+  await expect(authedPage.getByRole("row", { name: new RegExp(tag) })).toHaveCount(0);
 });

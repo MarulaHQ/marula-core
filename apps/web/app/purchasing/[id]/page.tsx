@@ -37,7 +37,7 @@ import {
 import type { components } from "@marula-core/sdk";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { OrderStatusTag, ReceiptStateTag } from "../../../components/purchasing/status";
 import { MovementDialog, type MovementKind } from "../../../components/stock/movement-dialog";
@@ -144,6 +144,9 @@ export default function PurchaseOrderPage(): ReactNode {
   // The receipt a successful receive produced, so a cost layer can follow it
   // while the documents are still in hand.
   const [costReceipt, setCostReceipt] = useState<{ id: string; orderCurrency: string } | null>(null);
+  // The live receipt id, not the captured one: a completion must compare
+  // against what is installed now.
+  const currentReceiptId = useRef<string | null>(null);
   const [costOpen, setCostOpen] = useState(false);
   const [costKind, setCostKind] = useState("freight");
   const [costReference, setCostReference] = useState("");
@@ -451,6 +454,7 @@ export default function PurchaseOrderPage(): ReactNode {
         setCostKey(null);
       }
       setCostReceipt({ id: box.receiptId, orderCurrency: detail?.order.currency ?? "USD" });
+      currentReceiptId.current = box.receiptId;
     }
   }
 
@@ -505,12 +509,13 @@ export default function PurchaseOrderPage(): ReactNode {
       return;
     }
     setCostKey(null);
-    if (costReceipt?.id !== submittedId) {
+    if (currentReceiptId.current !== submittedId) {
       // A different receipt owns the open dialog now; its offer stands.
       return;
     }
     setCostOpen(false);
     setCostReceipt(null);
+    currentReceiptId.current = null;
     setCostAmount("");
     setCostReference("");
     setCostDate("");
@@ -951,13 +956,19 @@ export default function PurchaseOrderPage(): ReactNode {
             rate and splits across the lines.
           </p>
           <div className="flex gap-2">
-            <Button variant="ghost" onClick={() => setCostReceipt(null)}>
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setCostReceipt(null);
+                currentReceiptId.current = null;
+              }}
+            >
               Not now
             </Button>
             <Button
               onClick={() => {
                 setCostOpen(true);
-                {
+                if (costDate.trim() === "") {
                   const now = new Date();
                   const month = String(now.getMonth() + 1).padStart(2, "0");
                   const day = String(now.getDate()).padStart(2, "0");
