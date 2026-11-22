@@ -667,6 +667,29 @@ async fn client_loan_instantiates_asset_converges_via_dedupe_and_lease_fields() 
         "SNIPH77"
     );
 
+    // A damage note with no charge is refused: the note lives inside the
+    // charge, so accepting it alone would lose the text.
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        &format!("/api/v1/client-loans/{loan_id}/return"),
+        &[auth(&token)],
+        Some(json!({
+            "lines": [{
+                "line_id": line_id,
+                "return_condition": "good",
+                "damage_note": "cracked bezel",
+            }],
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(
+        response.status(),
+        422,
+        "a damage note without a charge records nothing"
+    );
+
     // Return: the device rides the loan_return leg back into stock and the
     // lease closes at the ACTUAL return date.
     let response = send(
