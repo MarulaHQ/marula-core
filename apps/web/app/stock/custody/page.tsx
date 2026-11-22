@@ -65,6 +65,9 @@ export default function CustodyPage(): React.ReactNode {
   const [classes, setClasses] = useState<CustodyClass[]>([]);
   const [movements, setMovements] = useState<ClassMovement[]>([]);
   const [unitKind, setUnitKind] = useState("all");
+  // Which filter the rows on screen actually belong to; a failed refresh keeps
+  // the old rows, so the label must not claim the new filter.
+  const [movementFilter, setMovementFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const requestSeq = useRef(0);
@@ -92,6 +95,7 @@ export default function CustodyPage(): React.ReactNode {
         return;
       }
       setMovements(ledgerRes.data);
+      setMovementFilter(unitKind);
     } catch {
       if (seq === requestSeq.current) {
         setLoadError("Could not load the custody view — try reloading.");
@@ -179,6 +183,12 @@ export default function CustodyPage(): React.ReactNode {
           </SelectContent>
         </Select>
       </div>
+
+      {movementFilter !== unitKind && movements.length > 0 ? (
+        <p className="text-xs" style={{ color: "var(--m-status-warning-fg)" }}>
+          Showing {movementFilter === "all" ? "both kinds" : movementFilter === "serial" ? "stock serials" : "device assets"} from the last successful read; the current filter did not load.
+        </p>
+      ) : null}
 
       <Card>
         {loading ? (
