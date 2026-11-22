@@ -291,6 +291,7 @@ export default function EwastePage(): React.ReactNode {
     const current = detail;
     if (line === null || current === null) return;
     const session = disposeSession.current;
+    const owner = detailSeq.current;
     const weight = Math.round(Number(disposedWeight));
     if (!Number.isFinite(weight) || weight <= 0) {
       setDisposeError("A disposition carries a positive weight.");
@@ -327,12 +328,12 @@ export default function EwastePage(): React.ReactNode {
       }
       return;
     }
-    await openDetail(current.intake.id);
     await refresh();
     if (session !== disposeSession.current) {
       setDisposeBusy(false);
       return;
     }
+    if (owner === detailSeq.current) await openDetail(current.intake.id);
     setDisposeBusy(false);
     setDisposeLine(null);
     setNotice("Disposition recorded.");
@@ -341,6 +342,7 @@ export default function EwastePage(): React.ReactNode {
   const markDestroyed = async (line: Line): Promise<void> => {
     const current = detail;
     if (current === null) return;
+    const owner = detailSeq.current;
     setDetailBusy(true);
     setDetailError(null);
     const result = await runEnvelopeMutation({
@@ -354,19 +356,24 @@ export default function EwastePage(): React.ReactNode {
           body: body as components["schemas"]["SetDestructionRequest"],
         }),
     });
-    setDetailBusy(false);
     if (!result.ok) {
+      setDetailBusy(false);
       setDetailError(rejectionText(result, "Data destruction was refused."));
       return;
     }
-    await openDetail(current.intake.id);
     await refresh();
+    if (owner !== detailSeq.current) {
+      setDetailBusy(false);
+      return;
+    }
+    await openDetail(current.intake.id);
     setNotice("Data destruction recorded.");
   };
 
   const closeIntake = async (): Promise<void> => {
     const current = detail;
     if (current === null) return;
+    const owner = detailSeq.current;
     setDetailBusy(true);
     setDetailError(null);
     const result = await runEnvelopeMutation({
@@ -383,13 +390,17 @@ export default function EwastePage(): React.ReactNode {
           body: body as components["schemas"]["CloseIntakeRequest"],
         }),
     });
-    setDetailBusy(false);
     if (!result.ok) {
+      setDetailBusy(false);
       setDetailError(rejectionText(result, "The intake cannot close yet."));
       return;
     }
-    await openDetail(current.intake.id);
     await refresh();
+    if (owner !== detailSeq.current) {
+      setDetailBusy(false);
+      return;
+    }
+    await openDetail(current.intake.id);
     setNotice("Intake closed.");
   };
 
