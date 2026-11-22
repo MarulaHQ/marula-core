@@ -42,7 +42,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { rejectionText } from "../../../lib/error-copy";
-import { money } from "../../../lib/format";
 
 type Summary = components["schemas"]["IntakeSummary"];
 type Detail = components["schemas"]["IntakeDetailResponse"];
