@@ -1266,6 +1266,8 @@ pub async fn convert(
                 fx_rate_date: None,
                 fx_source: None,
                 base_amount_minor: None,
+                source_kind: "contract_line".to_string(),
+                source_id: contract_id,
                 position: position as i32,
             })
             .collect();

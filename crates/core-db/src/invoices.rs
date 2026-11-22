@@ -244,6 +244,8 @@ where
                 .unwrap_or_default()
         })
         .collect();
+    let source_kinds: Vec<String> = lines.iter().map(|l| l.source_kind.clone()).collect();
+    let source_ids: Vec<Uuid> = lines.iter().map(|l| l.source_id).collect();
     let positions: Vec<i32> = lines.iter().enumerate().map(|(i, _)| i as i32).collect();
     // Dynamic (not macro) on purpose: the optional FX snapshot columns
     // ride as text with "" ⇒ NULL sentinels, and the same optional-array
@@ -253,21 +255,22 @@ where
                                       period_start, period_end, quantity_minutes,
                                       unit_amount_minor, amount_minor,
                                       fx_rate_used, fx_rate_date, fx_source, base_amount_minor,
-                                      position)
+                                      source_kind, source_id, position)
            SELECT id, org_id, invoice_id, contract_id, kind, description,
                   period_start, period_end, quantity_minutes,
                   unit_amount_minor, amount_minor,
                   NULLIF(fx_rate_used, '')::numeric, NULLIF(fx_rate_date, '')::date,
                   NULLIF(fx_source, ''), NULLIF(base_amount_minor, '')::bigint,
-                  position
+                  source_kind, source_id, position
            FROM UNNEST($1::uuid[], $2::uuid[], $3::uuid[], $4::uuid[], $5::text[],
                        $6::text[], $7::date[], $8::date[], $9::bigint[],
                        $10::bigint[], $11::bigint[], $12::text[], $13::text[],
-                       $14::text[], $15::text[], $16::int[])
+                       $14::text[], $15::text[], $16::text[], $17::uuid[], $18::int[])
                 AS t(id, org_id, invoice_id, contract_id, kind, description,
                      period_start, period_end, quantity_minutes,
                      unit_amount_minor, amount_minor,
-                     fx_rate_used, fx_rate_date, fx_source, base_amount_minor, position)"#,
+                     fx_rate_used, fx_rate_date, fx_source, base_amount_minor,
+                     source_kind, source_id, position)"#,
     )
     .bind(&ids)
     .bind(&orgs)
@@ -284,6 +287,8 @@ where
     .bind(&fx_dates)
     .bind(&fx_sources)
     .bind(&base_amounts)
+    .bind(&source_kinds)
+    .bind(&source_ids)
     .bind(&positions)
     .execute(executor)
     .await?;
@@ -542,7 +547,8 @@ where
     let rows = sqlx::query!(
         r#"SELECT id, org_id, invoice_id, contract_id, kind, description, period_start,
                   period_end, quantity_minutes, unit_amount_minor, amount_minor,
-                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_amount_minor, position
+                  fx_rate_used::text AS fx_rate_used, fx_rate_date, fx_source, base_amount_minor,
+                  source_kind, source_id, position
            FROM invoice_lines WHERE org_id = $1 AND invoice_id = $2
            ORDER BY position, id"#,
         org_id,
@@ -569,6 +575,11 @@ where
             fx_rate_date: r.fx_rate_date,
             fx_source: r.fx_source,
             base_amount_minor: r.base_amount_minor,
+            // The insert trigger refuses a line without a source, so a read
+            // cannot meet a null here except on a pre-0260 row the backfill
+            // missed; fall back to the contract rather than lie.
+            source_kind: r.source_kind.unwrap_or_else(|| "contract_line".to_string()),
+            source_id: r.source_id.unwrap_or(r.contract_id),
             position: r.position,
         })
         .collect())
@@ -1036,4 +1047,219 @@ where
             entry_date: r.entry_date,
         })
         .collect())
+}
+
+// --- billing a ticket's candidates onto an invoice ----------------------------
+
+/// What the caller wants billed, and under which contract.
+pub struct BillCandidatesRequest {
+    pub contract_id: Uuid,
+    pub cost_line_ids: Vec<Uuid>,
+    pub expense_ids: Vec<Uuid>,
+    pub period_from: Option<chrono::NaiveDate>,
+    pub period_to: Option<chrono::NaiveDate>,
+    pub due_on: chrono::NaiveDate,
+    pub notes: Option<String>,
+    pub created_by: Uuid,
+}
+
+/// Bills the named ticket cost lines and expenses onto one new issued invoice,
+/// under one contract, in the caller's transaction. Each line keeps its source,
+/// each candidate gets its `invoice_line_id` in the same transaction, and a
+/// candidate already billed refuses the whole request. Issuing a document is
+/// the only way invoice totals move, and this writes exactly one.
+pub async fn bill_candidates(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    req: &BillCandidatesRequest,
+) -> DbResult<(Invoice, Vec<InvoiceLine>)> {
+    use core_domain::entities::{BillingLineKind, DunningState, InvoiceStatus};
+
+    if req.cost_line_ids.is_empty() && req.expense_ids.is_empty() {
+        return Err(DbError::Conflict(
+            "nothing to bill: name at least one candidate line".into(),
+        ));
+    }
+    let contract = crate::contracts::get_contract(&mut *conn, org_id, req.contract_id).await?;
+    let client_id: Uuid = contract.client_id;
+    let currency = contract.currency.clone();
+    let issued_at = chrono::Utc::now();
+    let invoice_id = Uuid::now_v7();
+    let number = next_number(&mut *conn, org_id, "INV-").await?;
+
+    struct Candidate {
+        line_id: Uuid,
+        description: String,
+        amount_minor: i64,
+        kind: &'static str,
+    }
+    let mut candidates: Vec<Candidate> = Vec::new();
+    for id in &req.cost_line_ids {
+        let row = sqlx::query!(
+            r#"SELECT c.description, c.currency,
+                      round(c.quantity * c.unit_cost_minor)::bigint AS "amount_minor!",
+                      t.client_id,
+                      (c.invoice_line_id IS NOT NULL) AS "billed!"
+                 FROM ticket_cost_lines c
+                 JOIN tickets t ON t.org_id = c.org_id AND t.id = c.ticket_id
+                WHERE c.org_id = $1 AND c.id = $2 AND c.billable
+                FOR UPDATE OF c"#,
+            org_id,
+            id,
+        )
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or(DbError::NotFound)?;
+        if row.client_id != Some(client_id) {
+            return Err(DbError::Conflict(
+                "a cost line belongs to another client than the contract".into(),
+            ));
+        }
+        if row.billed {
+            return Err(DbError::Conflict(format!(
+                "cost line {id} is already billed"
+            )));
+        }
+        if !row.currency.eq_ignore_ascii_case(&currency) {
+            return Err(DbError::Conflict(format!(
+                "cost line {id} is {} but contract {} bills in {}",
+                row.currency, contract.number, currency
+            )));
+        }
+        candidates.push(Candidate {
+            line_id: *id,
+            description: row.description,
+            amount_minor: row.amount_minor,
+            kind: "ticket_cost_line",
+        });
+    }
+    for id in &req.expense_ids {
+        let row = sqlx::query!(
+            r#"SELECT e.description, e.currency, e.amount_minor, t.client_id,
+                      (e.invoice_line_id IS NOT NULL) AS "billed!"
+                 FROM ticket_expenses e
+                 JOIN tickets t ON t.org_id = e.org_id AND t.id = e.ticket_id
+                WHERE e.org_id = $1 AND e.id = $2 AND e.billable
+                FOR UPDATE OF e"#,
+            org_id,
+            id,
+        )
+        .fetch_optional(&mut *conn)
+        .await?
+        .ok_or(DbError::NotFound)?;
+        if row.client_id != Some(client_id) {
+            return Err(DbError::Conflict(
+                "an expense belongs to another client than the contract".into(),
+            ));
+        }
+        if row.billed {
+            return Err(DbError::Conflict(format!("expense {id} is already billed")));
+        }
+        if !row.currency.eq_ignore_ascii_case(&currency) {
+            return Err(DbError::Conflict(format!(
+                "expense {id} is {} but contract {} bills in {}",
+                row.currency, contract.number, currency
+            )));
+        }
+        candidates.push(Candidate {
+            line_id: *id,
+            description: row.description,
+            amount_minor: row.amount_minor,
+            kind: "ticket_expense",
+        });
+    }
+
+    let total_minor = candidates.iter().try_fold(0i64, |acc, candidate| {
+        acc.checked_add(candidate.amount_minor)
+            .ok_or_else(|| DbError::Conflict("the invoice total exceeds the money range".into()))
+    })?;
+    if total_minor <= 0 {
+        return Err(DbError::Conflict(
+            "the selected candidates total nothing to bill".into(),
+        ));
+    }
+
+    let invoice = Invoice {
+        id: invoice_id,
+        org_id,
+        run_id: None,
+        client_id,
+        contract_id: req.contract_id,
+        number,
+        status: InvoiceStatus::Issued,
+        currency: currency.clone(),
+        period_from: req.period_from,
+        period_to: req.period_to,
+        issued_at: issued_at.date_naive(),
+        due_on: req.due_on,
+        total_minor,
+        total_paid_minor: 0,
+        dunning_state: DunningState::None,
+        dunning_updated_at: None,
+        dunning_note: None,
+        fx_rate_used: None,
+        fx_rate_date: None,
+        fx_source: None,
+        base_total_minor: None,
+        po_number: None,
+        notes: req.notes.clone(),
+        created_by: Some(req.created_by),
+        created_at: issued_at,
+        updated_at: issued_at,
+    };
+    invoice
+        .validate()
+        .map_err(|e| DbError::Conflict(e.to_string()))?;
+    insert_invoice(&mut *conn, &invoice).await?;
+
+    let mut lines = Vec::with_capacity(candidates.len());
+    for (position, candidate) in candidates.iter().enumerate() {
+        let kind = if candidate.kind == "ticket_expense" {
+            BillingLineKind::FixedFee
+        } else {
+            BillingLineKind::TimeMaterials
+        };
+        let line = InvoiceLine {
+            id: Uuid::now_v7(),
+            org_id,
+            invoice_id,
+            contract_id: req.contract_id,
+            kind,
+            description: candidate.description.clone(),
+            period_start: req.period_from.unwrap_or(issued_at.date_naive()),
+            period_end: req.period_to.unwrap_or(issued_at.date_naive()),
+            quantity_minutes: 0,
+            unit_amount_minor: candidate.amount_minor,
+            amount_minor: candidate.amount_minor,
+            fx_rate_used: None,
+            fx_rate_date: None,
+            fx_source: None,
+            base_amount_minor: None,
+            source_kind: candidate.kind.to_string(),
+            source_id: candidate.line_id,
+            position: position as i32,
+        };
+        if candidate.kind == "ticket_expense" {
+            crate::costs::mark_candidates_billed(
+                &mut *conn,
+                org_id,
+                &[],
+                std::slice::from_ref(&candidate.line_id),
+                line.id,
+            )
+            .await?;
+        } else {
+            crate::costs::mark_candidates_billed(
+                &mut *conn,
+                org_id,
+                std::slice::from_ref(&candidate.line_id),
+                &[],
+                line.id,
+            )
+            .await?;
+        }
+        lines.push(line);
+    }
+    insert_lines(&mut *conn, org_id, invoice_id, &lines).await?;
+    Ok((invoice, lines))
 }

@@ -449,9 +449,9 @@ async fn seed_org_with_tranche_data(app: &PgPool, n: u64) -> Seeded {
     let invoice_line = fixed_uuid(n + 9);
     sqlx::query(
         "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description, \
-         period_start, period_end, quantity_minutes, unit_amount_minor, amount_minor, position) \
+         period_start, period_end, quantity_minutes, unit_amount_minor, amount_minor, position, source_kind, source_id) \
          VALUES ($1, $2, $3, $4, 'recurring_base', 'Managed service fee', \
-                 DATE '2026-01-01', DATE '2026-01-31', 0, 15000, 15000, 0)",
+                 DATE '2026-01-01', DATE '2026-01-31', 0, 15000, 15000, 0, 'contract_line', $4)",
     )
     .bind(invoice_line)
     .bind(org)

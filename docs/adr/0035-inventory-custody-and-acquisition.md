@@ -156,6 +156,21 @@ close periods. It produces accurate documents, cost layers, and custody
 records, each with a stable reference and its FX snapshot, and exports them to
 the accounting system or as a parseable package for an accountant.
 
+### 8. One line vocabulary on both sides of the money
+
+A ticket cost line and a project charge are the same kind of fact, so they get
+the same source-bearing line rather than two vocabularies. A project charge is
+billed onto an invoice under the project's contract, with `source_kind` naming
+what produced it and `source_id` naming that row, exactly as a ticket line is.
+Where a project has no contract, the charge stays in the reporting-class rollup
+and is not invoiced. The rollup is the read that answers for it.
+
+This reuses one line rather than adding a second project-cost table. A second
+table would need its own source rules, its own invoice join and its own export
+mapping, and the two would drift. A credit corrects either side the same way:
+`credit_note_lines` carries the same source pair, and a physical correction
+names its disposition in the return path's vocabulary.
+
 ## Consequences
 
 - Existing stock, fleet, tool and loan surfaces keep their behaviour. The new

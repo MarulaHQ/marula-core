@@ -2460,8 +2460,8 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     sqlx::query(
         "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description,
                                     period_start, period_end, quantity_minutes,
-                                    unit_amount_minor, amount_minor, position)
-         VALUES ($1, $2, $3, $4, 'recurring_base', $5, $6, $7, 0, 50000, 50000, 1)",
+                                    unit_amount_minor, amount_minor, position, source_kind, source_id)
+         VALUES ($1, $2, $3, $4, 'recurring_base', $5, $6, $7, 0, 50000, 50000, 1, 'contract_line', $4)",
     )
     .bind(demo_uuid(210))
     .bind(DEMO_ORG_ID)
@@ -2537,8 +2537,8 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
         sqlx::query(
             "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description,
                                         period_start, period_end, quantity_minutes,
-                                        unit_amount_minor, amount_minor, position)
-             VALUES ($1, $2, $3, $4, 'time_materials', $5, $6, $7, $8, $9, $10, $11)",
+                                        unit_amount_minor, amount_minor, position, source_kind, source_id)
+             VALUES ($1, $2, $3, $4, 'time_materials', $5, $6, $7, $8, $9, $10, $11, 'contract_line', $4)",
         )
         .bind(demo_uuid(211 + position as u64))
         .bind(DEMO_ORG_ID)
@@ -2624,8 +2624,8 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     sqlx::query(
         "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description,
                                     period_start, period_end, quantity_minutes,
-                                    unit_amount_minor, amount_minor, position)
-         VALUES ($1, $2, $3, $4, 'recurring_base', $5, $6, $7, 0, 50000, 50000, 1)",
+                                    unit_amount_minor, amount_minor, position, source_kind, source_id)
+         VALUES ($1, $2, $3, $4, 'recurring_base', $5, $6, $7, 0, 50000, 50000, 1, 'contract_line', $4)",
     )
     .bind(demo_uuid(410))
     .bind(DEMO_ORG_ID)
@@ -2683,8 +2683,8 @@ async fn seed_inner(pool: &PgPool, opts: &DemoSeedOptions) -> DemoResult<DemoSee
     sqlx::query(
         "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind, description,
                                     period_start, period_end, quantity_minutes,
-                                    unit_amount_minor, amount_minor, position)
-         VALUES ($1, $2, $3, $4, 'per_incident', $5, $6, $7, 0, 45000, 45000, 1)",
+                                    unit_amount_minor, amount_minor, position, source_kind, source_id)
+         VALUES ($1, $2, $3, $4, 'per_incident', $5, $6, $7, 0, 45000, 45000, 1, 'contract_line', $4)",
     )
     .bind(demo_uuid(411))
     .bind(DEMO_ORG_ID)

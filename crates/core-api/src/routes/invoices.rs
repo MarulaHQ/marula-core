@@ -984,6 +984,10 @@ pub async fn create_run(
                         fx_rate_date: issue_rate_columns.as_ref().map(|s| s.rate_date),
                         fx_source: issue_rate_columns.as_ref().map(|s| s.source.clone()),
                         base_amount_minor: issue_rate_columns.as_ref().map(|_| base_minor),
+                        // The contract is what this line bills unless the
+                        // rental path re-labels it with its charge id.
+                        source_kind: "contract_line".to_string(),
+                        source_id: contract.id,
                         position: position as i32,
                     })
                 })

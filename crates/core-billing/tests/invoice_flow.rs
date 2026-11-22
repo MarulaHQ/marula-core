@@ -937,3 +937,161 @@ async fn invoicing_permissions_and_rls() {
     assert_eq!(response.status(), 409, "invoiced contracts are locked");
     assert_eq!(error_reason(&body_json(response).await), "conflict");
 }
+
+// --- candidate billing (Wave 76 W76-6) ----------------------------------------
+
+async fn first_board(app: &Router, org: &Org) -> Uuid {
+    let body = body_json(
+        send(
+            app,
+            axum::http::Method::GET,
+            "/api/boards",
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    body[0]["id"]
+        .as_str()
+        .expect("a seeded board")
+        .parse()
+        .unwrap()
+}
+
+async fn create_ticket(app: &Router, org: &Org, board: Uuid, client: Uuid) -> Uuid {
+    let response = send(
+        app,
+        axum::http::Method::POST,
+        "/api/tickets",
+        Some(&org.token),
+        Some(json!({
+            "board_id": board,
+            "title": "Install a server",
+            "priority": "p3",
+            "client_id": client,
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "ticket create");
+    let body = body_json(response).await;
+    body["id"].as_str().unwrap().parse().unwrap()
+}
+
+async fn add_cost_line(app: &Router, org: &Org, ticket: Uuid, amount_each: i64) -> Value {
+    let response = send(
+        app,
+        axum::http::Method::POST,
+        &format!("/api/tickets/{ticket}/cost-lines"),
+        Some(&org.token),
+        Some(json!({
+            "kind": "parts",
+            "description": "Rack rail kit",
+            "quantity": 2.0,
+            "unit_cost_minor": amount_each,
+            "currency": "USD",
+            "billable": true,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(response.status(), 200, "cost line create");
+    body_json(response).await
+}
+
+/// The missing half of the candidate feed: selected lines become one issued
+/// invoice, each line names its source, the candidates are marked in the same
+/// transaction, an identical retry replays, and a second attempt is refused.
+#[tokio::test]
+async fn candidates_bill_once_and_each_line_names_its_source() {
+    let (_state, app) = test_state().await;
+    let slug = format!("bill-cand-{}", Uuid::now_v7().simple());
+    let org = register_org(&app, slug).await;
+    let client = create_client(&app, &org, "Northwind").await;
+    let contract = create_contract(
+        &app,
+        &org,
+        client,
+        json!({
+            "number": format!("C-{}", Uuid::now_v7().simple()),
+            "name": "Time and materials",
+            "contract_type": "time_and_materials",
+            "status": "active",
+            "currency": "USD",
+            "effective_from": "2026-01-01",
+            "hourly_rate_minor": 12_000,
+        }),
+    )
+    .await;
+    let contract_id = contract["id"].as_str().unwrap().to_string();
+    let board = first_board(&app, &org).await;
+    let ticket = create_ticket(&app, &org, board, client).await;
+    let line = add_cost_line(&app, &org, ticket, 500).await;
+    let line_id = line["line"]["id"].as_str().unwrap().to_string();
+
+    let key = Uuid::now_v7().to_string();
+    let body = json!({
+        "contract_id": contract_id,
+        "cost_line_ids": [line_id],
+        "due_on": "2026-12-31",
+        "idempotency_key": key,
+    });
+    let response = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/invoice-candidates/bill",
+        Some(&org.token),
+        Some(body.clone()),
+    )
+    .await;
+    let status = response.status();
+    let billed = body_json(response).await;
+    assert_eq!(status, 200, "candidates bill: {billed}");
+    assert_eq!(billed["invoice"]["total_minor"], json!(1000));
+    assert_eq!(billed["lines"].as_array().unwrap().len(), 1);
+    assert_eq!(billed["lines"][0]["source_kind"], json!("ticket_cost_line"));
+    assert_eq!(billed["lines"][0]["source_id"], json!(line_id));
+    let invoice_id = billed["invoice"]["id"].clone();
+
+    // The candidate feed is empty: the marker moved in the same transaction.
+    let feed = body_json(
+        send(
+            &app,
+            axum::http::Method::GET,
+            "/api/invoice-candidates",
+            Some(&org.token),
+            None,
+        )
+        .await,
+    )
+    .await;
+    assert_eq!(feed.as_array().unwrap().len(), 0, "nothing left to bill");
+
+    // An identical retry replays the same document rather than billing twice.
+    let replay = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/invoice-candidates/bill",
+        Some(&org.token),
+        Some(body.clone()),
+    )
+    .await;
+    assert_eq!(replay.status(), 200, "replay");
+    assert_eq!(body_json(replay).await["invoice"]["id"], invoice_id);
+
+    // A second attempt under a new key is refused: the line is billed.
+    let again = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/invoice-candidates/bill",
+        Some(&org.token),
+        Some(json!({
+            "contract_id": contract_id,
+            "cost_line_ids": [line_id],
+            "due_on": "2026-12-31",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(again.status(), 409, "already billed");
+}

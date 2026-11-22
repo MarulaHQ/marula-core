@@ -10,7 +10,7 @@
 //! "not enough credit left" signal the API maps to a 409.
 
 use crate::{DbError, DbResult};
-use core_domain::entities::{CreditNote, CreditNoteApplication, CreditNoteStatus};
+use core_domain::entities::{CreditNote, CreditNoteApplication, CreditNoteLine, CreditNoteStatus};
 use sqlx::Postgres;
 use std::str::FromStr;
 use uuid::Uuid;
@@ -251,4 +251,143 @@ where
     .fetch_all(executor)
     .await?;
     Ok(rows)
+}
+
+/// Appends the lines a credit corrects. Append-only: a wrong line is a second
+/// credit, never an edit, which the migration's trigger enforces.
+pub async fn insert_lines(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    credit_note_id: Uuid,
+    lines: &[CreditNoteLine],
+) -> DbResult<()> {
+    for line in lines {
+        sqlx::query!(
+            r#"INSERT INTO credit_note_lines
+                 (id, org_id, credit_note_id, source_kind, source_id, invoice_line_id,
+                  description, quantity_minutes, amount_minor, base_amount_minor,
+                  physical, disposition, position)
+               VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)"#,
+            line.id,
+            org_id,
+            credit_note_id,
+            line.source_kind,
+            line.source_id,
+            line.invoice_line_id,
+            line.description,
+            line.quantity_minutes,
+            line.amount_minor,
+            line.base_amount_minor,
+            line.physical,
+            line.disposition.as_deref(),
+            line.position,
+        )
+        .execute(&mut *conn)
+        .await?;
+    }
+    Ok(())
+}
+
+/// The lines a credit carries, in their written order.
+pub async fn list_lines<'e, E>(
+    executor: E,
+    org_id: Uuid,
+    credit_note_id: Uuid,
+) -> DbResult<Vec<CreditNoteLine>>
+where
+    E: sqlx::Executor<'e, Database = Postgres>,
+{
+    let rows = sqlx::query_as!(
+        CreditNoteLine,
+        r#"SELECT id, org_id, credit_note_id, source_kind, source_id, invoice_line_id,
+                  description, quantity_minutes, amount_minor, base_amount_minor,
+                  physical, disposition, position, created_at
+           FROM credit_note_lines
+           WHERE org_id = $1 AND credit_note_id = $2
+           ORDER BY position, id"#,
+        org_id,
+        credit_note_id,
+    )
+    .fetch_all(executor)
+    .await?;
+    Ok(rows)
+}
+
+/// Whether the row a credit line names exists in this organisation. The source
+/// vocabulary is polymorphic, so each kind names its own table. A credit that
+/// cites a row outside the org, or one that never existed, is a claim about
+/// nothing.
+pub async fn source_in_org(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    source_kind: &str,
+    source_id: Uuid,
+) -> DbResult<bool> {
+    let found: Option<bool> = match source_kind {
+        "ticket_cost_line" => {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM ticket_cost_lines WHERE org_id = $1 AND id = $2)",
+                org_id,
+                source_id,
+            )
+            .fetch_one(&mut *conn)
+            .await?
+        }
+        "ticket_expense" => {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM ticket_expenses WHERE org_id = $1 AND id = $2)",
+                org_id,
+                source_id,
+            )
+            .fetch_one(&mut *conn)
+            .await?
+        }
+        "rental_charge" => {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM rental_charges WHERE org_id = $1 AND id = $2)",
+                org_id,
+                source_id,
+            )
+            .fetch_one(&mut *conn)
+            .await?
+        }
+        "contract_line" => {
+            sqlx::query_scalar!(
+                "SELECT EXISTS(SELECT 1 FROM contracts WHERE org_id = $1 AND id = $2)",
+                org_id,
+                source_id,
+            )
+            .fetch_one(&mut *conn)
+            .await?
+        }
+        other => {
+            return Err(DbError::Conflict(format!(
+                "unknown credit line source kind: {other}"
+            )))
+        }
+    };
+    Ok(found.unwrap_or(false))
+}
+
+/// Whether an invoice line belongs to this organisation and to the client the
+/// credit is raised for. A credit that names another client's line would put
+/// one client's charge on another client's credit.
+pub async fn invoice_line_for_client_in_org(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    client_id: Uuid,
+    invoice_line_id: Uuid,
+) -> DbResult<bool> {
+    let found = sqlx::query_scalar!(
+        r#"SELECT EXISTS(
+             SELECT 1 FROM invoice_lines il
+               JOIN invoices i ON i.org_id = il.org_id AND i.id = il.invoice_id
+              WHERE il.org_id = $1 AND il.id = $2 AND i.client_id = $3)"#,
+        org_id,
+        invoice_line_id,
+        client_id,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    Ok(found.unwrap_or(false))
 }

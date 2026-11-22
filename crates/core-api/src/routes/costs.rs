@@ -20,13 +20,14 @@ use crate::state::AppState;
 use axum::{
     extract::{Path, State},
     http::Extensions,
-    routing::{get, patch},
+    routing::{get, patch, post},
     Json, Router,
 };
 use core_domain::entities::{Actor, AuditEvent, CostLineKind, TicketCostLine, TicketExpense};
 use core_domain::events::types;
-use core_domain::policy::{BoardOp, Permission};
+use core_domain::policy::{Action, BoardOp, Permission};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -50,6 +51,10 @@ pub fn routes(gen: crate::routes::ApiGeneration) -> Router<AppState> {
             patch(update_expense).delete(remove_expense),
         )
         .route(&format!("{base}/invoice-candidates"), get(list_candidates))
+        .route(
+            &format!("{base}/invoice-candidates/bill"),
+            post(bill_candidates),
+        )
 }
 
 fn view_financials() -> Permission {
@@ -1077,6 +1082,164 @@ pub async fn list_candidates(
     Ok(Json(
         rows.into_iter().map(InvoiceCandidateView::from).collect(),
     ))
+}
+
+/// What to bill, and under which contract.
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct BillCandidatesRequest {
+    #[schema(value_type = uuid::Uuid)]
+    pub contract_id: uuid::Uuid,
+    /// Ticket cost lines to bill.
+    #[serde(default)]
+    #[schema(value_type = Vec<uuid::Uuid>)]
+    pub cost_line_ids: Vec<uuid::Uuid>,
+    /// Ticket expenses to bill.
+    #[serde(default)]
+    #[schema(value_type = Vec<uuid::Uuid>)]
+    pub expense_ids: Vec<uuid::Uuid>,
+    pub period_from: Option<chrono::NaiveDate>,
+    pub period_to: Option<chrono::NaiveDate>,
+    pub due_on: chrono::NaiveDate,
+    pub notes: Option<String>,
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
+}
+
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct BilledCandidatesResponse {
+    pub invoice: core_domain::entities::Invoice,
+    pub lines: Vec<core_domain::entities::InvoiceLine>,
+    pub mutation: instant::MutationMeta,
+}
+
+/// POST /api/invoice-candidates/bill — issue one invoice for the named
+/// candidates, under one contract. The lines keep their source, the candidates
+/// are marked billed in the same transaction, and an already-billed candidate
+/// refuses the request. Totals move only by this issued document.
+#[utoipa::path(operation_id = "invoice_candidates_bill", post, path = "/api/invoice-candidates/bill", tag = "ticket-costs", security(("bearer" = [])),
+    request_body = BillCandidatesRequest,
+    responses((status = 200, body = BilledCandidatesResponse),
+              (status = 404, description = "contract or candidate not visible in scope"),
+              (status = 409, description = "a candidate is already billed, or the currencies disagree"),
+              (status = 422, description = "validation failure")))]
+pub async fn bill_candidates(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Json(req): Json<BillCandidatesRequest>,
+) -> ApiResult<Json<BilledCandidatesResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(
+        &authed.principal,
+        Permission::Matrix {
+            module: core_domain::policy::Module::Tickets,
+            action: Action::Create,
+        },
+    )?;
+    require_permission(&authed.principal, view_financials())?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let fingerprint = serde_json::to_value(&req).unwrap_or(Value::Null);
+    let key = req.instant.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "invoice_candidate_bill",
+                entity_id: None,
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            // The stored answer must be this endpoint's own shape; a foreign
+            // payload fails closed rather than being served.
+            let _stored_answer: BilledCandidatesResponse = serde_json::from_value(stored.clone())
+                .map_err(|_| {
+                ApiError::Internal(anyhow::anyhow!(
+                    "a stored candidate bill is not this endpoint's shape"
+                ))
+            })?;
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+
+        let contract = core_db::contracts::get_contract(&mut *ctx.tx, org_id, req.contract_id)
+            .await
+            .map_err(ApiError::from)?;
+        crate::routes::clients::require_client_visible(
+            &mut ctx.tx,
+            org_id,
+            contract.client_id,
+            &authed.principal,
+        )
+        .await?;
+
+        let (invoice, lines) = core_db::invoices::bill_candidates(
+            &mut ctx.tx,
+            org_id,
+            &core_db::invoices::BillCandidatesRequest {
+                contract_id: req.contract_id,
+                cost_line_ids: req.cost_line_ids.clone(),
+                expense_ids: req.expense_ids.clone(),
+                period_from: req.period_from,
+                period_to: req.period_to,
+                due_on: req.due_on,
+                notes: req.notes.clone(),
+                created_by: user_id,
+            },
+        )
+        .await?;
+        let payload = serde_json::json!({
+            "invoice": invoice.clone(),
+            "lines": lines.clone(),
+        });
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "invoice",
+                entity_id: invoice.id,
+                version: None,
+            },
+        )
+        .await?;
+        ctx.emit(
+            types::INVOICE_CREATED,
+            "invoice",
+            Some(invoice.id.to_string().as_str()),
+            &serde_json::to_value(core_domain::events::InvoiceCreated {
+                invoice: invoice.clone(),
+            })
+            .unwrap_or_default(),
+        )
+        .await?;
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "invoice_candidate_bill",
+                entity_id: invoice.id,
+                op: "bill",
+                seq: write_seq,
+                before: None,
+                after: payload.clone(),
+                updated_at: invoice.created_at,
+                key: key.as_deref(),
+                payload: &payload,
+                provenance: Default::default(),
+            },
+        )
+        .await?;
+        Ok((
+            ctx,
+            MutationOutcome::Applied(BilledCandidatesResponse {
+                invoice,
+                lines,
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+    Ok(Json(outcome.into_response()?))
 }
 
 #[derive(Debug, Serialize, ToSchema)]

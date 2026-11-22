@@ -648,8 +648,8 @@ async fn seed_g13_org(db: &common::TestDb, n: u64) -> G13Seed {
         sqlx::query(
             "INSERT INTO invoice_lines (id, org_id, invoice_id, contract_id, kind,
                  description, period_start, period_end, quantity_minutes,
-                 unit_amount_minor, amount_minor, position)
-             VALUES ($1,$2,$3,$4,$5,$6,DATE '2026-01-01',DATE '2026-01-31',60,$7,$8,$9)",
+                 unit_amount_minor, amount_minor, position, source_kind, source_id)
+             VALUES ($1,$2,$3,$4,$5,$6,DATE '2026-01-01',DATE '2026-01-31',60,$7,$8,$9, 'contract_line', $4)",
         )
         .bind(Uuid::now_v7())
         .bind(org)
