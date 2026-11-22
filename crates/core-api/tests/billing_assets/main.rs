@@ -19,6 +19,7 @@ mod common;
 
 mod assets_flow;
 mod billing_verification_flow;
+mod custody_flow;
 mod export_flow;
 mod purchasing_flow;
 mod quote_catalog_flow;

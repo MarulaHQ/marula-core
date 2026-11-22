@@ -97,6 +97,11 @@ pub fn routes(gen: ApiGeneration) -> Router<AppState> {
             &format!("{base}/stock-items/{{id}}/movements"),
             get(item_movements),
         )
+        .route(&format!("{base}/inventory/custody"), get(custody_summary))
+        .route(
+            &format!("{base}/inventory/class-movements"),
+            get(class_movements),
+        )
         .route(
             &format!("{base}/stock-items/{{id}}/serials"),
             get(item_serials),
@@ -2779,6 +2784,117 @@ pub async fn list_pool(
                 stock_item_id: r.stock_item_id,
                 device_asset_id: r.device_asset_id,
                 available: r.available,
+            })
+            .collect(),
+    ))
+}
+
+// --- custody -----------------------------------------------------------------
+
+/// One class and how many units sit in it.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CustodyClassView {
+    /// A custody class from the shared vocabulary.
+    pub custody_class: String,
+    pub serials: i64,
+    pub assets: i64,
+    pub total: i64,
+}
+
+#[derive(Debug, Deserialize, utoipa::IntoParams)]
+pub struct ClassMovementQuery {
+    /// `serial` or `asset`; absent = both.
+    pub unit_kind: Option<String>,
+    pub limit: Option<i64>,
+}
+
+/// One append-only class movement, with the unit named.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ClassMovementView {
+    #[schema(value_type = uuid::Uuid)]
+    pub id: Uuid,
+    pub unit_kind: String,
+    pub unit_label: String,
+    pub from_class: String,
+    pub to_class: String,
+    pub reason: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// GET /api/inventory/custody — where every physical unit is, by class.
+#[utoipa::path(operation_id = "inventory_custody_summary", get, path = "/api/inventory/custody", tag = "commercial", security(("bearer" = [])),
+    responses((status = 200, body = [CustodyClassView])))]
+pub async fn custody_summary(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: Extensions,
+) -> ApiResult<Json<Vec<CustodyClassView>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, commercial(Action::View))?;
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let rows = core_db::stock::custody_counts(&mut tx, authed.principal.user.org_id).await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| CustodyClassView {
+                total: r.serials + r.assets,
+                custody_class: r.custody_class,
+                serials: r.serials,
+                assets: r.assets,
+            })
+            .collect(),
+    ))
+}
+
+/// GET /api/inventory/class-movements — the append-only class ledger.
+#[utoipa::path(operation_id = "inventory_class_movements", get, path = "/api/inventory/class-movements", tag = "commercial", security(("bearer" = [])),
+    params(ClassMovementQuery),
+    responses((status = 200, body = [ClassMovementView])))]
+pub async fn class_movements(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: Extensions,
+    axum::extract::Query(q): axum::extract::Query<ClassMovementQuery>,
+) -> ApiResult<Json<Vec<ClassMovementView>>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, commercial(Action::View))?;
+    let unit_kind = match q.unit_kind.as_deref() {
+        None => None,
+        Some("serial") | Some("asset") => q.unit_kind.as_deref(),
+        Some(other) => {
+            return Err(ApiError::Validation(format!(
+                "unit_kind must be serial or asset (got {other})"
+            )))
+        }
+    };
+    let limit = q.limit.unwrap_or(100).clamp(1, 500);
+    let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
+    core_db::set_org_and_user(
+        &mut tx,
+        authed.principal.user.org_id,
+        authed.principal.user.id,
+    )
+    .await
+    .map_err(ApiError::from)?;
+    let rows =
+        core_db::stock::class_movements(&mut tx, authed.principal.user.org_id, unit_kind, limit)
+            .await?;
+    tx.commit().await.map_err(ApiError::from)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(|r| ClassMovementView {
+                id: r.id,
+                unit_kind: r.unit_kind,
+                unit_label: r.unit_label,
+                from_class: r.from_class,
+                to_class: r.to_class,
+                reason: r.reason,
+                created_at: r.created_at,
             })
             .collect(),
     ))

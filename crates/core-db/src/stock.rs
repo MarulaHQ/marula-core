@@ -1037,3 +1037,101 @@ pub async fn list_serials(
     .await?;
     Ok(rows.into_iter().map(serial_row).collect())
 }
+
+// --- custody reads -----------------------------------------------------------
+
+/// How many units sit in each custody class, split by the two identity kinds.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct CustodyClassCount {
+    pub custody_class: String,
+    pub serials: i64,
+    pub assets: i64,
+}
+
+/// Counts per class across serials and assets. A class with no units still
+/// appears with zeroes, so a surface can show the whole vocabulary rather than
+/// only the classes that happen to be occupied.
+pub async fn custody_counts(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+) -> DbResult<Vec<CustodyClassCount>> {
+    let rows = sqlx::query_as!(
+        CustodyClassCount,
+        r#"SELECT c.custody_class AS "custody_class!",
+                  COALESCE(s.serials, 0) AS "serials!",
+                  COALESCE(a.assets, 0) AS "assets!"
+             FROM (VALUES
+                     ('sale_stock'), ('internal_fleet'), ('rental_in'), ('rental_out'),
+                     ('client_custody'), ('ewaste_custody'), ('tools'), ('sold'),
+                     ('recycled'), ('destroyed'), ('returned')
+                  ) AS c(custody_class)
+             LEFT JOIN (
+                 SELECT custody_class, COUNT(*) AS serials
+                   FROM stock_serials WHERE org_id = $1 GROUP BY custody_class
+             ) s ON s.custody_class = c.custody_class
+             LEFT JOIN (
+                 SELECT custody_class, COUNT(*) AS assets
+                   FROM device_assets WHERE org_id = $1 GROUP BY custody_class
+             ) a ON a.custody_class = c.custody_class
+            ORDER BY c.custody_class"#,
+        org_id,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows)
+}
+
+/// One row of the append-only class ledger, with the unit named.
+#[derive(Debug, Clone)]
+pub struct ClassMovementRow {
+    pub id: Uuid,
+    pub unit_kind: String,
+    pub unit_label: String,
+    pub from_class: String,
+    pub to_class: String,
+    pub reason: String,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// The newest class movements in the org, optionally narrowed to one unit kind.
+pub async fn class_movements(
+    conn: &mut sqlx::PgConnection,
+    org_id: Uuid,
+    unit_kind: Option<&str>,
+    limit: i64,
+) -> DbResult<Vec<ClassMovementRow>> {
+    let rows = sqlx::query!(
+        r#"SELECT m.id, m.unit_kind, m.from_class, m.to_class, m.reason, m.created_at,
+                  COALESCE(si.name || ' · ' || ss.serial_number,
+                           da.tag || ' · ' || da.name,
+                           m.unit_kind) AS "unit_label!"
+             FROM inventory_class_movements m
+             LEFT JOIN stock_serials ss
+               ON ss.org_id = m.org_id AND ss.id = m.serial_id
+             LEFT JOIN stock_items si
+               ON si.org_id = ss.org_id AND si.id = ss.stock_item_id
+             LEFT JOIN device_assets da
+               ON da.org_id = m.org_id AND da.id = m.device_asset_id
+            WHERE m.org_id = $1
+              AND ($2::text IS NULL OR m.unit_kind = $2)
+            ORDER BY m.created_at DESC, m.id
+            LIMIT $3"#,
+        org_id,
+        unit_kind,
+        limit,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    Ok(rows
+        .into_iter()
+        .map(|r| ClassMovementRow {
+            id: r.id,
+            unit_kind: r.unit_kind,
+            unit_label: r.unit_label,
+            from_class: r.from_class,
+            to_class: r.to_class,
+            reason: r.reason,
+            created_at: r.created_at,
+        })
+        .collect())
+}

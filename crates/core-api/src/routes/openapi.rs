@@ -711,6 +711,8 @@ use utoipa::OpenApi;
         crate::routes::stock::get_item,
         crate::routes::stock::update_item,
         crate::routes::stock::archive_item,
+        crate::routes::stock::custody_summary,
+        crate::routes::stock::class_movements,
         crate::routes::stock::item_movements,
         crate::routes::stock::ticket_movements,
         crate::routes::stock::item_serials,
@@ -1473,6 +1475,8 @@ use utoipa::OpenApi;
         crate::instant::MutationMeta,
         // stock + consumables (Wave 32 lane 1)
         crate::routes::stock::StockItemView,
+        crate::routes::stock::CustodyClassView,
+        crate::routes::stock::ClassMovementView,
         crate::routes::stock::StockItemMutationResponse,
         crate::routes::stock::CreateStockItemRequest,
         crate::routes::stock::UpdateStockItemRequest,

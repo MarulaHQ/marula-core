@@ -6287,6 +6287,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/inventory/class-movements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/inventory/class-movements — the append-only class ledger. */
+        get: operations["inventory_class_movements"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/inventory/custody": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/inventory/custody — where every physical unit is, by class. */
+        get: operations["inventory_custody_summary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/invoice-candidates": {
         parameters: {
             query?: never;
@@ -19577,6 +19611,18 @@ export interface components {
             /** @description The one-time token, verbatim from the create response. */
             token: string;
         };
+        /** @description One append-only class movement, with the unit named. */
+        ClassMovementView: {
+            /** Format: date-time */
+            created_at: string;
+            from_class: string;
+            /** Format: uuid */
+            id: string;
+            reason: string;
+            to_class: string;
+            unit_kind: string;
+            unit_label: string;
+        };
         /**
          * @description A clause selection on a contract draft. The text is the library's, never the
          *     model's; only `parameter_value` can differ, and when it does the selection
@@ -22566,6 +22612,17 @@ export interface components {
         };
         /** @enum {string} */
         CustodyClass: "sale_stock" | "internal_fleet" | "rental_in" | "rental_out" | "client_custody" | "ewaste_custody" | "tools" | "sold" | "recycled" | "destroyed" | "returned";
+        /** @description One class and how many units sit in it. */
+        CustodyClassView: {
+            /** Format: int64 */
+            assets: number;
+            /** @description A custody class from the shared vocabulary. */
+            custody_class: string;
+            /** Format: int64 */
+            serials: number;
+            /** Format: int64 */
+            total: number;
+        };
         /** @description Manual DNS setup instructions (the seam's none-mode), ready to render. */
         CustomDomainInstructions: {
             domain: string;
@@ -51406,6 +51463,48 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["VerdictResponse"];
+                };
+            };
+        };
+    };
+    inventory_class_movements: {
+        parameters: {
+            query?: {
+                /** @description `serial` or `asset`; absent = both. */
+                unit_kind?: string | null;
+                limit?: number | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClassMovementView"][];
+                };
+            };
+        };
+    };
+    inventory_custody_summary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CustodyClassView"][];
                 };
             };
         };

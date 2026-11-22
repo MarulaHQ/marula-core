@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.6.3** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**794 paths · 1054 operations · 1663 schemas.**
+**796 paths · 1056 operations · 1665 schemas.**
 
 ## accounting
 
@@ -650,6 +650,13 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 |---|---|---|---|
 | `POST` | `/api/v1/internal/effects` <a id="internal_effects"></a> | POST /api/internal/effects — applies automation-rule effects to one ticket through the SAME write paths users go through (ticket patch, comment insert, notification fan-out), emitting every corresponding domain event tagged `via_automation` so evaluators never loop. | [EffectsRequest](#schema-effectsrequest) |
 | `POST` | `/api/v1/internal/sla/verdict` <a id="internal_sla_verdict"></a> | POST /api/internal/sla/verdict — fire-once application of one ladder step: ledger insert (PK-guarded), breach flip, notification fan-out with preference gates, events + audit, all in ONE transaction. | [SlaVerdictRequest](#schema-slaverdictrequest) |
+
+## inventory
+
+| Method | Path | Operation | Request body |
+|---|---|---|---|
+| `GET` | `/api/v1/inventory/class-movements` <a id="inventory_class_movements"></a> | GET /api/inventory/class-movements — the append-only class ledger. | — |
+| `GET` | `/api/v1/inventory/custody` <a id="inventory_custody_summary"></a> | GET /api/inventory/custody — where every physical unit is, by class. | — |
 
 ## invoice-candidates
 
@@ -1933,6 +1940,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-cisemanticclass"></a>`CiSemanticClass` | string | CI6: a semantic class is the behavior-bearing identity of a CI type. Layouts (types) are org-configurable and renameable; the class is not. |
 | <a id="schema-cisettingsview"></a>`CiSettingsView` | object |  |
 | <a id="schema-claimsharelinkrequest"></a>`ClaimShareLinkRequest` | object |  |
+| <a id="schema-classmovementview"></a>`ClassMovementView` | object | One append-only class movement, with the unit named. |
 | <a id="schema-clauseref"></a>`ClauseRef` | object | A clause selection on a contract draft. The text is the library's, never the model's; only `parameter_value` can differ, and when it does the selection is a variant and needs legal review. |
 | <a id="schema-client"></a>`Client` | object |  |
 | <a id="schema-clientcompletenessview"></a>`ClientCompletenessView` | object | The backend documentation-completeness read model — the weights live here; the web card renders the facts. |
@@ -2123,6 +2131,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-csatsection"></a>`CsatSection` | object | CSAT inputs slot: `available` is the honest feature gate — true only once the org has real survey data, never fabricated from a zero-window. Scores are 1-5; "low" means score ≤ 2. |
 | <a id="schema-curatefieldsrequest"></a>`CurateFieldsRequest` | composite |  |
 | <a id="schema-custodyclass"></a>`CustodyClass` | string |  |
+| <a id="schema-custodyclassview"></a>`CustodyClassView` | object | One class and how many units sit in it. |
 | <a id="schema-customdomaininstructions"></a>`CustomDomainInstructions` | object | Manual DNS setup instructions (the seam's none-mode), ready to render. |
 | <a id="schema-customdomainview"></a>`CustomDomainView` | object | GET response: current state + verification status + whether a DNS-provider plugin is installed (A8 (F)). |
 | <a id="schema-customizationmanifest"></a>`CustomizationManifest` | object | The customization manifest envelope, `manifest_version` 1. |
@@ -3361,4 +3370,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 34 operation groups; schema count 1663 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 34 operation groups; schema count 1665 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
