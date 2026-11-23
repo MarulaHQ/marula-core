@@ -78,6 +78,9 @@ export default function CustodyPage(): React.ReactNode {
 
   const refresh = useCallback(async (): Promise<void> => {
     const seq = ++requestSeq.current;
+    // A retry is a read in flight, not an empty answer: without this, a failed
+    // first load leaves the empty state visible while Refresh runs.
+    setLoading(true);
     setLoadError(null);
     setLedgerStale(false);
     try {
@@ -114,7 +117,6 @@ export default function CustodyPage(): React.ReactNode {
 
   useEffect(() => {
     if (auth.status !== "authed") return;
-    setLoading(true);
     void refresh();
   }, [auth.status, refresh]);
 
