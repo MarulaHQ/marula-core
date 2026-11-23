@@ -378,6 +378,20 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
         "a reversal offset cannot be billed"
     );
 
+    let patch_sign = send(
+        &app,
+        axum::http::Method::PATCH,
+        &format!("/api/v1/tickets/{ticket_id}/cost-lines/{negative_id}"),
+        &[auth(&token)],
+        Some(json!({ "quantity": 100.0, "idempotency_key": Uuid::now_v7().to_string() })),
+    )
+    .await;
+    assert_eq!(
+        patch_sign.status().as_u16(),
+        409,
+        "a reversal offset must stay negative"
+    );
+
     let patch_original = send(
         &app,
         axum::http::Method::PATCH,

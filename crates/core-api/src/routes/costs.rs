@@ -487,6 +487,14 @@ pub async fn update_cost_line(
                 "a negative cost line offsets a reversal and cannot be billed".into(),
             ));
         }
+        // The offset only works as an offset: turning it positive would charge
+        // the job again for stock the reversal returned and put a second
+        // positive line in front of the invoice run.
+        if locked.quantity < 0.0 && effective_quantity >= 0.0 {
+            return Err(ApiError::Conflict(
+                "a negative cost line offsets a reversal and must stay negative".into(),
+            ));
+        }
         // A reversed consumption put its money back and left the negative line
         // as the record. Re-arming the original charge would subtract it twice,
         // so a stock-sourced line whose movement was reversed cannot be made
