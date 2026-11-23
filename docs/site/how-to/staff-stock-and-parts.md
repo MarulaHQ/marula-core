@@ -68,7 +68,31 @@ panel completes the physical side of the job without a trip to `/stock`:
 
 One submit writes the ledger row, anchors the movement to the ticket, and
 the movement appears on the activity timeline under the **Parts** filter
-chip. Nothing else needs logging.
+chip. A billable **Use** also adds the part to the ticket's costs in the same
+commit (below); **Ship out** and **Receive** move stock without posting a
+cost.
+
+### What a use costs the job
+
+Receive an item with a unit cost before recording a billable use: an item
+whose receipts carry no cost refuses the billable use with a conflict and
+moves nothing. `billable: false` is the API option for moving stock without a
+charge.
+
+A billable **Use** against a ticket writes one cost line in the same
+transaction as the ledger row, priced from the item's last unit cost, and it
+reaches the invoice run like any other parts cost. API clients can send
+`billable: false` to record a use as not billable; the native **Use a part**
+flow does not offer that option yet, so a use recorded there is billable. A
+not billable use moves the shelf and writes no line, so the job's costs stay
+where they were.
+
+A billable use can be reversed once, through the API operation
+`stock_consume_reverse`; the ticket screens do not offer the action yet. The
+reversal puts the quantity back on the shelf and adds a negative line, so the
+job's cost total returns to where it was. A zero-rated use also restores the
+shelf, with no line to offset. Once the cost line is on an invoice, reversal
+is refused and the correction is a credit note.
 
 ## 4. Dispatch stock to a ticket from the stockroom
 

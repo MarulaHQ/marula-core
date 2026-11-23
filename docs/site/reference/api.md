@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.6.3** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**798 paths · 1059 operations · 1671 schemas.**
+**799 paths · 1060 operations · 1673 schemas.**
 
 ## accounting
 
@@ -1429,6 +1429,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 |---|---|---|---|
 | `POST` | `/api/v1/stock/adjust` <a id="stock_adjust"></a> | POST /api/stock/adjust — the signed counter-fix (NO serialized items; move the unit instead). | [AdjustRequest](#schema-adjustrequest) |
 | `POST` | `/api/v1/stock/consume` <a id="stock_consume"></a> | POST /api/stock/consume — the OUT leg charging a ticket's job. | [ConsumeRequest](#schema-consumerequest) |
+| `POST` | `/api/v1/stock/consume/{id}/reverse` <a id="stock_consume_reverse"></a> | POST /api/stock/consume/{id}/reverse — undo a consumption on both sides. | [ReverseConsumeRequest](#schema-reverseconsumerequest) |
 | `GET` | `/api/v1/stock/consumption-velocity` <a id="stock_consumption_velocity"></a> | GET /api/stock/consumption-velocity — the outbound-rate read model. | — |
 | `POST` | `/api/v1/stock/levels/thresholds` <a id="stock_thresholds_set"></a> | POST /api/stock/levels/thresholds — min/max/reorder per (item, location); NULL clears. Creates the level row on first touch, without moving stock. | [ThresholdsRequest](#schema-thresholdsrequest) |
 | `GET` | `/api/v1/stock/on-hand` <a id="stock_on_hand"></a> | GET /api/stock/on-hand — the stock-on-hand read model. | — |
@@ -2932,6 +2933,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-retryrunrequest"></a>`RetryRunRequest` | composite | POST /api/workflows/runs/{id}/retry — the operator action. |
 | <a id="schema-returnloanrequest"></a>`ReturnLoanRequest` | composite | POST /api/client-loans/{id}/return. |
 | <a id="schema-reverseacquisitioncostrequest"></a>`ReverseAcquisitionCostRequest` | composite | POST /api/acquisition-costs/{id}/reverse. |
+| <a id="schema-reverseconsumerequest"></a>`ReverseConsumeRequest` | composite | POST /api/stock/consume/{id}/reverse body (idempotency only). |
 | <a id="schema-revertdetail"></a>`RevertDetail` | object | What the revert restored. |
 | <a id="schema-revertticketrequest"></a>`RevertTicketRequest` | composite | POST /api/tickets/{id}/revert body. |
 | <a id="schema-revokecatalogentryrequest"></a>`RevokeCatalogEntryRequest` | object |  |
@@ -2944,6 +2946,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-roleslistresponse"></a>`RolesListResponse` | object |  |
 | <a id="schema-roleview"></a>`RoleView` | object | One org role row (preset or custom). `permissions` is the raw matrix vocabulary: `{"matrix": {"module", "action"}}` entries plus bare special strings (`"financial:read"`, `"special:manage_users"`, …). |
 | <a id="schema-rollupbillview"></a>`RollupBillView` | object |  |
+| <a id="schema-rollupcostlineview"></a>`RollupCostLineView` | object |  |
 | <a id="schema-routingdayquery"></a>`RoutingDayQuery` | object |  |
 | <a id="schema-routingdayview"></a>`RoutingDayView` | object |  |
 | <a id="schema-routingprofile"></a>`RoutingProfile` | object | The routing-capability declaration a provider pack carries. Closed vocabularies only; a pack cannot declare a capability or mode the seam does not speak. |
@@ -3379,4 +3382,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 34 operation groups; schema count 1671 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 34 operation groups; schema count 1673 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

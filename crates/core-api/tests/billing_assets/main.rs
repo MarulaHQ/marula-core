@@ -20,6 +20,7 @@ mod common;
 mod accounting_package_flow;
 mod assets_flow;
 mod billing_verification_flow;
+mod consume_cost_flow;
 mod custody_flow;
 mod export_flow;
 mod purchasing_flow;

@@ -451,6 +451,19 @@ pub async fn update_cost_line(
             .into_iter()
             .find(|l| l.id == line_id)
             .ok_or(ApiError::NotFound)?;
+        // Lock the row before the guards read it: two concurrent edits (one
+        // setting the quantity negative, one setting billable) must not each
+        // pass a check of the state before the other commits.
+        let locked = sqlx::query!(
+            r#"SELECT quantity::double precision AS "quantity!", unit_cost_minor,
+                      billable, fx_rate_used::text AS fx_rate_used
+                 FROM ticket_cost_lines WHERE org_id = $1 AND id = $2 FOR UPDATE"#,
+            org_id,
+            line_id,
+        )
+        .fetch_optional(&mut *ctx.tx)
+        .await?
+        .ok_or(ApiError::NotFound)?;
         if let Some(billed) =
             core_db::purchasing::recharge_cost_line_state(&mut *ctx.tx, org_id, line_id).await?
         {
@@ -461,18 +474,62 @@ pub async fn update_cost_line(
             };
             return Err(ApiError::Conflict(message.into()));
         }
+        // A negative line is a reversal's offset, never a charge: billing it
+        // would put a credit amount through the invoice run, and the negative
+        // CHECK forbids an invoice link anyway. The guard tests the state the
+        // update would store, not the stored row alone: a request that sets the
+        // quantity negative, or leaves an already-billable line billable, must
+        // not slip past it.
+        let effective_quantity = req.quantity.unwrap_or(locked.quantity);
+        let effective_billable = req.billable.unwrap_or(locked.billable);
+        if effective_billable && effective_quantity < 0.0 {
+            return Err(ApiError::Conflict(
+                "a negative cost line offsets a reversal and cannot be billed".into(),
+            ));
+        }
+        // The offset only works as an offset: turning it positive would charge
+        // the job again for stock the reversal returned and put a second
+        // positive line in front of the invoice run.
+        if locked.quantity < 0.0 && effective_quantity >= 0.0 {
+            return Err(ApiError::Conflict(
+                "a negative cost line offsets a reversal and must stay negative".into(),
+            ));
+        }
+        // A reversed consumption put its money back and left the negative line
+        // as the record. Re-arming the original charge would subtract it twice,
+        // so a stock-sourced line whose movement was reversed cannot be made
+        // billable again.
+        if req.billable == Some(true) {
+            let reversed = sqlx::query_scalar!(
+                r#"SELECT EXISTS(
+                     SELECT 1 FROM stock_movements m
+                       JOIN stock_movements r
+                         ON r.org_id = m.org_id AND r.reverses_movement_id = m.id
+                      WHERE m.org_id = $1 AND m.ticket_cost_line_id = $2)"#,
+                org_id,
+                line_id,
+            )
+            .fetch_one(&mut *ctx.tx)
+            .await?;
+            if reversed.unwrap_or(false) {
+                return Err(ApiError::Conflict(
+                    "this consumption was reversed; its charge cannot be made billable again"
+                        .into(),
+                ));
+            }
+        }
         // Snapshot doctrine (ADR 0002): a fact that already locked an FX
         // snapshot cannot have its amount edited in place — the locked
         // `base_amount_minor` would silently stop matching the row's own
         // quantity × unit cost. Amount corrections are new facts: remove
         // and re-enter. Description/billable edits stay allowed.
-        if before.fx_rate_used.is_some()
+        if locked.fx_rate_used.is_some()
             && (req.quantity.is_some_and(|q| {
                 core_domain::fx::quantize_quantity(q)
-                    != core_domain::fx::quantize_quantity(before.quantity)
+                    != core_domain::fx::quantize_quantity(locked.quantity)
             }) || req
                 .unit_cost_minor
-                .is_some_and(|u| u != before.unit_cost_minor))
+                .is_some_and(|u| u != locked.unit_cost_minor))
         {
             return Err(ApiError::Conflict(
                 "cost line carries an FX snapshot; amount corrections are new facts, \
@@ -606,6 +663,22 @@ pub async fn remove_cost_line(
             core_db::purchasing::recharge_cost_line_state(&mut *ctx.tx, org_id, line_id).await?
         {
             return Err(ApiError::Conflict(RECHARGE_LINE_BILLED_REFUSAL.into()));
+        }
+        // A stock-sourced line is the other half of a movement that names it,
+        // and that row is append-only. Deleting the line would leave the
+        // movement citing nothing; the reversal path is the undo.
+        let source_kind = sqlx::query_scalar!(
+            r#"SELECT source_kind FROM ticket_cost_lines WHERE org_id = $1 AND id = $2"#,
+            org_id,
+            line_id,
+        )
+        .fetch_one(&mut *ctx.tx)
+        .await?;
+        if source_kind.as_deref() == Some("stock_movement") {
+            return Err(ApiError::Conflict(
+                "this line came from a stock consumption; reverse the consumption instead of deleting it"
+                    .into(),
+            ));
         }
         let removed = core_db::costs::remove_cost_line(&mut ctx.tx, org_id, line_id).await?;
         if !removed {

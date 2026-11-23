@@ -929,6 +929,19 @@ pub struct RollupBillView {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct RollupCostLineView {
+    pub line_id: Uuid,
+    pub ticket_id: Uuid,
+    pub ticket_number: String,
+    pub description: String,
+    pub kind: String,
+    pub amount_minor: i64,
+    pub currency: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub base_amount_minor: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ProjectCostRollupView {
     pub project_id: Uuid,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -938,6 +951,11 @@ pub struct ProjectCostRollupView {
     pub base_currency: String,
     pub po_bill_base_minor: i64,
     pub bills: Vec<RollupBillView>,
+    /// Ticket cost lines in base currency, including parts drawn from stock.
+    pub ticket_cost_base_minor: i64,
+    pub ticket_cost_lines: Vec<RollupCostLineView>,
+    /// Ticket rows left out of the total because they carry no base amount.
+    pub unconverted_ticket_rows: i64,
 }
 
 impl From<ProjectCostRollup> for ProjectCostRollupView {
@@ -961,6 +979,22 @@ impl From<ProjectCostRollup> for ProjectCostRollupView {
                     posted_at: b.posted_at,
                 })
                 .collect(),
+            ticket_cost_base_minor: r.ticket_cost_base_minor,
+            ticket_cost_lines: r
+                .ticket_cost_lines
+                .into_iter()
+                .map(|l| RollupCostLineView {
+                    line_id: l.line_id,
+                    ticket_id: l.ticket_id,
+                    ticket_number: l.ticket_number,
+                    description: l.description,
+                    kind: l.kind,
+                    amount_minor: l.amount_minor,
+                    currency: l.currency,
+                    base_amount_minor: l.base_amount_minor,
+                })
+                .collect(),
+            unconverted_ticket_rows: r.unconverted_ticket_rows,
         }
     }
 }

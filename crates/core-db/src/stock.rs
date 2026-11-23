@@ -458,6 +458,15 @@ pub struct LedgerInput {
     pub serial_number: Option<String>,
 }
 
+/// The two links a movement can carry to a cost line: the line it created and,
+/// for a reversal, the movement it reverses. Written with the append, because
+/// `stock_movements` is append-only and cannot be updated afterwards.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct MovementLinks {
+    pub cost_line_id: Option<Uuid>,
+    pub reverses_movement_id: Option<Uuid>,
+}
+
 /// The deterministic consequence the read side + event consumers observe.
 pub struct LedgerOutcome {
     pub movement: StockMovement,
@@ -493,6 +502,17 @@ pub struct LowInfo {
 pub async fn record_movement(
     executor: &mut sqlx::PgConnection,
     input: &LedgerInput,
+) -> DbResult<LedgerOutcome> {
+    record_movement_linked(executor, input, MovementLinks::default()).await
+}
+
+/// The same append, carrying the links to a cost line. A consumption names the
+/// line it wrote; a reversal names the line it wrote and the movement it
+/// reverses, in the one INSERT the append-only row allows.
+pub async fn record_movement_linked(
+    executor: &mut sqlx::PgConnection,
+    input: &LedgerInput,
+    links: MovementLinks,
 ) -> DbResult<LedgerOutcome> {
     if input.item_kind == "serialized" {
         if input.movement.kind == "adjust" {
@@ -534,7 +554,7 @@ pub async fn record_movement(
                 "a serialized OUT movement must carry a serial_id".into(),
             ));
         }
-        return record_serialized(executor, input, m).await;
+        return record_serialized(executor, input, m, links).await;
     }
     if input.movement.serial_id.is_some() {
         return Err(DbError::Conflict(
@@ -542,7 +562,7 @@ pub async fn record_movement(
         ));
     }
 
-    run_ledger_step(executor, input, input.movement.clone()).await
+    run_ledger_step(executor, input, input.movement.clone(), links).await
 }
 
 /// The serialized-path body: validated movement now serial-stamped.
@@ -550,14 +570,16 @@ async fn record_serialized(
     executor: &mut sqlx::PgConnection,
     input: &LedgerInput,
     movement: StockMovement,
+    links: MovementLinks,
 ) -> DbResult<LedgerOutcome> {
-    run_ledger_step(executor, input, movement).await
+    run_ledger_step(executor, input, movement, links).await
 }
 
 async fn run_ledger_step(
     executor: &mut sqlx::PgConnection,
     input: &LedgerInput,
     movement: StockMovement,
+    links: MovementLinks,
 ) -> DbResult<LedgerOutcome> {
     let m = &movement;
     m.validate().map_err(|e| DbError::Conflict(e.to_string()))?;
@@ -568,9 +590,10 @@ async fn run_ledger_step(
         r#"INSERT INTO stock_movements
              (id, org_id, stock_item_id, kind, from_location_id, to_location_id, qty_milli,
               cost_minor, currency, fx_rate_used, fx_rate_date, fx_source, base_cost_minor,
-              serial_id, client_id, ticket_id, carrier, tracking_ref, note, created_by)
+              serial_id, client_id, ticket_id, carrier, tracking_ref, note, created_by,
+              ticket_cost_line_id, reverses_movement_id)
            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
-                   $15, $16, $17, $18, $19, $20)"#,
+                   $15, $16, $17, $18, $19, $20, $21, $22)"#,
         m.id,
         m.org_id,
         m.stock_item_id,
@@ -591,9 +614,28 @@ async fn run_ledger_step(
         m.tracking_ref,
         m.note,
         m.created_by,
+        links.cost_line_id,
+        links.reverses_movement_id,
     )
     .execute(&mut *executor)
     .await?;
+
+    // 1b. Receipt cost roll-up: refresh the item's last locked unit cost,
+    // before the level rows. The item row is then always locked before any
+    // `stock_levels` row, which is the order a consumption takes, so the two
+    // cannot close a lock cycle against each other.
+    if m.kind == "receive" && m.cost_minor.is_some() {
+        let cost = m.cost_minor.unwrap_or(0);
+        sqlx::query!(
+            r#"UPDATE stock_items SET last_unit_cost_minor = $3, updated_at = now()
+                WHERE org_id = $1 AND id = $2"#,
+            m.org_id,
+            m.stock_item_id,
+            cost,
+        )
+        .execute(&mut *executor)
+        .await?;
+    }
 
     // 2. INTO side: insert-or-increment the destination level row.
     if let Some(to_loc) = m.to_location_id {
@@ -671,21 +713,7 @@ async fn run_ledger_step(
         .await?;
     }
 
-    // 5. Receipt cost roll-up: refresh the item's last locked unit cost.
-    if m.kind == "receive" && m.cost_minor.is_some() {
-        let cost = m.cost_minor.unwrap_or(0);
-        sqlx::query!(
-            r#"UPDATE stock_items SET last_unit_cost_minor = $3, updated_at = now()
-                WHERE org_id = $1 AND id = $2"#,
-            m.org_id,
-            m.stock_item_id,
-            cost,
-        )
-        .execute(&mut *executor)
-        .await?;
-    }
-
-    // 6. Serialized: the serial row is the WHERE-IT-IS-NOW consequence.
+    // 5. Serialized: the serial row is the WHERE-IT-IS-NOW consequence.
     if input.item_kind == "serialized" {
         apply_serial_tick(executor, m).await?;
     }

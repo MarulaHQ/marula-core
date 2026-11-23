@@ -474,6 +474,13 @@ fn map_unique_constraint(constraint: &str) -> Option<(&'static str, &'static str
             "class_account_taken",
             "that reporting class already has an account in this workspace",
         )),
+        // Migration 0263: a consumption is reversed once. The reversal path
+        // locks the original first; this arm is the second belt, so a racing
+        // pair gets a typed conflict rather than a raw constraint error.
+        "uq_stock_movements_reverses" => Some((
+            "consumption_already_reversed",
+            "that consumption has already been reversed",
+        )),
         "uq_acquisition_costs_reversal" => Some((
             "layer_already_reversed",
             "that layer has already been reversed",
