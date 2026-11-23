@@ -42,9 +42,10 @@ stable reference that points back at the one Marula record it came from.
    as the JSON form. An organisation with no accounting
    connection can hand that file over directly.
 
-   Text that begins with `=`, `+`, `@`, a tab or a non-numeric `-` is written
-   with a leading apostrophe, so a spreadsheet keeps it as text instead of
-   evaluating it. The JSON form keeps the exact value.
+   A cell a spreadsheet would treat as a formula is written with a leading
+   apostrophe, so it stays text. That covers text starting with `=`, `+`, `-`
+   or `@`, including when leading whitespace hides the first character. Plain
+   numbers keep their sign, and the JSON form keeps the exact value.
 
 4. Hand the accountant the response. It carries:
 
