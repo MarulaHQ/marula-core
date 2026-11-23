@@ -2319,6 +2319,7 @@ fn csv_field(value: &str) -> String {
         || value.starts_with('@')
         || value.starts_with('\t')
         || value.starts_with('\r')
+        || value.starts_with('\n')
         || (value.starts_with('-') && value.parse::<f64>().is_err());
     if dangerous {
         format!("\"'{}\"", value.replace('"', "\"\""))
@@ -2339,6 +2340,7 @@ mod package_csv_tests {
         assert_eq!(csv_field("+1+1"), "\"'+1+1\"");
         assert_eq!(csv_field("@SUM(A1)"), "\"'@SUM(A1)\"");
         assert_eq!(csv_field("\tcmd"), "\"'\tcmd\"");
+        assert_eq!(csv_field("\n=1+1"), "\"'\n=1+1\"");
         assert_eq!(csv_field("-cmd"), "\"'-cmd\"");
     }
 
