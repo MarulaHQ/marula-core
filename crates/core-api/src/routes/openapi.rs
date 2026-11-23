@@ -697,6 +697,7 @@ use utoipa::OpenApi;
         crate::routes::accounting_export::list_class_accounts,
         crate::routes::accounting_export::set_class_account,
         crate::routes::accounting_export::accounting_package,
+        crate::routes::accounting_export::accounting_package_csv,
         crate::routes::accounting_export::get_run,
         crate::routes::accounting_export::read_ledger,
         crate::routes::accounting_export::list_tax_mappings,

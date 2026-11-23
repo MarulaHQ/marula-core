@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.6.3** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**799 paths · 1060 operations · 1673 schemas.**
+**800 paths · 1061 operations · 1673 schemas.**
 
 ## accounting
 
@@ -19,6 +19,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | `GET` | `/api/v1/accounting/export-runs` <a id="accounting_export_runs_list"></a> | GET /api/accounting/export-runs — the run report. | — |
 | `GET` | `/api/v1/accounting/export-runs/{id}` <a id="accounting_export_runs_get"></a> | GET /api/accounting/export-runs/{id} — one run, with its receipt. | — |
 | `GET` | `/api/v1/accounting/package` <a id="accounting_package"></a> | GET /accounting/package — the period's package, ready to hand an accountant. | — |
+| `GET` | `/api/v1/accounting/package.csv` <a id="accounting_package_csv"></a> | GET /accounting/package.csv — the same period and the same rows, as CSV. | — |
 | `GET` | `/api/v1/accounting/tax-mappings` <a id="accounting_tax_mappings_list"></a> | GET /api/accounting/tax-mappings — the connection's tax mappings. | — |
 | `PUT` | `/api/v1/accounting/tax-mappings` <a id="accounting_tax_mappings_upsert"></a> | PUT /api/accounting/tax-mappings — write (or rewrite) one mapping. | [UpsertTaxMappingRequest](#schema-upserttaxmappingrequest) |
 | `DELETE` | `/api/v1/accounting/tax-mappings/{id}` <a id="accounting_tax_mappings_delete"></a> | DELETE /api/accounting/tax-mappings/{id} — remove a mapping. | — |

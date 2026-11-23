@@ -63,6 +63,12 @@ pub enum ApiError {
     Validation(String),
     #[error("conflict: {0}")]
     Conflict(String),
+    /// Typed 409 for an accountant package whose rows carry a reporting class
+    /// the org has not mapped to an account. The hold is the point: posting a
+    /// real period to a guessed 5900 account would be worse than refusing it,
+    /// so the refusal names every unmapped class for the mapping surface.
+    #[error("no account is mapped for {classes:?}")]
+    AccountMappingMissing { classes: Vec<String> },
     /// A body past the malware scanner's stream limit (Wave 62 lane
     /// `p62-attachment-verdicts`). Its own reason because the honest answer is
     /// "too large to scan", not "the scanner is unavailable": the first is the
@@ -796,6 +802,15 @@ impl IntoResponse for ApiError {
                 None,
             ),
             ApiError::Conflict(m) => (StatusCode::CONFLICT, "conflict", m.clone(), None),
+            ApiError::AccountMappingMissing { classes } => (
+                StatusCode::CONFLICT,
+                "account_mapping_missing",
+                format!(
+                    "the package holds because no account is mapped for: {}",
+                    classes.join(", ")
+                ),
+                Some(json!({ "classes": classes })),
+            ),
             ApiError::PaymentDeclined {
                 code,
                 provider_reason,
@@ -1163,6 +1178,12 @@ mod tests {
             (ApiError::Forbidden("x".into()), "forbidden"),
             (ApiError::Validation("x".into()), "validation_failed"),
             (ApiError::Conflict("x".into()), "conflict"),
+            (
+                ApiError::AccountMappingMissing {
+                    classes: vec!["cogs".into()],
+                },
+                "account_mapping_missing",
+            ),
             (
                 ApiError::VersionConflict {
                     expected: 2,

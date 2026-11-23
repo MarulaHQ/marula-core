@@ -99,6 +99,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/accounting/package.csv": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /accounting/package.csv — the same period and the same rows, as CSV. */
+        get: operations["accounting_package_csv"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounting/tax-mappings": {
         parameters: {
             query?: never;
@@ -29490,7 +29507,10 @@ export interface components {
             client_id?: string | null;
             currency: string;
             document_ref?: string | null;
-            /** @description invoice | credit_note | acquisition_cost | rental_charge */
+            /**
+             * @description invoice | credit_note | acquisition_cost | rental_charge | vendor_bill |
+             *     stock_item | ewaste_disposition
+             */
             kind: string;
             memo?: string | null;
             occurred_on: string;
@@ -40246,6 +40266,49 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["AccountingPackageView"];
                 };
+            };
+            /** @description a reporting class in the period has no account mapped */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description the period is inverted */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    accounting_package_csv: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/csv": string;
+                };
+            };
+            /** @description a reporting class in the period has no account mapped */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description the period is inverted */
             422: {

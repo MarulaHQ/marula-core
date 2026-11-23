@@ -1950,7 +1950,8 @@ pub struct SetClassAccountRequest {
 /// One package line, with the account it resolves to.
 #[derive(Debug, Serialize, ToSchema)]
 pub struct PackageRecordView {
-    /// invoice | credit_note | acquisition_cost | rental_charge
+    /// invoice | credit_note | acquisition_cost | rental_charge | vendor_bill |
+    /// stock_item | ewaste_disposition
     pub kind: String,
     /// `kind:id` — the trail from an exported row back to one Marula record.
     pub stable_ref: String,
@@ -2103,6 +2104,7 @@ pub async fn set_class_account(
 #[utoipa::path(operation_id = "accounting_package", get, path = "/api/accounting/package", tag = "accounting", security(("bearer" = [])),
     params(PackageQuery),
     responses((status = 200, body = AccountingPackageView),
+              (status = 409, description = "a reporting class in the period has no account mapped"),
               (status = 422, description = "the period is inverted")))]
 pub async fn accounting_package(
     State(state): State<AppState>,
@@ -2110,8 +2112,37 @@ pub async fn accounting_package(
     Query(q): Query<PackageQuery>,
 ) -> ApiResult<Json<AccountingPackageView>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    Ok(Json(build_package(&state, &authed.principal, &q).await?))
+}
+
+/// GET /accounting/package.csv — the same period and the same rows, as CSV.
+#[utoipa::path(operation_id = "accounting_package_csv", get, path = "/api/accounting/package.csv", tag = "accounting", security(("bearer" = [])),
+    params(PackageQuery),
+    responses((status = 200, body = String, content_type = "text/csv"),
+              (status = 409, description = "a reporting class in the period has no account mapped"),
+              (status = 422, description = "the period is inverted")))]
+pub async fn accounting_package_csv(
+    State(state): State<AppState>,
+    extensions: Extensions,
+    Query(q): Query<PackageQuery>,
+) -> ApiResult<([(&'static str, &'static str); 1], String)> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    let package = build_package(&state, &authed.principal, &q).await?;
+    Ok((
+        [("content-type", "text/csv; charset=utf-8")],
+        package_csv(&package),
+    ))
+}
+
+/// The period's package from the database, shared by the JSON and CSV forms so
+/// the hold and the totals cannot drift between them.
+async fn build_package(
+    state: &AppState,
+    principal: &core_domain::entities::Principal,
+    q: &PackageQuery,
+) -> ApiResult<AccountingPackageView> {
     require_permission(
-        &authed.principal,
+        principal,
         Permission::Matrix {
             module: Module::Commercial,
             action: Action::View,
@@ -2122,9 +2153,9 @@ pub async fn accounting_package(
             "the period ends before it starts".into(),
         ));
     }
-    let org_id = authed.principal.user.org_id;
+    let org_id = principal.user.org_id;
     let mut tx = state.pool.begin().await.map_err(ApiError::from)?;
-    core_db::set_org_and_user(&mut tx, org_id, authed.principal.user.id)
+    core_db::set_org_and_user(&mut tx, org_id, principal.user.id)
         .await
         .map_err(ApiError::from)?;
     let accounts = core_db::accounting_export::class_accounts(&mut tx, org_id).await?;
@@ -2133,63 +2164,83 @@ pub async fn accounting_package(
     let base_currency = core_db::fx::base_currency(&mut *tx, org_id).await?;
     tx.commit().await.map_err(ApiError::from)?;
 
-    let account_of = |class: Option<&str>| -> (String, String) {
+    let account_of = |class: Option<&str>| -> Option<(String, String)> {
         let wanted = class.unwrap_or("other");
         accounts
             .iter()
             .find(|a| a.reporting_class == wanted)
-            .or_else(|| accounts.iter().find(|a| a.reporting_class == "other"))
             .map(|a| (a.account_code.clone(), a.account_name.clone()))
-            .unwrap_or_else(|| ("5900".to_string(), "Other cost".to_string()))
     };
 
-    let views: Vec<PackageRecordView> = records
+    // Holding is the point. A package with an unmapped class used to fall back
+    // to `other`/5900, which put a real period on an account nobody chose. The
+    // rows stay in the database; the handoff names every unmapped class and
+    // refuses until the org maps it.
+    let mut missing: Vec<String> = records
         .iter()
-        .map(|r| {
-            let (code, _) = account_of(r.reporting_class.as_deref());
-            PackageRecordView {
-                kind: r.kind.clone(),
-                stable_ref: r.stable_ref.clone(),
-                document_ref: r.document_ref.clone(),
-                occurred_on: r.occurred_on,
-                client_id: r.client_id,
-                currency: r.currency.clone(),
-                amount_minor: r.amount_minor,
-                base_amount_minor: r.base_amount_minor,
-                reporting_class: r.reporting_class.clone(),
-                account_code: code,
-                memo: r.memo.clone(),
-            }
-        })
+        .map(|r| r.reporting_class.as_deref().unwrap_or("other"))
+        .filter(|class| account_of(Some(class)).is_none())
+        .map(str::to_string)
         .collect();
+    missing.sort();
+    missing.dedup();
+    if !missing.is_empty() {
+        return Err(ApiError::AccountMappingMissing { classes: missing });
+    }
 
+    let mut views: Vec<PackageRecordView> = Vec::with_capacity(records.len());
     let mut by_account: std::collections::BTreeMap<String, (String, i64)> = Default::default();
     let mut by_kind: std::collections::BTreeMap<String, (i64, i64)> = Default::default();
     let mut unconverted_rows: i64 = 0;
-    for r in &views {
+    for r in &records {
+        let class = r.reporting_class.as_deref().unwrap_or("other");
+        // The hold above proves every class resolves. If a later change broke
+        // that, answer with the same typed refusal rather than panicking or
+        // dropping the row.
+        let Some((account_code, account_name)) = account_of(Some(class)) else {
+            return Err(ApiError::AccountMappingMissing {
+                classes: vec![class.to_string()],
+            });
+        };
+
         // A total is only meaningful in one currency: take the locked base
         // amount, or the amount itself when the row is already in base. A
         // foreign row with no snapshot stays in `records` and is counted, not
         // added.
         let money = match (r.base_amount_minor, r.currency == base_currency) {
-            (Some(base), _) => base,
-            (None, true) => r.amount_minor,
+            (Some(base), _) => Some(base),
+            (None, true) => Some(r.amount_minor),
             (None, false) => {
                 unconverted_rows += 1;
-                continue;
+                None
             }
         };
-        let (_, name) = account_of(r.reporting_class.as_deref());
-        let entry = by_account
-            .entry(r.account_code.clone())
-            .or_insert((name, 0));
-        entry.1 = entry.1.saturating_add(money);
-        let kind = by_kind.entry(r.kind.clone()).or_insert((0, 0));
-        kind.0 += 1;
-        kind.1 = kind.1.saturating_add(money);
+        if let Some(money) = money {
+            let entry = by_account
+                .entry(account_code.clone())
+                .or_insert((account_name, 0));
+            entry.1 = entry.1.saturating_add(money);
+            let kind = by_kind.entry(r.kind.clone()).or_insert((0, 0));
+            kind.0 += 1;
+            kind.1 = kind.1.saturating_add(money);
+        }
+
+        views.push(PackageRecordView {
+            kind: r.kind.clone(),
+            stable_ref: r.stable_ref.clone(),
+            document_ref: r.document_ref.clone(),
+            occurred_on: r.occurred_on,
+            client_id: r.client_id,
+            currency: r.currency.clone(),
+            amount_minor: r.amount_minor,
+            base_amount_minor: r.base_amount_minor,
+            reporting_class: r.reporting_class.clone(),
+            account_code,
+            memo: r.memo.clone(),
+        });
     }
 
-    Ok(Json(AccountingPackageView {
+    Ok(AccountingPackageView {
         generated_at: Utc::now(),
         period_from: q.from,
         period_to: q.to,
@@ -2222,5 +2273,44 @@ pub async fn accounting_package(
                 base_total_minor,
             })
             .collect(),
-    }))
+    })
+}
+
+/// The same package as CSV: one header row, one line per record, with exactly
+/// the fields the JSON form carries. Values stay in minor units and keep their
+/// field names, so two exports of one period agree.
+fn package_csv(package: &AccountingPackageView) -> String {
+    let mut out = String::from(
+        "kind,stable_ref,document_ref,occurred_on,client_id,currency,amount_minor,base_amount_minor,reporting_class,account_code,memo\n",
+    );
+    for r in &package.records {
+        let fields = [
+            r.kind.clone(),
+            r.stable_ref.clone(),
+            r.document_ref.clone().unwrap_or_default(),
+            r.occurred_on.to_string(),
+            r.client_id.map(|id| id.to_string()).unwrap_or_default(),
+            r.currency.clone(),
+            r.amount_minor.to_string(),
+            r.base_amount_minor
+                .map(|v| v.to_string())
+                .unwrap_or_default(),
+            r.reporting_class.clone().unwrap_or_default(),
+            r.account_code.clone(),
+            r.memo.clone().unwrap_or_default(),
+        ];
+        out.push_str(&fields.map(|f| csv_field(&f)).join(","));
+        out.push('\n');
+    }
+    out
+}
+
+/// A CSV field, quoted only when it has to be. `memo` carries vendor prose and
+/// can hold a comma, so this is not optional.
+fn csv_field(value: &str) -> String {
+    if value.contains([',', '"', '\n', '\r']) {
+        format!("\"{}\"", value.replace('"', "\"\""))
+    } else {
+        value.to_string()
+    }
 }
