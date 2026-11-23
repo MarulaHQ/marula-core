@@ -1,0 +1,34 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT reporting_class, account_code, account_name\n             FROM accounting_class_accounts WHERE org_id = $1",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "reporting_class",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "account_code",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "account_name",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "8f615b9d7fd5f0cf8181b8ce1966416e4f526636cb35292baa21dbd2142b7a37"
+}

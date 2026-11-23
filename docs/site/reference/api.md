@@ -7,15 +7,18 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.6.3** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**796 paths · 1056 operations · 1665 schemas.**
+**798 paths · 1059 operations · 1671 schemas.**
 
 ## accounting
 
 | Method | Path | Operation | Request body |
 |---|---|---|---|
+| `GET` | `/api/v1/accounting/class-accounts` <a id="accounting_class_accounts_list"></a> | GET /accounting/class-accounts — every class the org posts to, defaults filled in for the ones it has not chosen. | — |
+| `PUT` | `/api/v1/accounting/class-accounts` <a id="accounting_class_accounts_set"></a> | PUT /accounting/class-accounts — choose the account one class posts to. | [SetClassAccountRequest](#schema-setclassaccountrequest) |
 | `GET` | `/api/v1/accounting/connections/{id}/ledger` <a id="accounting_ledger_read"></a> | GET /api/accounting/connections/{id}/ledger — the customer's chart of accounts and tax codes (claims-gap G2). | — |
 | `GET` | `/api/v1/accounting/export-runs` <a id="accounting_export_runs_list"></a> | GET /api/accounting/export-runs — the run report. | — |
 | `GET` | `/api/v1/accounting/export-runs/{id}` <a id="accounting_export_runs_get"></a> | GET /api/accounting/export-runs/{id} — one run, with its receipt. | — |
+| `GET` | `/api/v1/accounting/package` <a id="accounting_package"></a> | GET /accounting/package — the period's package, ready to hand an accountant. | — |
 | `GET` | `/api/v1/accounting/tax-mappings` <a id="accounting_tax_mappings_list"></a> | GET /api/accounting/tax-mappings — the connection's tax mappings. | — |
 | `PUT` | `/api/v1/accounting/tax-mappings` <a id="accounting_tax_mappings_upsert"></a> | PUT /api/accounting/tax-mappings — write (or rewrite) one mapping. | [UpsertTaxMappingRequest](#schema-upserttaxmappingrequest) |
 | `DELETE` | `/api/v1/accounting/tax-mappings/{id}` <a id="accounting_tax_mappings_delete"></a> | DELETE /api/accounting/tax-mappings/{id} — remove a mapping. | — |
@@ -1706,6 +1709,8 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 |---|---|---|
 | <a id="schema-acceptinviterequest"></a>`AcceptInviteRequest` | object |  |
 | <a id="schema-acceptobservedrequest"></a>`AcceptObservedRequest` | composite |  |
+| <a id="schema-accountingpackageview"></a>`AccountingPackageView` | object | The accountant package: one period, every money row, every class resolved to an account, and the stable reference that names each row. |
+| <a id="schema-accounttotalview"></a>`AccountTotalView` | object | A total per account, in the org base currency where a row has one. |
 | <a id="schema-acquiredfor"></a>`AcquiredFor` | string |  |
 | <a id="schema-acquisitioncost"></a>`AcquisitionCost` | object | One charge document: a layer over one receipt. |
 | <a id="schema-acquisitioncostallocation"></a>`AcquisitionCostAllocation` | object | One line's share of a layer. |
@@ -1940,6 +1945,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-cisemanticclass"></a>`CiSemanticClass` | string | CI6: a semantic class is the behavior-bearing identity of a CI type. Layouts (types) are org-configurable and renameable; the class is not. |
 | <a id="schema-cisettingsview"></a>`CiSettingsView` | object |  |
 | <a id="schema-claimsharelinkrequest"></a>`ClaimShareLinkRequest` | object |  |
+| <a id="schema-classaccountview"></a>`ClassAccountView` | object | One class and the account it posts to. |
 | <a id="schema-classmovementview"></a>`ClassMovementView` | object | One append-only class movement, with the unit named. |
 | <a id="schema-clauseref"></a>`ClauseRef` | object | A clause selection on a contract draft. The text is the library's, never the model's; only `parameter_value` can differ, and when it does the selection is a variant and needs legal review. |
 | <a id="schema-client"></a>`Client` | object |  |
@@ -2418,6 +2424,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-kbembed"></a>`KbEmbed` | object | One embed instance attached to a KB article. Its sanction source is the registry row resolved at write time (`provider_slug` snapshots the handle; `provider_id` clears when the provider row is deleted, which renders the embed as blocked until re-resolved). |
 | <a id="schema-kbembedprovider"></a>`KbEmbedProvider` | object | An oEmbed allowlist entry. `org_id` is `None` for the platform-shipped system rows (`is_system`, immutable from the API); org rows are the admin-managed registry extensions. |
 | <a id="schema-kbexternaldocument"></a>`KbExternalDocument` | object | A linked external document (KB2): a SharePoint/OneDrive/Drive URL with title, permission note, and the last link-check result. `article_id` attaches it to an article — client-facing exposure rides that article's client-visible gate; standalone rows are staff-only. |
+| <a id="schema-kindtotalview"></a>`KindTotalView` | object | A total per record kind. |
 | <a id="schema-kitavailabilitymemberview"></a>`KitAvailabilityMemberView` | object |  |
 | <a id="schema-kitavailabilityquery"></a>`KitAvailabilityQuery` | object | GET /api/tool-kits/{id}/availability?location_id= |
 | <a id="schema-kitavailabilityresponse"></a>`KitAvailabilityResponse` | object |  |
@@ -2578,6 +2585,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-overridevaluekind"></a>`OverrideValueKind` | string | The value shapes a client override accepts. The wire value is the plain JSON payload (uuid string / boolean); the kind exists so validation can reject a mistyped payload before persistence. |
 | <a id="schema-owneddeletequery"></a>`OwnedDeleteQuery` | object |  |
 | <a id="schema-ownership"></a>`Ownership` | string |  |
+| <a id="schema-packagerecordview"></a>`PackageRecordView` | object | One package line, with the account it resolves to. |
 | <a id="schema-packruleview"></a>`PackRuleView` | object |  |
 | <a id="schema-passwordentry"></a>`PasswordEntry` | object | A vault credential. `secret_ciphertext` is AES-256-GCM from core-api crypto::seal — plaintext NEVER reaches the database layer, and this entity never carries it either (reveal is a dedicated, audited endpoint response type). |
 | <a id="schema-passwordhistoryentry"></a>`PasswordHistoryEntry` | object | One archived secret ciphertext from a credential's change history. |
@@ -3015,6 +3023,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-sessioninfo"></a>`SessionInfo` | object |  |
 | <a id="schema-setblockerrequest"></a>`SetBlockerRequest` | object |  |
 | <a id="schema-setchecklistitemrequest"></a>`SetChecklistItemRequest` | composite |  |
+| <a id="schema-setclassaccountrequest"></a>`SetClassAccountRequest` | object | PUT /accounting/class-accounts body. |
 | <a id="schema-setcustomdomainrequest"></a>`SetCustomDomainRequest` | object |  |
 | <a id="schema-setcustomdomainresponse"></a>`SetCustomDomainResponse` | object | POST response: exactly the three fields the DNS check reports. |
 | <a id="schema-setdependenciesrequest"></a>`SetDependenciesRequest` | object |  |
@@ -3370,4 +3379,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 34 operation groups; schema count 1665 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 34 operation groups; schema count 1671 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

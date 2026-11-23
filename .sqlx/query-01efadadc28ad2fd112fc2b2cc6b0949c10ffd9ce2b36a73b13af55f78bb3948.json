@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO contracts (id, org_id, client_id, number, name, contract_type, currency, effective_from) VALUES ($1, $2, $3, 'C-PKG-1', 'Package contract', 'time_and_materials', 'USD', DATE '2026-01-01')",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "01efadadc28ad2fd112fc2b2cc6b0949c10ffd9ce2b36a73b13af55f78bb3948"
+}

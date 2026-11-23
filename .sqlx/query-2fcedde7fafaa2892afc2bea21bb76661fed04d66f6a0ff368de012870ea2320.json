@@ -1,0 +1,18 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO accounting_class_accounts\n             (id, org_id, reporting_class, account_code, account_name)\n           VALUES ($1, $2, $3, $4, $5)\n           ON CONFLICT (org_id, reporting_class) DO UPDATE\n             SET account_code = EXCLUDED.account_code,\n                 account_name = EXCLUDED.account_name,\n                 updated_at = now()",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Text",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "2fcedde7fafaa2892afc2bea21bb76661fed04d66f6a0ff368de012870ea2320"
+}
