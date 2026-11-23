@@ -1550,7 +1550,19 @@ async fn ledger_apply(
             )
             .fetch_one(&mut *ctx.tx)
             .await?;
-            Some(locked.unwrap_or(0))
+            match (locked, extras.bill.as_ref().is_some_and(|bill| bill.billable)) {
+                (Some(unit), _) => Some(unit),
+                // A billable use with no stocked cost would write a zero-value
+                // charge: the job's cost is silently understated and the
+                // invoice run sees a free line.
+                (None, true) => {
+                    return Err(ApiError::Conflict(
+                        "this item has no stocked cost; receive it with a unit cost or record the use as not billable"
+                            .into(),
+                    ))
+                }
+                (None, false) => Some(0),
+            }
         } else {
             None
         };
@@ -1961,9 +1973,10 @@ pub async fn consume(
     let serialized = kind == "serialized";
     require_serialized_consistent(serialized, &req.serial_id, "consume")?;
     let qty_milli = if serialized { 1000 } else { req.qty_milli };
-    // A technician who consumes a part does not need to see money: the line is
+    // A dispatcher who consumes a part does not need to see money: the line is
     // priced by the shelf, not typed. Reading it still needs the financial
-    // permission, so the cost stays invisible to them.
+    // permission, so the cost stays invisible to them and the response masks
+    // it in both `movement` and `mutation.after`.
     let bill = req.ticket_id.map(|ticket_id| ConsumeBill {
         ticket_id,
         billable: req.billable.unwrap_or(true),

@@ -461,6 +461,14 @@ pub async fn update_cost_line(
             };
             return Err(ApiError::Conflict(message.into()));
         }
+        // A negative line is a reversal's offset, never a charge: billing it
+        // would put a credit amount through the invoice run, and the negative
+        // CHECK forbids an invoice link anyway.
+        if req.billable == Some(true) && before.quantity < 0.0 {
+            return Err(ApiError::Conflict(
+                "a negative cost line offsets a reversal and cannot be billed".into(),
+            ));
+        }
         // A reversed consumption put its money back and left the negative line
         // as the record. Re-arming the original charge would subtract it twice,
         // so a stock-sourced line whose movement was reversed cannot be made

@@ -346,6 +346,26 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
         "the project total returns to where it was"
     );
 
+    // A negative line is an offset, not a charge.
+    let negative_id = rows
+        .iter()
+        .find(|row| row["quantity"] == json!(-100.0))
+        .and_then(|row| row["id"].as_str())
+        .expect("the reversal line");
+    let patch = send(
+        &app,
+        axum::http::Method::PATCH,
+        &format!("/api/v1/tickets/{ticket_id}/cost-lines/{negative_id}"),
+        &[auth(&token)],
+        Some(json!({ "billable": true, "idempotency_key": Uuid::now_v7().to_string() })),
+    )
+    .await;
+    assert_eq!(
+        patch.status().as_u16(),
+        409,
+        "a reversal offset cannot be billed"
+    );
+
     let (status, again) = post(
         &app,
         &token,
@@ -415,7 +435,7 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
 
 #[tokio::test]
 async fn serialized_consumption_names_the_unit_on_the_line() {
-    let (_state, app) =
+    let (state, app) =
         boot_with(|config| config.secret_key = core_api::config::SecretKey([42; 32])).await;
     let slug = format!("consume-sn-{}", Uuid::now_v7().simple());
     let token = register_org_token(&app, "Serial Co", &slug).await;
@@ -512,4 +532,304 @@ async fn serialized_consumption_names_the_unit_on_the_line() {
     );
     assert_eq!(rows[0]["quantity"], json!(1.0));
     assert_eq!(rows[0]["unit_cost_minor"], json!(90_000));
+    let org_id: Uuid = rows[0]["org_id"].as_str().unwrap().parse().unwrap();
+    let movement_id = consumed["movement"]["id"].as_str().unwrap().to_string();
+    let serial_uuid: Uuid = serial_id.parse().unwrap();
+
+    // The reversal puts the unit back in stock at the shelf.
+    let (status, _) = post(
+        &app,
+        &token,
+        &format!("/api/v1/stock/consume/{movement_id}/reverse"),
+        json!({ "idempotency_key": Uuid::now_v7().to_string() }),
+    )
+    .await;
+    assert_eq!(status, 200, "serialized reversal");
+    let serial = sqlx::query!(
+        r#"SELECT status, location_id FROM stock_serials WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        serial_uuid,
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
+    assert_eq!(serial.status, "in_stock");
+    assert_eq!(
+        serial.location_id,
+        Some(Uuid::parse_str(&location_id).unwrap())
+    );
+
+    // A unit that came back another way is not restored twice: consume it,
+    // receive it again, then reverse — the custody check refuses.
+    let (status, second) = post(
+        &app,
+        &token,
+        "/api/v1/stock/consume",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "serial_id": serial_id,
+            "ticket_id": ticket_id,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "consume again");
+    let (status, _) = post(
+        &app,
+        &token,
+        "/api/v1/stock/receive",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "unit_cost_minor": 90_000,
+            "serial_numbers": ["SW-0042"],
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "received elsewhere");
+    let second_movement = second["movement"]["id"].as_str().unwrap().to_string();
+    let (status, conflict) = post(
+        &app,
+        &token,
+        &format!("/api/v1/stock/consume/{second_movement}/reverse"),
+        json!({ "idempotency_key": Uuid::now_v7().to_string() }),
+    )
+    .await;
+    assert_eq!(status, 409, "the unit moved since: {conflict}");
+}
+
+#[tokio::test]
+async fn a_billable_use_needs_a_stocked_cost() {
+    let (_state, app) =
+        boot_with(|config| config.secret_key = core_api::config::SecretKey([43; 32])).await;
+    let slug = format!("consume-cost-{}", Uuid::now_v7().simple());
+    let token = register_org_token(&app, "Cost Co", &slug).await;
+
+    let (status, item) = post(
+        &app,
+        &token,
+        "/api/v1/stock-items",
+        json!({
+            "name": "Unknown part",
+            "kind": "consumable",
+            "unit": "each",
+            "currency": "USD",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "item");
+    let item_id = item["id"].as_str().unwrap().to_string();
+    let (status, location) = post(
+        &app,
+        &token,
+        "/api/v1/stock-locations",
+        json!({ "name": "Shelf", "kind": "warehouse", "idempotency_key": Uuid::now_v7().to_string() }),
+    )
+    .await;
+    assert_eq!(status, 200, "location");
+    let location_id = location["id"].as_str().unwrap().to_string();
+    let (status, _) = post(
+        &app,
+        &token,
+        "/api/v1/stock/receive",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 10_000,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "receive without a cost");
+
+    let boards = get(&app, &token, "/api/v1/boards").await;
+    let board_id = boards[0]["id"].as_str().unwrap().to_string();
+    let (status, ticket) = post(
+        &app,
+        &token,
+        "/api/v1/tickets",
+        json!({
+            "board_id": board_id,
+            "title": "Use an unpriced part",
+            "priority": "p3",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "ticket");
+    let ticket_id = ticket["id"].as_str().unwrap().to_string();
+
+    let (status, refusal) = post(
+        &app,
+        &token,
+        "/api/v1/stock/consume",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "ticket_id": ticket_id,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 409, "a billable use needs a cost: {refusal}");
+
+    // Zero-rated has no line to price, so the shelf move is allowed.
+    let (status, _) = post(
+        &app,
+        &token,
+        "/api/v1/stock/consume",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "ticket_id": ticket_id,
+            "billable": false,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "zero-rated needs no cost");
+}
+
+#[tokio::test]
+async fn a_dispatcher_sees_no_money_in_a_consumption() {
+    let (state, app) =
+        boot_with(|config| config.secret_key = core_api::config::SecretKey([44; 32])).await;
+    let slug = format!("consume-mask-{}", Uuid::now_v7().simple());
+    let token = register_org_token(&app, "Mask Co", &slug).await;
+
+    let (status, item) = post(
+        &app,
+        &token,
+        "/api/v1/stock-items",
+        json!({
+            "name": "Patch cable",
+            "kind": "consumable",
+            "unit": "each",
+            "currency": "USD",
+            "last_unit_cost_minor": 2,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "item");
+    let item_id = item["id"].as_str().unwrap().to_string();
+    let (status, location) = post(
+        &app,
+        &token,
+        "/api/v1/stock-locations",
+        json!({ "name": "Shelf", "kind": "warehouse", "idempotency_key": Uuid::now_v7().to_string() }),
+    )
+    .await;
+    assert_eq!(status, 200, "location");
+    let location_id = location["id"].as_str().unwrap().to_string();
+    let (status, _) = post(
+        &app,
+        &token,
+        "/api/v1/stock/receive",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 10_000,
+            "unit_cost_minor": 2,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "receive");
+    let boards = get(&app, &token, "/api/v1/boards").await;
+    let board_id = boards[0]["id"].as_str().unwrap().to_string();
+    let (status, ticket) = post(
+        &app,
+        &token,
+        "/api/v1/tickets",
+        json!({
+            "board_id": board_id,
+            "title": "Use a cable",
+            "priority": "p3",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "ticket");
+    let ticket_id = ticket["id"].as_str().unwrap().to_string();
+
+    // A dispatcher has commercial edit but no financial read.
+    let email = format!("dispatcher-{}@example.test", Uuid::now_v7().simple());
+    let invite = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/org/users",
+        &[auth(&token)],
+        Some(json!({
+            "email": email,
+            "display_name": "Desk",
+            "role": "dispatcher",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        })),
+    )
+    .await;
+    assert_eq!(invite.status().as_u16(), 200, "invite");
+    let setup_token = body_json(invite).await["invite"]["setup_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let accept = send(
+        &app,
+        axum::http::Method::POST,
+        "/api/v1/org/users/accept-invite",
+        &[],
+        Some(json!({ "token": setup_token, "password": "another-correct-horse" })),
+    )
+    .await;
+    assert_eq!(accept.status().as_u16(), 200, "accept");
+    let desk = body_json(accept).await["access_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let (status, body) = post(
+        &app,
+        &desk,
+        "/api/v1/stock/consume",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "ticket_id": ticket_id,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "dispatcher consumes: {body}");
+    assert!(body["movement"]["cost_minor"].is_null(), "cost is masked");
+    assert!(
+        body["mutation"]["after"]["cost_minor"].is_null(),
+        "the mutation snapshot is masked"
+    );
+    assert!(
+        body["mutation"]["after"]["base_cost_minor"].is_null(),
+        "the base amount is masked"
+    );
+
+    let response = send(
+        &app,
+        axum::http::Method::GET,
+        &format!("/api/v1/tickets/{ticket_id}/cost-lines"),
+        &[auth(&desk)],
+        None,
+    )
+    .await;
+    assert_eq!(
+        response.status().as_u16(),
+        403,
+        "reading money needs the permission"
+    );
+    let _ = &state;
 }
