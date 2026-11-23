@@ -2303,53 +2303,69 @@ fn package_csv(package: &AccountingPackageView) -> String {
             r.account_code.clone(),
             r.memo.clone().unwrap_or_default(),
         ];
-        out.push_str(&fields.map(|f| csv_field(&f)).join(","));
+        // The report exports' cell writer, so the package cannot be softer
+        // about a formula than a report is.
+        out.push_str(&fields.map(|f| core_reports::csv::cell(&f)).join(","));
         out.push('\n');
     }
     out
 }
 
-/// A CSV field, quoted only when it has to be. `memo` carries vendor prose and
-/// can hold a comma, so quoting is not optional. A cell a spreadsheet would
-/// evaluate is prefixed so it stays text; a negative number is not, because
-/// the amount columns are meant to be numbers.
-fn csv_field(value: &str) -> String {
-    let dangerous = value.starts_with('=')
-        || value.starts_with('+')
-        || value.starts_with('@')
-        || value.starts_with('\t')
-        || value.starts_with('\r')
-        || value.starts_with('\n')
-        || (value.starts_with('-') && value.parse::<f64>().is_err());
-    if dangerous {
-        format!("\"'{}\"", value.replace('"', "\"\""))
-    } else if value.contains([',', '"', '\n', '\r']) {
-        format!("\"{}\"", value.replace('"', "\"\""))
-    } else {
-        value.to_string()
-    }
-}
-
 #[cfg(test)]
 mod package_csv_tests {
-    use super::csv_field;
+    use super::*;
 
-    #[test]
-    fn a_cell_a_spreadsheet_would_evaluate_stays_text() {
-        assert_eq!(csv_field("=HYPERLINK(\"x\")"), "\"'=HYPERLINK(\"\"x\"\")\"");
-        assert_eq!(csv_field("+1+1"), "\"'+1+1\"");
-        assert_eq!(csv_field("@SUM(A1)"), "\"'@SUM(A1)\"");
-        assert_eq!(csv_field("\tcmd"), "\"'\tcmd\"");
-        assert_eq!(csv_field("\n=1+1"), "\"'\n=1+1\"");
-        assert_eq!(csv_field("-cmd"), "\"'-cmd\"");
+    fn view(records: Vec<PackageRecordView>) -> AccountingPackageView {
+        AccountingPackageView {
+            generated_at: Utc::now(),
+            period_from: chrono::NaiveDate::from_ymd_opt(2026, 11, 1).expect("date"),
+            period_to: chrono::NaiveDate::from_ymd_opt(2026, 11, 30).expect("date"),
+            base_currency: "USD".into(),
+            class_accounts: Vec::new(),
+            records,
+            unconverted_rows: 0,
+            totals_by_account: Vec::new(),
+            totals_by_kind: Vec::new(),
+        }
     }
 
+    fn record(memo: &str, amount_minor: i64) -> PackageRecordView {
+        PackageRecordView {
+            kind: "vendor_bill".into(),
+            stable_ref: "purchase_bill:1".into(),
+            document_ref: Some("VB-1".into()),
+            occurred_on: chrono::NaiveDate::from_ymd_opt(2026, 11, 15).expect("date"),
+            client_id: None,
+            currency: "USD".into(),
+            amount_minor,
+            base_amount_minor: Some(amount_minor),
+            reporting_class: Some("inventory".into()),
+            account_code: "1200".into(),
+            memo: Some(memo.into()),
+        }
+    }
+
+    /// The package encodes cells through `core_reports::csv`, the same writer
+    /// the report exports use, so a formula hiding behind whitespace is caught
+    /// here too. An amount keeps its sign and stays a number.
     #[test]
-    fn numbers_and_plain_text_keep_their_shape() {
-        assert_eq!(csv_field("-15000"), "-15000");
-        assert_eq!(csv_field("1200"), "1200");
-        assert_eq!(csv_field("Recycle Co"), "Recycle Co");
-        assert_eq!(csv_field("a,b"), "\"a,b\"");
-        assert_eq!(csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
+    fn a_hidden_formula_is_prefixed_and_amounts_stay_numbers() {
+        let csv = package_csv(&view(vec![record(" =1+1", -1_500)]));
+        let row = csv.lines().nth(1).expect("one data row");
+        assert!(
+            row.contains(",USD,-1500,-1500,inventory,1200,' =1+1"),
+            "the amount keeps its sign and the hidden formula is prefixed: {row}"
+        );
+    }
+
+    /// A comma in a vendor's prose is quoted, not split.
+    #[test]
+    fn a_comma_is_quoted_and_plain_text_is_untouched() {
+        let csv = package_csv(&view(vec![record("Recycle Co, LLC", 1_200)]));
+        let row = csv.lines().nth(1).expect("one data row");
+        assert!(row.contains("\"Recycle Co, LLC\""), "{row}");
+        assert!(row.contains(",USD,1200,1200,inventory,1200,"), "{row}");
+        let plain = package_csv(&view(vec![record("Recycle Co", 1_200)]));
+        assert!(plain.contains(",Recycle Co"));
     }
 }
