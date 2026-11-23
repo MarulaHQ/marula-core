@@ -1531,6 +1531,42 @@ async fn ledger_apply(
             )));
         }
         let mut movement = m;
+        // The row is locked before the price is read: a receipt that commits a
+        // new unit cost between this read and the decrement would otherwise
+        // charge the old cost for stock the receipt added. `FOR NO KEY UPDATE`
+        // serializes with that roll-up without blocking the `FOR KEY SHARE`
+        // that a movement's item foreign key takes, and it is the same mode
+        // `upsert_serial` takes on this row. The order is item, then serial,
+        // then the level rows — the order a serialized receipt uses — so no
+        // cycle closes with a receipt of the same unit.
+        let bill_unit_cost = if extras.bill.is_some() {
+            let locked = sqlx::query_scalar!(
+                r#"SELECT last_unit_cost_minor FROM stock_items
+                    WHERE org_id = $1 AND id = $2 FOR NO KEY UPDATE"#,
+                org_id,
+                movement.stock_item_id,
+            )
+            .fetch_one(&mut *ctx.tx)
+            .await?;
+            match (locked, extras.bill.as_ref().is_some_and(|bill| bill.billable)) {
+                (Some(unit), _) => Some(unit),
+                // A billable use with no stocked cost would write a zero-value
+                // charge: the job's cost is silently understated and the
+                // invoice run sees a free line.
+                (None, true) => {
+                    return Err(ApiError::Conflict(
+                        "this item has no stocked cost; receive it with a unit cost or record the use as not billable"
+                            .into(),
+                    ))
+                }
+                (None, false) => Some(0),
+            }
+        } else {
+            None
+        };
+        if let Some(unit) = bill_unit_cost {
+            movement.cost_minor = Some(unit);
+        }
         // A withdrawal takes a unit out of saleable stock, and a pool unit is
         // not saleable. Lock the serial here, in the writing transaction, and
         // read its class under that lock: the class-movement trigger takes the
@@ -1572,41 +1608,6 @@ async fn ledger_apply(
         // direction of the money is the sign of the quantity, so the unit stays
         // positive and the ticket line multiplies it by the quantity.
         //
-        // The row is locked before the price is read: a receipt that commits a
-        // new unit cost between this read and the decrement would otherwise
-        // charge the old cost for stock the receipt added. `FOR NO KEY UPDATE`
-        // serializes with that roll-up without blocking the `FOR KEY SHARE`
-        // that a movement's item foreign key takes. The serial (if the leg has
-        // one) is locked above and the level rows below, which is the same
-        // order every other leg uses, so no cycle closes.
-        let bill_unit_cost = if extras.bill.is_some() {
-            let locked = sqlx::query_scalar!(
-                r#"SELECT last_unit_cost_minor FROM stock_items
-                    WHERE org_id = $1 AND id = $2 FOR NO KEY UPDATE"#,
-                org_id,
-                movement.stock_item_id,
-            )
-            .fetch_one(&mut *ctx.tx)
-            .await?;
-            match (locked, extras.bill.as_ref().is_some_and(|bill| bill.billable)) {
-                (Some(unit), _) => Some(unit),
-                // A billable use with no stocked cost would write a zero-value
-                // charge: the job's cost is silently understated and the
-                // invoice run sees a free line.
-                (None, true) => {
-                    return Err(ApiError::Conflict(
-                        "this item has no stocked cost; receive it with a unit cost or record the use as not billable"
-                            .into(),
-                    ))
-                }
-                (None, false) => Some(0),
-            }
-        } else {
-            None
-        };
-        if let Some(unit) = bill_unit_cost {
-            movement.cost_minor = Some(unit);
-        }
         movement.currency = Some(item.currency.clone());
         movement.created_by = Some(user_id);
         movement.created_at = Utc::now();

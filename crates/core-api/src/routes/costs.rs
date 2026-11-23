@@ -451,6 +451,19 @@ pub async fn update_cost_line(
             .into_iter()
             .find(|l| l.id == line_id)
             .ok_or(ApiError::NotFound)?;
+        // Lock the row before the guards read it: two concurrent edits (one
+        // setting the quantity negative, one setting billable) must not each
+        // pass a check of the state before the other commits.
+        let locked = sqlx::query!(
+            r#"SELECT quantity::double precision AS "quantity!", unit_cost_minor,
+                      billable, fx_rate_used::text AS fx_rate_used
+                 FROM ticket_cost_lines WHERE org_id = $1 AND id = $2 FOR UPDATE"#,
+            org_id,
+            line_id,
+        )
+        .fetch_optional(&mut *ctx.tx)
+        .await?
+        .ok_or(ApiError::NotFound)?;
         if let Some(billed) =
             core_db::purchasing::recharge_cost_line_state(&mut *ctx.tx, org_id, line_id).await?
         {
@@ -467,8 +480,8 @@ pub async fn update_cost_line(
         // update would store, not the stored row alone: a request that sets the
         // quantity negative, or leaves an already-billable line billable, must
         // not slip past it.
-        let effective_quantity = req.quantity.unwrap_or(before.quantity);
-        let effective_billable = req.billable.unwrap_or(before.billable);
+        let effective_quantity = req.quantity.unwrap_or(locked.quantity);
+        let effective_billable = req.billable.unwrap_or(locked.billable);
         if effective_billable && effective_quantity < 0.0 {
             return Err(ApiError::Conflict(
                 "a negative cost line offsets a reversal and cannot be billed".into(),
@@ -502,13 +515,13 @@ pub async fn update_cost_line(
         // `base_amount_minor` would silently stop matching the row's own
         // quantity × unit cost. Amount corrections are new facts: remove
         // and re-enter. Description/billable edits stay allowed.
-        if before.fx_rate_used.is_some()
+        if locked.fx_rate_used.is_some()
             && (req.quantity.is_some_and(|q| {
                 core_domain::fx::quantize_quantity(q)
-                    != core_domain::fx::quantize_quantity(before.quantity)
+                    != core_domain::fx::quantize_quantity(locked.quantity)
             }) || req
                 .unit_cost_minor
-                .is_some_and(|u| u != before.unit_cost_minor))
+                .is_some_and(|u| u != locked.unit_cost_minor))
         {
             return Err(ApiError::Conflict(
                 "cost line carries an FX snapshot; amount corrections are new facts, \

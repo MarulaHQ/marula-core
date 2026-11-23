@@ -1041,10 +1041,11 @@ async fn concurrent_movements_keep_one_lock_order() {
     })
     .await
     .expect("no deadlock between a use and a ship-out of one unit");
-    for (status, body) in [pair.0, pair.1] {
-        assert!(
-            status == 200 || status == 409,
-            "a contested unit resolves to a landing or a typed conflict: {status} {body}"
-        );
-    }
+    let statuses = [pair.0 .0, pair.1 .0];
+    assert!(
+        (statuses[0] == 200 && statuses[1] == 409) || (statuses[0] == 409 && statuses[1] == 200),
+        "exactly one withdrawal of the unit wins: {statuses:?} {:?} {:?}",
+        pair.0 .1,
+        pair.1 .1
+    );
 }

@@ -74,6 +74,11 @@ cost.
 
 ### What a use costs the job
 
+Receive an item with a unit cost before recording a billable use: an item
+whose receipts carry no cost refuses the billable use with a conflict and
+moves nothing. `billable: false` is the API option for moving stock without a
+charge.
+
 A billable **Use** against a ticket writes one cost line in the same
 transaction as the ledger row, priced from the item's last unit cost, and it
 reaches the invoice run like any other parts cost. API clients can send
