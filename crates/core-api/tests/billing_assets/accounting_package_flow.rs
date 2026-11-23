@@ -486,8 +486,13 @@ async fn a_package_carries_bills_valuation_and_ewaste_and_holds_on_an_unmapped_c
 
     let valuation = records
         .iter()
-        .find(|r| r["kind"] == json!("stock_item"))
-        .expect("a stock valuation row");
+        .find(|r| {
+            r["kind"] == json!("stock_item")
+                && r["stable_ref"]
+                    .as_str()
+                    .is_some_and(|s| s == format!("stock_item:{item_id}"))
+        })
+        .expect("a stock valuation row for the received item");
     assert_eq!(valuation["reporting_class"], json!("inventory"));
     assert_eq!(valuation["account_code"], json!("1200"));
     assert_eq!(valuation["currency"], json!("USD"));
