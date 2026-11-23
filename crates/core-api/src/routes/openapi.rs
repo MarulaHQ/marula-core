@@ -726,6 +726,7 @@ use utoipa::OpenApi;
         crate::routes::stock::set_thresholds_route,
         crate::routes::stock::receive,
         crate::routes::stock::consume,
+        crate::routes::stock::reverse_consume,
         crate::routes::stock::adjust,
         crate::routes::stock::transfer,
         crate::routes::stock::ship_out,

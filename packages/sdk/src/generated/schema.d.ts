@@ -14111,6 +14111,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/stock/consume/{id}/reverse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/stock/consume/{id}/reverse — undo a consumption on both sides.
+         * @description One transaction: a second movement puts the quantity back on the shelf, and
+         *     a negated cost line takes the charge off the job. Each names the other, and
+         *     the original movement names the reversal, so a consumption can only be
+         *     reversed once.
+         */
+        post: operations["stock_consume_reverse"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stock/consumption-velocity": {
         parameters: {
             query?: never;
@@ -20358,6 +20381,11 @@ export interface components {
             surface_profile?: unknown;
         };
         ConsumeRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description Whether the consumption bills the ticket. Defaults to true; false is the
+             *     explicit zero-rated path (the movement still carries its cost).
+             */
+            billable?: boolean | null;
             /** Format: uuid */
             item_id: string;
             /** Format: uuid */
@@ -34383,6 +34411,8 @@ export interface components {
             reference: string;
             vendor_reference?: string | null;
         };
+        /** @description POST /api/stock/consume/{id}/reverse body (idempotency only). */
+        ReverseConsumeRequest: components["schemas"]["MutationParams"];
         /** @description What the revert restored. */
         RevertDetail: {
             /** @description Record fields whose values were restored. */
@@ -67645,6 +67675,52 @@ export interface operations {
                 content?: never;
             };
             /** @description validation failure (qty_milli must be positive) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_consume_reverse: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReverseConsumeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementMutationResponse"];
+                };
+            };
+            /** @description the movement is not in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not a consumption, or already reversed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
             422: {
                 headers: {
                     [name: string]: unknown;

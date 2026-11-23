@@ -44,7 +44,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use chrono::Utc;
 use core_domain::entities::{Actor, AuditEvent, StockItem, StockLocation};
-use core_domain::policy::{check, Action, Permission};
+use core_domain::policy::{check, Action, BoardOp, Permission};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use utoipa::ToSchema;
@@ -129,6 +129,10 @@ pub fn routes(gen: ApiGeneration) -> Router<AppState> {
             post(decommission_pool),
         )
         .route(&format!("{base}/stock/consume"), post(consume))
+        .route(
+            &format!("{base}/stock/consume/{{id}}/reverse"),
+            post(reverse_consume),
+        )
         .route(&format!("{base}/stock/adjust"), post(adjust))
         .route(&format!("{base}/stock/transfer"), post(transfer))
         .route(&format!("{base}/stock/ship-out"), post(ship_out))
@@ -400,6 +404,12 @@ pub struct ConsumeRequest {
     /// Serialized consumption moves ONE unit.
     #[schema(value_type = Option<uuid::Uuid>)]
     pub serial_id: Option<Uuid>,
+    /// Whether the consumption bills the ticket. Defaults to true. False is
+    /// the explicit zero-rated path: the shelf still moves and the movement
+    /// carries its unit cost, but no cost line is written, so the job's costs
+    /// are unchanged.
+    #[serde(default)]
+    pub billable: Option<bool>,
     pub note: Option<String>,
     #[serde(flatten, default)]
     pub instant: instant::MutationParams,
@@ -1450,6 +1460,22 @@ pub async fn archive_item(
 /// low-stock notification + events + audit → instant record. One commit
 /// per call; the traceability row is written exactly once.
 #[allow(clippy::too_many_arguments)]
+/// What a consumption charges to its ticket, resolved before the movement is
+/// written so the ledger row and the cost line land in one transaction.
+struct ConsumeBill {
+    ticket_id: Uuid,
+    billable: bool,
+}
+
+/// The leg-specific extras an append can carry: the serial a receive tracks,
+/// the unit a sale-side withdrawal takes, and the bill a consumption writes.
+#[derive(Default)]
+struct LedgerExtras {
+    serial_number: Option<String>,
+    sale_side_serial: Option<Uuid>,
+    bill: Option<ConsumeBill>,
+}
+
 async fn ledger_apply(
     state: AppState,
     extensions: Extensions,
@@ -1457,13 +1483,13 @@ async fn ledger_apply(
     fingerprint: Value,
     key: Option<String>,
     m: core_domain::entities::StockMovement,
-    serial_number: Option<String>,
-    // `sale_side_serial` is the unit a sale-side withdrawal takes out, when
-    // there is one. The custody recheck runs in this transaction, against a
-    // locked row, so a commission that lands between a preflight read and the
-    // write cannot be missed. Pool issue and the other legs pass None: a `loan`
-    // movement is allowed to move a `rental_out` unit.
-    sale_side_serial: Option<Uuid>,
+    // The leg's own extras. `sale_side_serial` is the unit a sale-side
+    // withdrawal takes out, when there is one: the custody recheck runs in this
+    // transaction, against a locked row, so a commission that lands between a
+    // preflight read and the write cannot be missed. Pool issue and the other
+    // legs pass None. `bill` is a consumption that puts money on a ticket;
+    // every other leg passes None.
+    extras: LedgerExtras,
 ) -> ApiResult<Json<MovementMutationResponse>> {
     let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
     require_permission(&authed.principal, commercial(Action::Edit))?;
@@ -1496,6 +1522,17 @@ async fn ledger_apply(
             )));
         }
         let mut movement = m;
+        // Price a consumption from the stocked cost. `cost_minor` is a unit
+        // cost on this table (a receive stores its unit cost there), and the
+        // direction of the money is the sign of the quantity, so the unit stays
+        // positive and the ticket line multiplies it by the quantity.
+        let bill_unit_cost = extras
+            .bill
+            .as_ref()
+            .map(|_| item.last_unit_cost_minor.unwrap_or(0));
+        if let Some(unit) = bill_unit_cost {
+            movement.cost_minor = Some(unit);
+        }
         movement.currency = Some(item.currency.clone());
         movement.created_by = Some(user_id);
         movement.created_at = Utc::now();
@@ -1525,7 +1562,7 @@ async fn ledger_apply(
         // read its class under that lock: the class-movement trigger takes the
         // same row lock, so a commission either commits before this read or
         // waits for this write.
-        if let Some(serial_id) = sale_side_serial {
+        if let Some(serial_id) = extras.sale_side_serial {
             let class = sqlx::query_scalar!(
                 r#"SELECT custody_class AS "custody_class!" FROM stock_serials
                     WHERE org_id = $1 AND id = $2 FOR UPDATE"#,
@@ -1542,13 +1579,82 @@ async fn ledger_apply(
             }
         }
 
+        // A consumption names a ticket in this org, on a board the caller can
+        // see. The same check the manual cost routes make, inside the writing
+        // transaction, so a foreign ticket id cannot anchor a cost line.
+        if let Some(bill) = &extras.bill {
+            crate::routes::costs::ticket_for_board_check(
+                &mut ctx.tx,
+                &authed.principal,
+                org_id,
+                bill.ticket_id,
+                BoardOp::View,
+            )
+            .await?;
+        }
+
+        // A zero-rated consumption is stock-only: it writes the movement and
+        // no line, so the job's costs stay where they were. A billable one
+        // writes the line it can be invoiced from. Both ids are minted before
+        // either row is written: the line names the movement as its source,
+        // the movement names the line as its cost.
+        let line_id = extras
+            .bill
+            .as_ref()
+            .filter(|bill| bill.billable)
+            .map(|_| Uuid::now_v7());
+        if let (Some(bill), Some(line_id), Some(unit)) = (&extras.bill, line_id, bill_unit_cost) {
+            core_db::costs::insert_sourced_cost_line(
+                &mut ctx.tx,
+                &core_domain::entities::TicketCostLine {
+                    id: line_id,
+                    org_id,
+                    ticket_id: bill.ticket_id,
+                    kind: core_domain::entities::CostLineKind::Parts,
+                    description: format!(
+                        "Consumed {} × {}",
+                        item.name,
+                        (movement.qty_milli.unsigned_abs() as f64) / 1000.0
+                    ),
+                    quantity: (movement.qty_milli.unsigned_abs() as f64) / 1000.0,
+                    unit_cost_minor: unit,
+                    currency: item.currency.clone(),
+                    billable: true,
+                    fx_rate_used: None,
+                    fx_rate_date: None,
+                    fx_source: None,
+                    base_amount_minor: None,
+                    invoice_line_id: None,
+                    created_by: Some(user_id),
+                    created_at: movement.created_at,
+                    updated_at: movement.created_at,
+                },
+                "stock_movement",
+                movement.id,
+                Some("inventory"),
+            )
+            .await?;
+        }
+
+        // The row is append-only, so the movement names its cost line in the
+        // INSERT itself. The line goes in first: its id is the foreign key the
+        // movement carries, and the line's own source_id is the movement id,
+        // which is minted before either write.
         let input = core_db::stock::LedgerInput {
             movement: movement.clone(),
             item_name: item.name.clone(),
             item_kind: item.kind.clone(),
-            serial_number,
+            serial_number: extras.serial_number,
         };
-        let ledger_out = core_db::stock::record_movement(&mut ctx.tx, &input).await?;
+        let ledger_out = core_db::stock::record_movement_linked(
+            &mut ctx.tx,
+            &input,
+            core_db::stock::MovementLinks {
+                cost_line_id: line_id,
+                reverses_movement_id: None,
+            },
+        )
+        .await?;
         let movement = ledger_out.movement;
 
         emit_movement_side_effects(&mut ctx, org_id, &movement, ledger_out.low.as_ref()).await?;
@@ -1730,8 +1836,10 @@ pub async fn receive(
         fingerprint,
         req.instant.idempotency_key.clone(),
         movement,
-        serial_number,
-        None,
+        LedgerExtras {
+            serial_number,
+            ..Default::default()
+        },
     )
     .await
 }
@@ -1791,6 +1899,13 @@ pub async fn consume(
     let serialized = kind == "serialized";
     require_serialized_consistent(serialized, &req.serial_id, "consume")?;
     let qty_milli = if serialized { 1000 } else { req.qty_milli };
+    // A technician who consumes a part does not need to see money: the line is
+    // priced by the shelf, not typed. Reading it still needs the financial
+    // permission, so the cost stays invisible to them.
+    let bill = req.ticket_id.map(|ticket_id| ConsumeBill {
+        ticket_id,
+        billable: req.billable.unwrap_or(true),
+    });
 
     let movement = core_domain::entities::StockMovement {
         id: Uuid::now_v7(),
@@ -1823,8 +1938,11 @@ pub async fn consume(
         fingerprint,
         req.instant.idempotency_key.clone(),
         movement,
-        None,
-        req.serial_id,
+        LedgerExtras {
+            sale_side_serial: req.serial_id,
+            bill,
+            ..Default::default()
+        },
     )
     .await
 }
@@ -1899,8 +2017,7 @@ pub async fn adjust(
         fingerprint,
         req.instant.idempotency_key.clone(),
         movement,
-        None,
-        None,
+        LedgerExtras::default(),
     )
     .await
 }
@@ -1962,8 +2079,7 @@ pub async fn transfer(
         fingerprint,
         req.instant.idempotency_key.clone(),
         movement,
-        None,
-        None,
+        LedgerExtras::default(),
     )
     .await
 }
@@ -2034,8 +2150,10 @@ pub async fn ship_out(
         fingerprint,
         key,
         movement,
-        None,
-        req.serial_id,
+        LedgerExtras {
+            sale_side_serial: req.serial_id,
+            ..Default::default()
+        },
     )
     .await
 }
@@ -2898,4 +3016,268 @@ pub async fn class_movements(
             })
             .collect(),
     ))
+}
+
+/// POST /api/stock/consume/{id}/reverse body (idempotency only).
+#[derive(Debug, Deserialize, Serialize, ToSchema)]
+pub struct ReverseConsumeRequest {
+    #[serde(flatten, default)]
+    pub instant: instant::MutationParams,
+}
+
+/// POST /api/stock/consume/{id}/reverse — undo a consumption on both sides.
+///
+/// One transaction: a second movement puts the quantity back on the shelf, and
+/// a negated cost line takes the charge off the job. Each names the other, and
+/// the original movement names the reversal, so a consumption can only be
+/// reversed once.
+#[utoipa::path(
+    operation_id = "stock_consume_reverse",
+    post,
+    path = "/api/stock/consume/{id}/reverse",
+    tag = "commercial",
+    security(("bearer" = [])),
+    params(("id" = Uuid, Path)),
+    request_body = ReverseConsumeRequest,
+    responses(
+        (status = 200, body = MovementMutationResponse),
+        (status = 404, description = "the movement is not in scope"),
+        (status = 409, description = "not a consumption, or already reversed"),
+        (status = 422, description = "validation failure")
+    )
+)]
+pub async fn reverse_consume(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    extensions: Extensions,
+    axum::extract::Path(movement_id): axum::extract::Path<Uuid>,
+    axum::extract::Json(req): axum::extract::Json<ReverseConsumeRequest>,
+) -> ApiResult<Json<MovementMutationResponse>> {
+    let authed = authed::<crate::auth::AuthedUser>(&extensions)?;
+    require_permission(&authed.principal, commercial(Action::Edit))?;
+    require_permission(&authed.principal, Permission::ViewFinancials)?;
+    let org_id = authed.principal.user.org_id;
+    let user_id = authed.principal.user.id;
+    let financial = financial_read(&authed);
+    let fingerprint = serde_json::json!({ "reverses": movement_id });
+    let key = req.instant.idempotency_key.clone();
+
+    let outcome = org_tx::with_org_tx(&state, org_id, user_id, |mut ctx| async move {
+        if let InstantClaim::Replay(stored) = instant::claim(
+            &mut ctx,
+            instant::ClaimSpec {
+                entity: "stock_movement",
+                entity_id: None,
+                key: key.as_deref(),
+                fingerprint: &fingerprint,
+            },
+        )
+        .await?
+        {
+            return Ok((ctx, MutationOutcome::Replayed(stored)));
+        }
+
+        let original = sqlx::query!(
+            r#"SELECT id, stock_item_id, kind, from_location_id, qty_milli, cost_minor,
+                      currency, ticket_id, ticket_cost_line_id, serial_id
+                 FROM stock_movements
+                WHERE org_id = $1 AND id = $2
+                FOR UPDATE"#,
+            org_id,
+            movement_id,
+        )
+        .fetch_optional(&mut *ctx.tx)
+        .await?
+        .ok_or(ApiError::NotFound)?;
+        if original.kind != "consume" {
+            return Err(ApiError::Conflict(
+                "only a consumption can be reversed".into(),
+            ));
+        }
+        let already = sqlx::query_scalar!(
+            r#"SELECT EXISTS(
+                 SELECT 1 FROM stock_movements
+                  WHERE org_id = $1 AND reverses_movement_id = $2)"#,
+            org_id,
+            movement_id,
+        )
+        .fetch_one(&mut *ctx.tx)
+        .await?;
+        if already.unwrap_or(false) {
+            return Err(ApiError::Conflict(
+                "this consumption has already been reversed".into(),
+            ));
+        }
+
+        let item =
+            core_db::stock::get_stock_item(&mut *ctx.tx, org_id, original.stock_item_id).await?;
+        let reversal = core_domain::entities::StockMovement {
+            id: Uuid::now_v7(),
+            org_id,
+            stock_item_id: original.stock_item_id,
+            kind: "consume_reverse".into(),
+            from_location_id: None,
+            to_location_id: original.from_location_id,
+            qty_milli: original.qty_milli.abs(),
+            // The unit the shelf was charged at, unchanged: a reversal puts the
+            // same goods back, and the positive quantity is the direction.
+            cost_minor: original.cost_minor.map(i64::abs),
+            currency: original.currency.clone(),
+            fx_rate_used: None,
+            fx_rate_date: None,
+            fx_source: None,
+            base_cost_minor: None,
+            serial_id: original.serial_id,
+            client_id: None,
+            ticket_id: original.ticket_id,
+            carrier: None,
+            tracking_ref: None,
+            note: Some(format!("reversal of movement {movement_id}")),
+            created_by: Some(user_id),
+            created_at: Utc::now(),
+        };
+        // The original line is read first: the negated line is a new row with a
+        // minted id, and the append-only reversal movement names it in its own
+        // INSERT along with the movement it reverses.
+        let original_line = if let Some(line_id) = original.ticket_cost_line_id {
+            sqlx::query!(
+                r#"SELECT id, quantity::double precision AS "quantity!", unit_cost_minor,
+                          currency, billable, description, invoice_line_id
+                     FROM ticket_cost_lines WHERE org_id = $1 AND id = $2"#,
+                org_id,
+                line_id,
+            )
+            .fetch_optional(&mut *ctx.tx)
+            .await?
+        } else {
+            None
+        };
+        if original_line
+            .as_ref()
+            .is_some_and(|line| line.invoice_line_id.is_some())
+        {
+            return Err(ApiError::Conflict(
+                "that consumption is already on an invoice; issue a credit note instead of reversing it"
+                    .into(),
+            ));
+        }
+        let new_line_id = original_line.as_ref().map(|_| Uuid::now_v7());
+        if let (Some(line), Some(new_line_id)) = (original_line, new_line_id) {
+            // The reversed charge must not stay in the invoicing feed: the
+            // negative line records the correction, and the original stops
+            // being billable so a run cannot invoice stock that came back.
+            sqlx::query!(
+                r#"UPDATE ticket_cost_lines SET billable = false, updated_at = now()
+                    WHERE org_id = $1 AND id = $2"#,
+                org_id,
+                line.id,
+            )
+            .execute(&mut *ctx.tx)
+            .await?;
+            let negated = core_domain::entities::TicketCostLine {
+                id: new_line_id,
+                org_id,
+                ticket_id: original.ticket_id.ok_or_else(|| {
+                    ApiError::Internal(anyhow::anyhow!(
+                        "a consumed line names a ticket, but its movement does not"
+                    ))
+                })?,
+                kind: core_domain::entities::CostLineKind::Parts,
+                description: format!("Reversal of {}", line.description),
+                quantity: -line.quantity,
+                unit_cost_minor: line.unit_cost_minor,
+                currency: line.currency,
+                // A reversal takes money off the job; it is not something to
+                // invoice on its own, and a negative line can never be billed.
+                billable: false,
+                fx_rate_used: None,
+                fx_rate_date: None,
+                fx_source: None,
+                base_amount_minor: None,
+                invoice_line_id: None,
+                created_by: Some(user_id),
+                created_at: reversal.created_at,
+                updated_at: reversal.created_at,
+            };
+            core_db::costs::insert_sourced_cost_line(
+                &mut ctx.tx,
+                &negated,
+                "stock_movement",
+                reversal.id,
+                Some("inventory"),
+            )
+            .await?;
+        }
+
+        let ledger_out = core_db::stock::record_movement_linked(
+            &mut ctx.tx,
+            &core_db::stock::LedgerInput {
+                movement: reversal.clone(),
+                item_name: item.name.clone(),
+                item_kind: item.kind.clone(),
+                serial_number: None,
+            },
+            core_db::stock::MovementLinks {
+                cost_line_id: new_line_id,
+                reverses_movement_id: Some(movement_id),
+            },
+        )
+        .await?;
+        let mut movement = ledger_out.movement;
+
+        core_db::audit::insert(
+            &mut *ctx.tx,
+            &AuditEvent {
+                id: Uuid::now_v7(),
+                org_id,
+                actor: Actor::Human(user_id),
+                action: "stock.consume_reverse".into(),
+                entity_type: Some("stock_movement".into()),
+                entity_id: Some(movement.id.to_string()),
+                detail: serde_json::json!({
+                    "reverses": movement_id,
+                    "stock_item_id": movement.stock_item_id,
+                    "qty_milli": movement.qty_milli,
+                }),
+                ip: None,
+                occurred_at: Utc::now(),
+            },
+        )
+        .await?;
+
+        let write_seq = instant::entity_seq(
+            &mut ctx,
+            instant::SeqSpec {
+                entity: "stock_movement",
+                entity_id: movement.id,
+                version: None,
+            },
+        )
+        .await?;
+        let mutation = instant::record(
+            &mut ctx,
+            instant::RecordSpec {
+                entity: "stock_movement",
+                entity_id: movement.id,
+                op: "consume_reverse",
+                seq: write_seq,
+                before: None,
+                after: serde_json::to_value(&movement).unwrap_or(Value::Null),
+                updated_at: movement.created_at,
+                key: key.as_deref(),
+                payload: &movement,
+                provenance: Default::default(),
+            },
+        )
+        .await?;
+        movement.created_by = Some(user_id);
+        Ok((
+            ctx,
+            MutationOutcome::Applied(MovementMutationResponse {
+                movement: mv_view(movement, financial),
+                mutation,
+            }),
+        ))
+    })
+    .await?;
+    Ok(Json(outcome.into_response()?))
 }

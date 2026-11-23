@@ -1,0 +1,77 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT id, stock_item_id, kind, from_location_id, qty_milli, cost_minor,\n                      currency, ticket_id, ticket_cost_line_id, serial_id\n                 FROM stock_movements\n                WHERE org_id = $1 AND id = $2\n                FOR UPDATE",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "stock_item_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "from_location_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 4,
+        "name": "qty_milli",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "cost_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "ticket_cost_line_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 9,
+        "name": "serial_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      false,
+      true,
+      true,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "36cd26310c885141ce6e60413d7fe2c4b276e0cd6d254a93620c2dc82f117160"
+}

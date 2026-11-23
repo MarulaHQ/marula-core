@@ -40,7 +40,9 @@ pub fn is_valid_location_kind(kind: &str) -> bool {
 /// Wave 32 lane 3 extended the vocabulary additively (the sanctioned
 /// extension path from lane 1): `checkout`/`checkin` are tool checkout
 /// legs, `loan`/`loan_return` are client-loan legs (both carry the client).
-pub const MOVEMENT_KINDS: [&str; 9] = [
+/// `consume_reverse` puts a consumed unit back and names the movement it
+/// reverses, so a restore reads differently from a fresh consumption.
+pub const MOVEMENT_KINDS: [&str; 10] = [
     "receive",
     "consume",
     "adjust",
@@ -50,6 +52,7 @@ pub const MOVEMENT_KINDS: [&str; 9] = [
     "checkin",
     "loan",
     "loan_return",
+    "consume_reverse",
 ];
 
 /// One org-owned stock item: a catalog-linked SKU or a free-form part.

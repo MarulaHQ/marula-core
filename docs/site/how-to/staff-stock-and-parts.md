@@ -68,7 +68,20 @@ panel completes the physical side of the job without a trip to `/stock`:
 
 One submit writes the ledger row, anchors the movement to the ticket, and
 the movement appears on the activity timeline under the **Parts** filter
-chip. Nothing else needs logging.
+chip. On the money side, the same commit adds the part to the ticket's
+costs (below).
+
+### What a use costs the job
+
+A use against a ticket writes one cost line in the same transaction as the
+ledger row, priced from the item's last unit cost, and it reaches the
+invoice run like any other parts cost. A consumption can record itself as
+not billable when the part is on the house: the shelf still moves and the
+job's costs stay where they were, because no line is written.
+
+A consumption reverses once. The reversal puts the quantity back on the
+shelf and adds a negative line to the same ticket, so the job's cost total
+returns to where it was before the use.
 
 ## 4. Dispatch stock to a ticket from the stockroom
 
