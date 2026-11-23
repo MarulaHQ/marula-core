@@ -835,15 +835,21 @@ pub struct ClassAccount {
 
 /// The built-in defaults, so a package never needs a mapping meeting: every
 /// class a money row can carry has an account even before the org chooses one.
+/// `cogs` is deliberately absent — cost of goods sold has no universal account
+/// number, so the export holds and names it instead of guessing.
 pub const DEFAULT_CLASS_ACCOUNTS: &[(&str, &str, &str)] = &[
     ("inventory", "1200", "Inventory"),
     ("sales", "4000", "Sales"),
     ("rental_income", "4100", "Rental income"),
     ("freight_in", "5100", "Freight in"),
+    ("duty", "5140", "Duty"),
     ("duty_in", "5110", "Duty in"),
     ("brokerage_in", "5120", "Brokerage in"),
     ("insurance_in", "5130", "Insurance in"),
     ("service_cost", "5200", "Service cost"),
+    ("rental_expense", "5400", "Rental expense"),
+    ("ewaste_cost", "5500", "E-waste cost"),
+    ("overhead", "5600", "Overhead"),
     ("other", "5900", "Other cost"),
 ];
 
@@ -936,9 +942,34 @@ pub struct PackageRecord {
     pub memo: Option<String>,
 }
 
+/// Thousandths of an item's unit rendered the way a person reads it: `10`,
+/// `2.5`, `0.125`.
+fn units_text(qty_milli: i64) -> String {
+    let whole = qty_milli / 1000;
+    let frac = qty_milli % 1000;
+    if frac == 0 {
+        whole.to_string()
+    } else {
+        format!("{whole}.{frac:03}")
+            .trim_end_matches('0')
+            .to_string()
+    }
+}
+
+/// A quantity in thousandths times a per-unit minor amount, rounded half up to
+/// whole minor units. Integer math throughout: a valuation never introduces a
+/// float into the books.
+fn snapshot_value_minor(qty_milli: i64, unit_cost_minor: i64) -> i64 {
+    let product = i128::from(qty_milli) * i128::from(unit_cost_minor);
+    i64::try_from((product + 500) / 1000).unwrap_or(i64::MAX)
+}
+
 /// Every exportable row in the period, each with the stable reference that
 /// names it: `kind:id`. Invoices and credit notes carry their document number;
-/// a cost layer and a rental charge carry their reference or description.
+/// a vendor bill names the vendor's bill and the purchase order; a cost layer
+/// and a rental charge carry their reference or description; a stock valuation
+/// row names the stock item and the quantity on hand at period end; an e-waste
+/// disposition names the certificate or the intake.
 pub async fn package_records(
     conn: &mut PgConnection,
     org_id: Uuid,
@@ -993,6 +1024,44 @@ pub async fn package_records(
         reporting_class: Some("sales".into()),
         memo: None,
     }));
+    // A posted vendor bill is money owed in the period. The class follows what
+    // the order bought: goods that enter custody are inventory, a rented-in
+    // unit is rental expense, an e-waste service is e-waste cost, and a
+    // consumable bought for a project is that project's cost of goods sold.
+    let bills = sqlx::query!(
+        r#"SELECT b.id, b.bill_number, (b.posted_at AT TIME ZONE 'UTC')::date AS "posted_on!", po.number AS order_number,
+                  po.client_id, b.currency, b.amount_minor, b.base_amount_minor,
+                  CASE po.acquired_for
+                    WHEN 'vendor_rental' THEN 'rental_expense'
+                    WHEN 'ewaste_service' THEN 'ewaste_cost'
+                    WHEN 'project_consumable' THEN 'cogs'
+                    ELSE 'inventory'
+                  END AS "reporting_class!"
+             FROM purchase_bills b
+             JOIN purchase_orders po ON po.id = b.purchase_order_id AND po.org_id = $1
+            WHERE b.org_id = $1 AND b.posted_at IS NOT NULL
+              -- Half-open UTC bounds, so the (org_id, posted_at) index is used
+              -- and a bill posted at 23:59 on the last day is in the period.
+              AND b.posted_at >= ($2::date::timestamp AT TIME ZONE 'UTC')
+              AND b.posted_at <  (($3::date + 1)::timestamp AT TIME ZONE 'UTC')"#,
+        org_id,
+        from,
+        to,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    out.extend(bills.into_iter().map(|r| PackageRecord {
+        kind: "vendor_bill".into(),
+        stable_ref: format!("purchase_bill:{}", r.id),
+        document_ref: r.bill_number,
+        occurred_on: r.posted_on,
+        client_id: r.client_id,
+        currency: r.currency,
+        amount_minor: r.amount_minor,
+        base_amount_minor: r.base_amount_minor,
+        reporting_class: Some(r.reporting_class),
+        memo: Some(format!("purchase order {}", r.order_number)),
+    }));
     let layers = sqlx::query!(
         r#"SELECT id, reference, document_date, client_id, currency, amount_minor,
                   base_amount_minor, reporting_class, kind
@@ -1039,6 +1108,106 @@ pub async fn package_records(
         reporting_class: Some("rental_income".into()),
         memo: Some(r.description),
     }));
+    // Stock valuation at period end: one row per item that has quantity on
+    // hand, valued at the last receipt cost locked at or before the period end.
+    // Both halves are dated, so regenerating a closed period yields the same
+    // number: the quantity is the ledger's net movement up to that date (never
+    // the live level) and the cost is the latest receipt up to it (never the
+    // mutable `last_unit_cost_minor`, which a later receipt overwrites). An
+    // item with quantity but no dated receipt cost reports zero and says why.
+    let stock = sqlx::query!(
+        r#"WITH on_hand AS (
+              SELECT m.stock_item_id, SUM(m.qty_milli)::bigint AS qty_milli
+                FROM stock_movements m
+               WHERE m.org_id = $1
+                 AND m.created_at < (($2::date + 1)::timestamp AT TIME ZONE 'UTC')
+               GROUP BY m.stock_item_id
+              HAVING SUM(m.qty_milli) > 0
+           ), basis AS (
+              SELECT DISTINCT ON (m.stock_item_id)
+                     m.stock_item_id, m.cost_minor, m.currency, m.base_cost_minor
+                FROM stock_movements m
+               WHERE m.org_id = $1 AND m.kind = 'receive' AND m.cost_minor IS NOT NULL
+                 AND m.created_at < (($2::date + 1)::timestamp AT TIME ZONE 'UTC')
+               ORDER BY m.stock_item_id, m.created_at DESC, m.id DESC
+           )
+           SELECT i.id, i.name, i.sku, i.currency AS item_currency,
+                  h.qty_milli AS "qty_milli!", b.cost_minor AS "receipt_cost_minor?",
+                  b.currency AS "receipt_currency?", b.base_cost_minor
+             FROM on_hand h
+             JOIN stock_items i ON i.id = h.stock_item_id AND i.org_id = $1
+             LEFT JOIN basis b ON b.stock_item_id = i.id
+            ORDER BY i.id"#,
+        org_id,
+        to,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    out.extend(stock.into_iter().map(|r| {
+        let unit_cost = r.receipt_cost_minor;
+        let amount_minor = unit_cost.map_or(0, |c| snapshot_value_minor(r.qty_milli, c));
+        let base_amount_minor = match (r.receipt_cost_minor, r.base_cost_minor) {
+            (Some(_), Some(base)) => Some(snapshot_value_minor(r.qty_milli, base)),
+            _ => None,
+        };
+        let mut memo = format!("{} {} on hand", units_text(r.qty_milli), r.name);
+        if unit_cost.is_none() {
+            memo.push_str(" (no receipt cost at or before the period end)");
+        }
+        PackageRecord {
+            kind: "stock_item".into(),
+            stable_ref: format!("stock_item:{}", r.id),
+            document_ref: r.sku,
+            occurred_on: to,
+            client_id: None,
+            currency: r.receipt_currency.unwrap_or(r.item_currency),
+            amount_minor,
+            base_amount_minor,
+            reporting_class: Some("inventory".into()),
+            memo: Some(memo),
+        }
+    }));
+    // E-waste dispositions carry no money: the row is the custody fact, the
+    // weight and the certificate, with a zero amount so the totals still add
+    // up. The client is the intake's, and the reference points at the paper an
+    // auditor asks for.
+    let dispositions = sqlx::query!(
+        r#"SELECT d.id, d.pathway, d.partner_name, d.disposed_at, d.weight_g,
+                  d.certificate_reference, i.client_id, i.reference AS intake_reference
+             FROM ewaste_dispositions d
+             JOIN ewaste_intakes i ON i.id = d.intake_id AND i.org_id = $1
+            WHERE d.org_id = $1 AND d.disposed_at BETWEEN $2 AND $3"#,
+        org_id,
+        from,
+        to,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    if !dispositions.is_empty() {
+        // The rows carry no currency of their own, so they are stated in base.
+        let base_currency = crate::fx::base_currency(&mut *conn, org_id).await?;
+        out.extend(dispositions.into_iter().map(|r| {
+            let mut memo = vec![r.pathway.clone(), format!("{} g", r.weight_g)];
+            if let Some(partner) = &r.partner_name {
+                memo.push(partner.clone());
+            }
+            if let Some(certificate) = &r.certificate_reference {
+                memo.push(format!("certificate {certificate}"));
+            }
+            PackageRecord {
+                kind: "ewaste_disposition".into(),
+                stable_ref: format!("ewaste_disposition:{}", r.id),
+                document_ref: r.certificate_reference.or(r.intake_reference),
+                occurred_on: r.disposed_at,
+                client_id: Some(r.client_id),
+                currency: base_currency.clone(),
+                amount_minor: 0,
+                base_amount_minor: None,
+                reporting_class: Some("ewaste_cost".into()),
+                memo: Some(memo.join(" · ")),
+            }
+        }));
+    }
     out.sort_by(|a, b| {
         (a.occurred_on, a.kind.as_str(), a.stable_ref.as_str()).cmp(&(
             b.occurred_on,

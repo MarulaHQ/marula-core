@@ -1592,6 +1592,10 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/accounting/package"),
             get(accounting_export::accounting_package),
         )
+        .route(
+            &rp("/accounting/package.csv"),
+            get(accounting_export::accounting_package_csv),
+        )
         // import framework (the private build tracker D2): org-admin gated CSV/JSON mapper.
         // The two payload-heavy posts raise axum's default body cap like
         // attachments do; chunk/batch ids flow through the path.

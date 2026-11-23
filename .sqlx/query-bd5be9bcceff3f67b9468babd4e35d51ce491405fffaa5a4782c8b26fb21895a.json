@@ -1,0 +1,65 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "WITH on_hand AS (\n              SELECT m.stock_item_id, SUM(m.qty_milli)::bigint AS qty_milli\n                FROM stock_movements m\n               WHERE m.org_id = $1\n                 AND m.created_at < (($2::date + 1)::timestamp AT TIME ZONE 'UTC')\n               GROUP BY m.stock_item_id\n              HAVING SUM(m.qty_milli) > 0\n           ), basis AS (\n              SELECT DISTINCT ON (m.stock_item_id)\n                     m.stock_item_id, m.cost_minor, m.currency, m.base_cost_minor\n                FROM stock_movements m\n               WHERE m.org_id = $1 AND m.kind = 'receive' AND m.cost_minor IS NOT NULL\n                 AND m.created_at < (($2::date + 1)::timestamp AT TIME ZONE 'UTC')\n               ORDER BY m.stock_item_id, m.created_at DESC, m.id DESC\n           )\n           SELECT i.id, i.name, i.sku, i.currency AS item_currency,\n                  h.qty_milli AS \"qty_milli!\", b.cost_minor AS \"receipt_cost_minor?\",\n                  b.currency AS \"receipt_currency?\", b.base_cost_minor\n             FROM on_hand h\n             JOIN stock_items i ON i.id = h.stock_item_id AND i.org_id = $1\n             LEFT JOIN basis b ON b.stock_item_id = i.id\n            ORDER BY i.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "sku",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "item_currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "qty_milli!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "receipt_cost_minor?",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "receipt_currency?",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "base_cost_minor",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      null,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "bd5be9bcceff3f67b9468babd4e35d51ce491405fffaa5a4782c8b26fb21895a"
+}

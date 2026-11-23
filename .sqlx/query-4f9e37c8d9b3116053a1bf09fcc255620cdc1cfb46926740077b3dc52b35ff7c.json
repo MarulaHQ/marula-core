@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE orgs SET landed_cost_mode = 'landed_costs' WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "4f9e37c8d9b3116053a1bf09fcc255620cdc1cfb46926740077b3dc52b35ff7c"
+}

@@ -1,0 +1,66 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT d.id, d.pathway, d.partner_name, d.disposed_at, d.weight_g,\n                  d.certificate_reference, i.client_id, i.reference AS intake_reference\n             FROM ewaste_dispositions d\n             JOIN ewaste_intakes i ON i.id = d.intake_id AND i.org_id = $1\n            WHERE d.org_id = $1 AND d.disposed_at BETWEEN $2 AND $3",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "pathway",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "partner_name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "disposed_at",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 4,
+        "name": "weight_g",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "certificate_reference",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 7,
+        "name": "intake_reference",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      false,
+      false,
+      true,
+      false,
+      true
+    ]
+  },
+  "hash": "83a6cb4d5a50fbc48284d12d733f37f8ba5204a35fe95ca20b3733bbb3d37f56"
+}
