@@ -1584,6 +1584,14 @@ fn api_surface(gen: ApiGeneration, state: AppState) -> Router<AppState> {
             &rp("/accounting/tax-mappings/{id}"),
             axum::routing::delete(accounting_export::delete_tax_mapping),
         )
+        .route(
+            &rp("/accounting/class-accounts"),
+            get(accounting_export::list_class_accounts).put(accounting_export::set_class_account),
+        )
+        .route(
+            &rp("/accounting/package"),
+            get(accounting_export::accounting_package),
+        )
         // import framework (the private build tracker D2): org-admin gated CSV/JSON mapper.
         // The two payload-heavy posts raise axum's default body cap like
         // attachments do; chunk/batch ids flow through the path.

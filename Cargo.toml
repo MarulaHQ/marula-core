@@ -209,7 +209,7 @@ argon2 = "0.6"
 # chose; `aws_lc_rs` would add a C toolchain to every build.
 jsonwebtoken = { version = "11", features = ["rust_crypto"] }
 tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "cors"] }
+tower-http = { version = "0.7", features = ["trace", "cors"] }
 rand = "0.10"
 hex = "0.4"
 sha2 = "0.11"

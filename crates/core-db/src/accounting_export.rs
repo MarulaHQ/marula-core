@@ -40,7 +40,7 @@
 //! and a compiled cache entry would need re-preparing whenever a predicate
 //! moved.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use sqlx::{PgConnection, Row};
 use uuid::Uuid;
 
@@ -821,4 +821,230 @@ pub async fn get_installation_identity(
         Some(r) => Ok(Some((r.try_get("name")?, r.try_get("slug")?))),
         None => Ok(None),
     }
+}
+
+// --- accountant package: class→account mapping -------------------------------
+
+/// One reporting class and the account it posts to.
+#[derive(Debug, Clone)]
+pub struct ClassAccount {
+    pub reporting_class: String,
+    pub account_code: String,
+    pub account_name: String,
+}
+
+/// The built-in defaults, so a package never needs a mapping meeting: every
+/// class a money row can carry has an account even before the org chooses one.
+pub const DEFAULT_CLASS_ACCOUNTS: &[(&str, &str, &str)] = &[
+    ("inventory", "1200", "Inventory"),
+    ("sales", "4000", "Sales"),
+    ("rental_income", "4100", "Rental income"),
+    ("freight_in", "5100", "Freight in"),
+    ("duty_in", "5110", "Duty in"),
+    ("brokerage_in", "5120", "Brokerage in"),
+    ("insurance_in", "5130", "Insurance in"),
+    ("service_cost", "5200", "Service cost"),
+    ("other", "5900", "Other cost"),
+];
+
+/// The org's mapping, with the defaults filled in for every class it has not
+/// chosen. Ordered by class so a package is byte-stable between runs.
+pub async fn class_accounts(conn: &mut PgConnection, org_id: Uuid) -> DbResult<Vec<ClassAccount>> {
+    let rows = sqlx::query!(
+        r#"SELECT reporting_class, account_code, account_name
+             FROM accounting_class_accounts WHERE org_id = $1"#,
+        org_id,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    let mut chosen: std::collections::HashMap<String, (String, String)> = rows
+        .into_iter()
+        .map(|r| (r.reporting_class, (r.account_code, r.account_name)))
+        .collect();
+    let mut out: Vec<ClassAccount> = DEFAULT_CLASS_ACCOUNTS
+        .iter()
+        .map(|(class, code, name)| {
+            let (code, name) = chosen
+                .remove(*class)
+                .unwrap_or_else(|| ((*code).to_string(), (*name).to_string()));
+            ClassAccount {
+                reporting_class: (*class).to_string(),
+                account_code: code,
+                account_name: name,
+            }
+        })
+        .collect();
+    // A class outside the defaults still resolves to the org's own code.
+    let mut extra: Vec<ClassAccount> = chosen
+        .into_iter()
+        .map(
+            |(reporting_class, (account_code, account_name))| ClassAccount {
+                reporting_class,
+                account_code,
+                account_name,
+            },
+        )
+        .collect();
+    extra.sort_by(|a, b| a.reporting_class.cmp(&b.reporting_class));
+    out.extend(extra);
+    Ok(out)
+}
+
+/// Sets one class's account for the org.
+pub async fn upsert_class_account(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    reporting_class: &str,
+    account_code: &str,
+    account_name: &str,
+) -> DbResult<ClassAccount> {
+    sqlx::query!(
+        r#"INSERT INTO accounting_class_accounts
+             (id, org_id, reporting_class, account_code, account_name)
+           VALUES ($1, $2, $3, $4, $5)
+           ON CONFLICT (org_id, reporting_class) DO UPDATE
+             SET account_code = EXCLUDED.account_code,
+                 account_name = EXCLUDED.account_name,
+                 updated_at = now()"#,
+        Uuid::now_v7(),
+        org_id,
+        reporting_class,
+        account_code,
+        account_name,
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(ClassAccount {
+        reporting_class: reporting_class.to_string(),
+        account_code: account_code.to_string(),
+        account_name: account_name.to_string(),
+    })
+}
+
+/// One line of the package: a money row with the record it belongs to.
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct PackageRecord {
+    pub kind: String,
+    pub stable_ref: String,
+    pub document_ref: Option<String>,
+    pub occurred_on: NaiveDate,
+    pub client_id: Option<Uuid>,
+    pub currency: String,
+    pub amount_minor: i64,
+    pub base_amount_minor: Option<i64>,
+    pub reporting_class: Option<String>,
+    pub memo: Option<String>,
+}
+
+/// Every exportable row in the period, each with the stable reference that
+/// names it: `kind:id`. Invoices and credit notes carry their document number;
+/// a cost layer and a rental charge carry their reference or description.
+pub async fn package_records(
+    conn: &mut PgConnection,
+    org_id: Uuid,
+    from: NaiveDate,
+    to: NaiveDate,
+) -> DbResult<Vec<PackageRecord>> {
+    let mut out: Vec<PackageRecord> = Vec::new();
+    let invoices = sqlx::query!(
+        r#"SELECT id, number, issued_at, client_id, currency, total_minor, base_total_minor
+             FROM invoices
+            WHERE org_id = $1 AND issued_at BETWEEN $2 AND $3 AND status <> 'void'"#,
+        org_id,
+        from,
+        to,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    out.extend(invoices.into_iter().map(|r| PackageRecord {
+        kind: "invoice".into(),
+        stable_ref: format!("invoice:{}", r.id),
+        document_ref: Some(r.number),
+        occurred_on: r.issued_at,
+        client_id: Some(r.client_id),
+        currency: r.currency,
+        amount_minor: r.total_minor,
+        base_amount_minor: r.base_total_minor,
+        reporting_class: Some("sales".into()),
+        memo: None,
+    }));
+    let credits = sqlx::query!(
+        r#"SELECT id, number, created_at::date AS issued_on, client_id, currency,
+                  total_minor
+             FROM credit_notes
+            WHERE org_id = $1 AND created_at::date BETWEEN $2 AND $3 AND status <> 'void'"#,
+        org_id,
+        from,
+        to,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    out.extend(credits.into_iter().map(|r| PackageRecord {
+        kind: "credit_note".into(),
+        stable_ref: format!("credit_note:{}", r.id),
+        document_ref: Some(r.number),
+        occurred_on: r.issued_on.unwrap_or(from),
+        client_id: Some(r.client_id),
+        currency: r.currency,
+        amount_minor: -r.total_minor,
+        // A credit note carries no base snapshot of its own; the package
+        // names the document currency and leaves conversion to the books.
+        base_amount_minor: None,
+        reporting_class: Some("sales".into()),
+        memo: None,
+    }));
+    let layers = sqlx::query!(
+        r#"SELECT id, reference, document_date, client_id, currency, amount_minor,
+                  base_amount_minor, reporting_class, kind
+             FROM acquisition_costs
+            WHERE org_id = $1 AND document_date BETWEEN $2 AND $3 AND capitalised"#,
+        org_id,
+        from,
+        to,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    out.extend(layers.into_iter().map(|r| PackageRecord {
+        kind: "acquisition_cost".into(),
+        stable_ref: format!("acquisition_cost:{}", r.id),
+        document_ref: Some(r.reference),
+        occurred_on: r.document_date,
+        client_id: r.client_id,
+        currency: r.currency,
+        amount_minor: r.amount_minor,
+        base_amount_minor: r.base_amount_minor,
+        reporting_class: Some(r.reporting_class),
+        memo: Some(r.kind),
+    }));
+    let charges = sqlx::query!(
+        r#"SELECT id, description, period_start, client_id, currency, amount_minor,
+                  base_amount_minor
+             FROM rental_charges
+            WHERE org_id = $1 AND period_start BETWEEN $2 AND $3 AND kind = 'rent'"#,
+        org_id,
+        from,
+        to,
+    )
+    .fetch_all(&mut *conn)
+    .await?;
+    out.extend(charges.into_iter().map(|r| PackageRecord {
+        kind: "rental_charge".into(),
+        stable_ref: format!("rental_charge:{}", r.id),
+        document_ref: None,
+        occurred_on: r.period_start,
+        client_id: Some(r.client_id),
+        currency: r.currency,
+        amount_minor: r.amount_minor,
+        base_amount_minor: r.base_amount_minor,
+        reporting_class: Some("rental_income".into()),
+        memo: Some(r.description),
+    }));
+    out.sort_by(|a, b| {
+        (a.occurred_on, a.kind.as_str(), a.stable_ref.as_str()).cmp(&(
+            b.occurred_on,
+            b.kind.as_str(),
+            b.stable_ref.as_str(),
+        ))
+    });
+    Ok(out)
 }

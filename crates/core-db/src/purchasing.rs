@@ -2122,8 +2122,24 @@ pub struct RollupBill {
     pub posted_at: Option<DateTime<Utc>>,
 }
 
-/// The project material-cost read model: posted PO bills, base-currency
-/// sums (ADR 0002 locked), plus the project's budget for comparison.
+/// One ticket cost line that belongs to the project, as the rollup reports it.
+/// A consumption writes one of these; its reversal writes the negative twin, so
+/// the project total returns to where it was.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct RollupCostLine {
+    pub line_id: Uuid,
+    pub ticket_id: Uuid,
+    pub ticket_number: String,
+    pub description: String,
+    pub kind: String,
+    pub amount_minor: i64,
+    pub currency: String,
+    pub base_amount_minor: Option<i64>,
+}
+
+/// The project material-cost read model: posted PO bills and the ticket cost
+/// lines on the project's linked tickets, base-currency sums (ADR 0002 locked),
+/// plus the project's budget for comparison.
 #[derive(Debug, Clone, serde::Serialize)]
 pub struct ProjectCostRollup {
     pub project_id: Uuid,
@@ -2132,6 +2148,13 @@ pub struct ProjectCostRollup {
     pub base_currency: String,
     pub po_bill_base_minor: i64,
     pub bills: Vec<RollupBill>,
+    /// Ticket cost lines summed in base currency: the same line and amount the
+    /// ticket shows, including parts drawn from stock.
+    pub ticket_cost_base_minor: i64,
+    pub ticket_cost_lines: Vec<RollupCostLine>,
+    /// Ticket rows not in the base currency and with no locked snapshot. They
+    /// are listed and counted, never summed.
+    pub unconverted_ticket_rows: i64,
 }
 
 pub async fn project_cost_rollup(
@@ -2190,6 +2213,57 @@ pub async fn project_cost_rollup(
             posted_at: row.posted_at,
         });
     }
+    // The project's material cost also includes what its tickets used, which is
+    // where a part drawn from stock lands. The client-visibility rule is the
+    // one the PO read applies: a hidden client's ticket cannot contribute.
+    let ticket_rows = sqlx::query!(
+        r#"SELECT c.id AS line_id, c.ticket_id, t.number AS ticket_number,
+                  c.description, c.kind,
+                  round(c.quantity * c.unit_cost_minor)::bigint AS "amount_minor!",
+                  c.currency, c.base_amount_minor
+             FROM ticket_cost_lines c
+             JOIN project_ticket_links l
+               ON l.org_id = c.org_id AND l.ticket_id = c.ticket_id
+             JOIN tickets t ON t.org_id = c.org_id AND t.id = c.ticket_id
+            WHERE c.org_id = $1 AND l.project_id = $2
+              AND ($4::boolean OR t.client_id IS NULL OR NOT EXISTS (
+                    SELECT 1 FROM clients cl
+                     WHERE cl.org_id = t.org_id
+                       AND cl.id = t.client_id
+                       AND cl.restricted_to <> '[]'::jsonb
+                       AND NOT (cl.restricted_to ? $3)))
+            ORDER BY c.created_at, c.id"#,
+        org_id,
+        project_id,
+        scope.viewer_id.to_string(),
+        scope.sees_every_client,
+    )
+    .fetch_all(&mut *executor)
+    .await?;
+    let mut ticket_cost_base_minor: i64 = 0;
+    let mut unconverted_ticket_rows: i64 = 0;
+    let mut ticket_cost_lines = Vec::with_capacity(ticket_rows.len());
+    for row in ticket_rows {
+        let money = match row.base_amount_minor {
+            Some(base) => Some(base),
+            None if row.currency == base_currency => Some(row.amount_minor),
+            None => None,
+        };
+        match money {
+            Some(amount) => ticket_cost_base_minor = ticket_cost_base_minor.saturating_add(amount),
+            None => unconverted_ticket_rows += 1,
+        }
+        ticket_cost_lines.push(RollupCostLine {
+            line_id: row.line_id,
+            ticket_id: row.ticket_id,
+            ticket_number: row.ticket_number,
+            description: row.description,
+            kind: row.kind,
+            amount_minor: row.amount_minor,
+            currency: row.currency,
+            base_amount_minor: row.base_amount_minor,
+        });
+    }
     Ok(ProjectCostRollup {
         project_id,
         budget_minor: project.get("budget_minor"),
@@ -2197,5 +2271,8 @@ pub async fn project_cost_rollup(
         base_currency,
         po_bill_base_minor: total,
         bills,
+        ticket_cost_base_minor,
+        ticket_cost_lines,
+        unconverted_ticket_rows,
     })
 }

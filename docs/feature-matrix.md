@@ -97,6 +97,7 @@ surface: 794 paths in 66 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 | Connector admin | Enable, disable, test and read the sync ledger | Web, API | Shipped | `crates/core-api/src/routes/connector.rs` |
 | Assets | Asset records and taxonomy with a client scope | Web, API | Shipped | `crates/core-api/src/routes/assets.rs` |
 | Stock | Items, locations, movements, consumables | Web, Native, API | Shipped | `crates/core-api/src/routes/stock.rs` |
+| Stock consumption costs | A part drawn from stock for a job writes the ticket's and project's costs in the same commit, billable or zero-rated, and reverses once | API | Built | `crates/core-api/src/routes/stock.rs`, `crates/core-db/migrations/0263_stock_movement_cost_line_links.sql` |
 | Tools and kits | Tool catalog, kits, check-out and return | Web, Native, API | Shipped | `crates/core-api/src/routes/tools.rs` |
 | Client loans | Devices on loan to a client, with return tracking | Web, API | Shipped | `crates/core-api/src/routes/loans.rs` |
 | Purchasing | Vendors, purchase orders, receiving, billing, deeplinks | Web, API | Shipped | `crates/core-api/src/routes/purchasing.rs` |

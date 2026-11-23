@@ -448,3 +448,47 @@ pub async fn mark_candidates_billed(
     }
     Ok(())
 }
+
+/// Inserts a cost line that names the row which produced it. The plain
+/// [`insert_cost_line`] carries no source; a stock consumption needs one, so
+/// the ledger row and the job's cost can cite each other.
+pub async fn insert_sourced_cost_line(
+    conn: &mut sqlx::PgConnection,
+    line: &core_domain::entities::TicketCostLine,
+    source_kind: &str,
+    source_id: Uuid,
+    reporting_class: Option<&str>,
+) -> DbResult<()> {
+    sqlx::query!(
+        r#"INSERT INTO ticket_cost_lines
+             (id, org_id, ticket_id, kind, description, quantity, unit_cost_minor,
+              currency, billable, fx_rate_used, fx_rate_date, fx_source,
+              base_amount_minor, invoice_line_id, created_by, created_at, updated_at,
+              reporting_class, source_kind, source_id)
+           VALUES ($1, $2, $3, $4, $5, $6::double precision, $7, $8, $9, $10::text::numeric, $11, $12,
+                   $13, $14, $15, $16, $17, $18, $19, $20)"#,
+        line.id,
+        line.org_id,
+        line.ticket_id,
+        line.kind.as_str(),
+        line.description,
+        line.quantity,
+        line.unit_cost_minor,
+        line.currency,
+        line.billable,
+        line.fx_rate_used,
+        line.fx_rate_date,
+        line.fx_source,
+        line.base_amount_minor,
+        line.invoice_line_id,
+        line.created_by,
+        line.created_at,
+        line.updated_at,
+        reporting_class,
+        source_kind,
+        source_id,
+    )
+    .execute(conn)
+    .await?;
+    Ok(())
+}

@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE stock_serials\n                      SET status = 'in_stock', location_id = $3, movement_in_id = $4,\n                          updated_at = now()\n                    WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "5745a3ffcedbe88e777a6e18e19621e362f4b4b937f330a1b10d0c7217ce9093"
+}

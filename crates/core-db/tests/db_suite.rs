@@ -10964,3 +10964,76 @@ async fn an_invoice_line_cannot_be_written_without_a_source() {
         .await
         .expect("roll back the refusal");
 }
+
+/// The package names each row with a stable reference, so an accountant can
+/// trace an exported line back to exactly one Marula record.
+#[tokio::test]
+async fn the_accountant_package_names_each_row_with_a_stable_reference() {
+    let db = test_db().await;
+    let seeded = seed_org(&db.app, 9_601).await;
+    let org = seeded.org;
+    let mut tx = org_tx(&db.app, org).await;
+
+    let client = fixed_uuid(9_602);
+    sqlx::query!(
+        "INSERT INTO clients (id, org_id, name) VALUES ($1, $2, 'Package Co')",
+        client,
+        org,
+    )
+    .execute(&mut *tx)
+    .await
+    .expect("client");
+    let contract = fixed_uuid(9_603);
+    sqlx::query!(
+        "INSERT INTO contracts (id, org_id, client_id, number, name, contract_type, currency, \
+         effective_from) VALUES ($1, $2, $3, 'C-PKG-1', 'Package contract', \
+         'time_and_materials', 'USD', DATE '2026-01-01')",
+        contract,
+        org,
+        client,
+    )
+    .execute(&mut *tx)
+    .await
+    .expect("contract");
+    let invoice = fixed_uuid(9_604);
+    sqlx::query!(
+        "INSERT INTO invoices (id, org_id, client_id, contract_id, number, currency, issued_at, \
+         due_on, total_minor) VALUES ($1, $2, $3, $4, 'INV-PKG-1', 'USD', \
+         DATE '2026-02-10', DATE '2026-03-10', 4200)",
+        invoice,
+        org,
+        client,
+        contract,
+    )
+    .execute(&mut *tx)
+    .await
+    .expect("invoice");
+
+    let rows = core_db::accounting_export::package_records(
+        &mut tx,
+        org,
+        chrono::NaiveDate::from_ymd_opt(2026, 2, 1).unwrap(),
+        chrono::NaiveDate::from_ymd_opt(2026, 2, 28).unwrap(),
+    )
+    .await
+    .expect("package records");
+    let row = rows
+        .iter()
+        .find(|r| r.kind == "invoice")
+        .expect("the invoice");
+    assert_eq!(row.stable_ref, format!("invoice:{invoice}"));
+    assert_eq!(row.document_ref.as_deref(), Some("INV-PKG-1"));
+    assert_eq!(row.amount_minor, 4200);
+    assert_eq!(row.reporting_class.as_deref(), Some("sales"));
+
+    // A window that excludes the invoice carries no rows.
+    let empty = core_db::accounting_export::package_records(
+        &mut tx,
+        org,
+        chrono::NaiveDate::from_ymd_opt(2026, 4, 1).unwrap(),
+        chrono::NaiveDate::from_ymd_opt(2026, 4, 30).unwrap(),
+    )
+    .await
+    .expect("empty package");
+    assert!(empty.is_empty());
+}

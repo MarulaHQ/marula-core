@@ -1,4 +1,25 @@
 export interface paths {
+    "/api/v1/accounting/class-accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * GET /accounting/class-accounts — every class the org posts to, defaults
+         *     filled in for the ones it has not chosen.
+         */
+        get: operations["accounting_class_accounts_list"];
+        /** PUT /accounting/class-accounts — choose the account one class posts to. */
+        put: operations["accounting_class_accounts_set"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/accounting/connections/{id}/ledger": {
         parameters: {
             query?: never;
@@ -53,6 +74,23 @@ export interface paths {
         };
         /** GET /api/accounting/export-runs/{id} — one run, with its receipt. */
         get: operations["accounting_export_runs_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/accounting/package": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /accounting/package — the period's package, ready to hand an accountant. */
+        get: operations["accounting_package"];
         put?: never;
         post?: never;
         delete?: never;
@@ -14073,6 +14111,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/stock/consume/{id}/reverse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * POST /api/stock/consume/{id}/reverse — undo a consumption on both sides.
+         * @description One transaction: a second movement puts the quantity back on the shelf, and
+         *     a negated cost line takes the charge off the job. Each names the other, and
+         *     the original movement names the reversal, so a consumption can only be
+         *     reversed once.
+         */
+        post: operations["stock_consume_reverse"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/stock/consumption-velocity": {
         parameters: {
             query?: never;
@@ -16510,6 +16571,35 @@ export interface components {
         };
         AcceptObservedRequest: components["schemas"]["MutationParams"] & {
             field_key: string;
+        };
+        /** @description A total per account, in the org base currency where a row has one. */
+        AccountTotalView: {
+            account_code: string;
+            account_name: string;
+            /** Format: int64 */
+            base_total_minor: number;
+        };
+        /**
+         * @description The accountant package: one period, every money row, every class resolved to
+         *     an account, and the stable reference that names each row.
+         */
+        AccountingPackageView: {
+            base_currency: string;
+            class_accounts: components["schemas"]["ClassAccountView"][];
+            /** Format: date-time */
+            generated_at: string;
+            period_from: string;
+            period_to: string;
+            records: components["schemas"]["PackageRecordView"][];
+            totals_by_account: components["schemas"]["AccountTotalView"][];
+            totals_by_kind: components["schemas"]["KindTotalView"][];
+            /**
+             * Format: int64
+             * @description Rows whose amount is not in the base currency and carries no locked
+             *     snapshot. They are listed in `records` and left out of the totals, so a
+             *     total is never a sum of mixed currencies.
+             */
+            unconverted_rows: number;
         };
         /** @enum {string} */
         AcquiredFor: "sale_stock" | "internal_fleet" | "rental_pool" | "vendor_rental" | "client_stocked" | "client_drop_ship" | "project_consumable" | "ewaste_service";
@@ -19611,6 +19701,12 @@ export interface components {
             /** @description The one-time token, verbatim from the create response. */
             token: string;
         };
+        /** @description One class and the account it posts to. */
+        ClassAccountView: {
+            account_code: string;
+            account_name: string;
+            reporting_class: string;
+        };
         /** @description One append-only class movement, with the unit named. */
         ClassMovementView: {
             /** Format: date-time */
@@ -20285,6 +20381,13 @@ export interface components {
             surface_profile?: unknown;
         };
         ConsumeRequest: components["schemas"]["MutationParams"] & {
+            /**
+             * @description Whether the consumption bills the ticket. Defaults to true. False is
+             *     the explicit zero-rated path: the shelf still moves and the movement
+             *     carries its unit cost, but no cost line is written, so the job's costs
+             *     are unchanged.
+             */
+            billable?: boolean | null;
             /** Format: uuid */
             item_id: string;
             /** Format: uuid */
@@ -27353,6 +27456,14 @@ export interface components {
             url: string;
             url_kind: components["schemas"]["ExternalDocUrlKind"];
         };
+        /** @description A total per record kind. */
+        KindTotalView: {
+            /** Format: int64 */
+            base_total_minor: number;
+            kind: string;
+            /** Format: int64 */
+            rows: number;
+        };
         KitAvailabilityMemberView: {
             /** Format: int64 */
             available_units: number;
@@ -29368,6 +29479,25 @@ export interface components {
             stock_item_id?: string | null;
             target_kind: string;
         };
+        /** @description One package line, with the account it resolves to. */
+        PackageRecordView: {
+            account_code: string;
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: int64 */
+            base_amount_minor?: number | null;
+            /** Format: uuid */
+            client_id?: string | null;
+            currency: string;
+            document_ref?: string | null;
+            /** @description invoice | credit_note | acquisition_cost | rental_charge */
+            kind: string;
+            memo?: string | null;
+            occurred_on: string;
+            reporting_class?: string | null;
+            /** @description `kind:id` — the trail from an exported row back to one Marula record. */
+            stable_ref: string;
+        };
         /**
          * @description A vault credential. `secret_ciphertext` is AES-256-GCM from
          *     core-api crypto::seal — plaintext NEVER reaches the database layer,
@@ -31365,6 +31495,17 @@ export interface components {
             po_bill_base_minor: number;
             /** Format: uuid */
             project_id: string;
+            /**
+             * Format: int64
+             * @description Ticket cost lines in base currency, including parts drawn from stock.
+             */
+            ticket_cost_base_minor: number;
+            ticket_cost_lines: components["schemas"]["RollupCostLineView"][];
+            /**
+             * Format: int64
+             * @description Ticket rows left out of the total because they carry no base amount.
+             */
+            unconverted_ticket_rows: number;
         };
         /** @description The project's Gantt: dated phases as bars, undated ones as list items. */
         ProjectGanttView: {
@@ -34283,6 +34424,8 @@ export interface components {
             reference: string;
             vendor_reference?: string | null;
         };
+        /** @description POST /api/stock/consume/{id}/reverse body (idempotency only). */
+        ReverseConsumeRequest: components["schemas"]["MutationParams"];
         /** @description What the revert restored. */
         RevertDetail: {
             /** @description Record fields whose values were restored. */
@@ -34400,6 +34543,20 @@ export interface components {
             /** Format: uuid */
             purchase_order_id: string;
             purchase_order_number: string;
+        };
+        RollupCostLineView: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: int64 */
+            base_amount_minor?: number | null;
+            currency: string;
+            description: string;
+            kind: string;
+            /** Format: uuid */
+            line_id: string;
+            /** Format: uuid */
+            ticket_id: string;
+            ticket_number: string;
         };
         RoutingDayQuery: {
             /**
@@ -35559,6 +35716,12 @@ export interface components {
              *     second post.
              */
             note_reason?: string | null;
+        };
+        /** @description PUT /accounting/class-accounts body. */
+        SetClassAccountRequest: {
+            account_code: string;
+            account_name: string;
+            reporting_class: string;
         };
         SetCustomDomainRequest: {
             /**
@@ -39924,6 +40087,55 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    accounting_class_accounts_list: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClassAccountView"][];
+                };
+            };
+        };
+    };
+    accounting_class_accounts_set: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetClassAccountRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClassAccountView"];
+                };
+            };
+            /** @description class or account is empty */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     accounting_ledger_read: {
         parameters: {
             query?: never;
@@ -40008,6 +40220,35 @@ export interface operations {
             };
             /** @description not visible in scope */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    accounting_package: {
+        parameters: {
+            query: {
+                from: string;
+                to: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountingPackageView"];
+                };
+            };
+            /** @description the period is inverted */
+            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -67461,6 +67702,52 @@ export interface operations {
                 content?: never;
             };
             /** @description validation failure (qty_milli must be positive) */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    stock_consume_reverse: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReverseConsumeRequest"];
+            };
+        };
+        responses: {
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MovementMutationResponse"];
+                };
+            };
+            /** @description the movement is not in scope */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description not a consumption, or already reversed */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description validation failure */
             422: {
                 headers: {
                     [name: string]: unknown;
