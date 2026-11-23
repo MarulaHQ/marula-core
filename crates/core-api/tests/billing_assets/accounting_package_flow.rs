@@ -125,7 +125,7 @@ async fn a_package_resolves_every_class_without_a_mapping_meeting() {
 }
 
 /// Places an order for one stock line, receives it in full, closes the order,
-/// then records and posts its bill. Returns the purchase order id.
+/// then records and posts its bill. Returns the purchase order and receipt id.
 #[allow(clippy::too_many_arguments)]
 async fn receive_and_bill(
     app: &Router,
@@ -137,7 +137,7 @@ async fn receive_and_bill(
     qty_milli: i64,
     unit_cost_minor: i64,
     bill_number: &str,
-) -> String {
+) -> (String, String) {
     let (status, created) = mutate(
         app,
         token,
@@ -189,6 +189,10 @@ async fn receive_and_bill(
     )
     .await;
     assert_eq!(status, 200, "receive: {received}");
+    let receipt_id = received["receipt"]["id"]
+        .as_str()
+        .expect("receipt id")
+        .to_string();
 
     let (status, closed) = mutate(
         app,
@@ -219,7 +223,7 @@ async fn receive_and_bill(
     )
     .await;
     assert_eq!(status, 200, "post bill: {posted}");
-    order_id
+    (order_id, receipt_id)
 }
 
 #[tokio::test]
@@ -333,7 +337,7 @@ async fn a_package_carries_bills_valuation_and_ewaste_and_holds_on_an_unmapped_c
 
     // Ten units into stock at 1500, then five more at 2000: the last receipt is
     // the cost basis, so fifteen units value at 15 × 2000.
-    receive_and_bill(
+    let (_, receipt_id) = receive_and_bill(
         &app,
         &token,
         &vendor_id,
@@ -359,6 +363,34 @@ async fn a_package_carries_bills_valuation_and_ewaste_and_holds_on_an_unmapped_c
         "VB-1002",
     )
     .await;
+
+    // A capitalised landed-cost layer over the receipt. The org has to be in
+    // landed-cost mode for `capitalise` to take effect, which is the policy
+    // this fixture switches to.
+    sqlx::query!(
+        "UPDATE orgs SET landed_cost_mode = 'landed_costs' WHERE id = $1",
+        org_id
+    )
+    .execute(&state.pool)
+    .await
+    .expect("landed-cost policy");
+    let (status, layer) = mutate(
+        &app,
+        &token,
+        axum::http::Method::POST,
+        &format!("/api/v1/purchase-receipts/{receipt_id}/acquisition-costs"),
+        json!({
+            "kind": "freight",
+            "reference": "AC-126",
+            "document_date": chrono::Utc::now().date_naive().to_string(),
+            "currency": "USD",
+            "amount_minor": 500,
+            "capitalise": true,
+            "idempotency_key": key(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "capitalised layer: {layer}");
 
     // A disposed lot: the custody fact, at zero money.
     let today = chrono::Utc::now().date_naive().to_string();
@@ -552,7 +584,19 @@ async fn a_package_carries_bills_valuation_and_ewaste_and_holds_on_an_unmapped_c
         .iter()
         .find(|t| t["account_code"] == json!("1200"))
         .expect("inventory total");
-    assert_eq!(inventory_total["base_total_minor"], json!(45_000));
+    let layer_row = records
+        .iter()
+        .find(|r| r["kind"] == json!("acquisition_cost"))
+        .expect("the capitalised layer is in the package");
+    assert_eq!(layer_row["reporting_class"], json!("inventory"));
+    assert_eq!(layer_row["account_code"], json!("1200"));
+    assert_eq!(layer_row["amount_minor"], json!(500));
+    assert_eq!(layer_row["document_ref"], json!("AC-126"));
+    assert!(layer_row["stable_ref"]
+        .as_str()
+        .is_some_and(|s| s.starts_with("acquisition_cost:")));
+
+    assert_eq!(inventory_total["base_total_minor"], json!(45_500));
 
     // The CSV form carries the same rows, the same references and the same
     // account choices as the JSON package.

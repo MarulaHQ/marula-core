@@ -42,6 +42,10 @@ stable reference that points back at the one Marula record it came from.
    as the JSON form. An organisation with no accounting
    connection can hand that file over directly.
 
+   Text that begins with `=`, `+`, `@`, a tab or a non-numeric `-` is written
+   with a leading apostrophe, so a spreadsheet keeps it as text instead of
+   evaluating it. The JSON form keeps the exact value.
+
 4. Hand the accountant the response. It carries:
 
    - `period_from` and `period_to`, plus the organisation's `base_currency`.

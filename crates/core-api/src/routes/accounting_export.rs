@@ -2148,6 +2148,10 @@ async fn build_package(
             action: Action::View,
         },
     )?;
+    // The rows carry bill amounts and stock values, which the source surfaces
+    // put behind financial read. The package asks for the same authority, so
+    // commercial view alone cannot reach money it could not read elsewhere.
+    require_permission(principal, Permission::ViewFinancials)?;
     if q.to < q.from {
         return Err(ApiError::Validation(
             "the period ends before it starts".into(),
@@ -2306,11 +2310,44 @@ fn package_csv(package: &AccountingPackageView) -> String {
 }
 
 /// A CSV field, quoted only when it has to be. `memo` carries vendor prose and
-/// can hold a comma, so this is not optional.
+/// can hold a comma, so quoting is not optional. A cell a spreadsheet would
+/// evaluate is prefixed so it stays text; a negative number is not, because
+/// the amount columns are meant to be numbers.
 fn csv_field(value: &str) -> String {
-    if value.contains([',', '"', '\n', '\r']) {
+    let dangerous = value.starts_with('=')
+        || value.starts_with('+')
+        || value.starts_with('@')
+        || value.starts_with('\t')
+        || value.starts_with('\r')
+        || (value.starts_with('-') && value.parse::<f64>().is_err());
+    if dangerous {
+        format!("\"'{}\"", value.replace('"', "\"\""))
+    } else if value.contains([',', '"', '\n', '\r']) {
         format!("\"{}\"", value.replace('"', "\"\""))
     } else {
         value.to_string()
+    }
+}
+
+#[cfg(test)]
+mod package_csv_tests {
+    use super::csv_field;
+
+    #[test]
+    fn a_cell_a_spreadsheet_would_evaluate_stays_text() {
+        assert_eq!(csv_field("=HYPERLINK(\"x\")"), "\"'=HYPERLINK(\"\"x\"\")\"");
+        assert_eq!(csv_field("+1+1"), "\"'+1+1\"");
+        assert_eq!(csv_field("@SUM(A1)"), "\"'@SUM(A1)\"");
+        assert_eq!(csv_field("\tcmd"), "\"'\tcmd\"");
+        assert_eq!(csv_field("-cmd"), "\"'-cmd\"");
+    }
+
+    #[test]
+    fn numbers_and_plain_text_keep_their_shape() {
+        assert_eq!(csv_field("-15000"), "-15000");
+        assert_eq!(csv_field("1200"), "1200");
+        assert_eq!(csv_field("Recycle Co"), "Recycle Co");
+        assert_eq!(csv_field("a,b"), "\"a,b\"");
+        assert_eq!(csv_field("say \"hi\""), "\"say \"\"hi\"\"\"");
     }
 }
