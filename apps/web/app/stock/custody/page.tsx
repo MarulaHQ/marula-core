@@ -72,15 +72,18 @@ export default function CustodyPage(): React.ReactNode {
   // True only once the current filter's read has failed; while it is running,
   // the retained rows are simply old, not a failure.
   const [ledgerStale, setLedgerStale] = useState(false);
+  // `loading` owns the first paint; `reading` is any read in flight. A manual
+  // retry sets `reading` only, so a stalled request cannot disable the button
+  // that would start a fresh one, and the sequence guard discards the old
+  // answer.
   const [loading, setLoading] = useState(true);
+  const [reading, setReading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const requestSeq = useRef(0);
 
   const refresh = useCallback(async (): Promise<void> => {
     const seq = ++requestSeq.current;
-    // A retry is a read in flight, not an empty answer: without this, a failed
-    // first load leaves the empty state visible while Refresh runs.
-    setLoading(true);
+    setReading(true);
     setLoadError(null);
     setLedgerStale(false);
     try {
@@ -111,12 +114,16 @@ export default function CustodyPage(): React.ReactNode {
         setLoadError("Could not load the custody view — try reloading.");
       }
     } finally {
-      if (seq === requestSeq.current) setLoading(false);
+      if (seq === requestSeq.current) {
+        setReading(false);
+        setLoading(false);
+      }
     }
   }, [unitKind]);
 
   useEffect(() => {
     if (auth.status !== "authed") return;
+    setLoading(true);
     void refresh();
   }, [auth.status, refresh]);
 
@@ -206,7 +213,7 @@ export default function CustodyPage(): React.ReactNode {
       ) : null}
 
       <Card>
-        {loading ? (
+        {loading || (reading && movements.length === 0) ? (
           <div className="p-6">
             <Spinner />
           </div>
