@@ -1531,6 +1531,42 @@ async fn ledger_apply(
             )));
         }
         let mut movement = m;
+        // A withdrawal takes a unit out of saleable stock, and a pool unit is
+        // not saleable. Lock the serial here, in the writing transaction, and
+        // read its class under that lock: the class-movement trigger takes the
+        // same row lock, so a commission either commits before this read or
+        // waits for this write.
+        if let Some(serial_id) = extras.sale_side_serial {
+            let class = sqlx::query_scalar!(
+                r#"SELECT custody_class AS "custody_class!" FROM stock_serials
+                    WHERE org_id = $1 AND id = $2 FOR UPDATE"#,
+                org_id,
+                serial_id
+            )
+            .fetch_optional(&mut *ctx.tx)
+            .await?;
+            if class.as_deref() == Some("rental_out") {
+                return Err(ApiError::Conflict(
+                    "that unit is in the rental pool; decommission it before withdrawing it as sale stock"
+                        .into(),
+                ));
+            }
+        }
+
+        // A consumption names a ticket in this org, on a board the caller can
+        // see. The same check the manual cost routes make, inside the writing
+        // transaction, so a foreign ticket id cannot anchor a cost line.
+        if let Some(bill) = &extras.bill {
+            crate::routes::costs::ticket_for_board_check(
+                &mut ctx.tx,
+                &authed.principal,
+                org_id,
+                bill.ticket_id,
+                BoardOp::View,
+            )
+            .await?;
+        }
+
         // Price a consumption from the stocked cost. `cost_minor` is a unit
         // cost on this table (a receive stores its unit cost there), and the
         // direction of the money is the sign of the quantity, so the unit stays
@@ -1538,13 +1574,15 @@ async fn ledger_apply(
         //
         // The row is locked before the price is read: a receipt that commits a
         // new unit cost between this read and the decrement would otherwise
-        // charge the old cost for stock the receipt added. The lock is the same
-        // row the receipt roll-up writes, and it is taken before any
-        // `stock_levels` row, matching the withdrawal path's order.
+        // charge the old cost for stock the receipt added. `FOR NO KEY UPDATE`
+        // serializes with that roll-up without blocking the `FOR KEY SHARE`
+        // that a movement's item foreign key takes. The serial (if the leg has
+        // one) is locked above and the level rows below, which is the same
+        // order every other leg uses, so no cycle closes.
         let bill_unit_cost = if extras.bill.is_some() {
             let locked = sqlx::query_scalar!(
                 r#"SELECT last_unit_cost_minor FROM stock_items
-                    WHERE org_id = $1 AND id = $2 FOR UPDATE"#,
+                    WHERE org_id = $1 AND id = $2 FOR NO KEY UPDATE"#,
                 org_id,
                 movement.stock_item_id,
             )
@@ -1591,42 +1629,6 @@ async fn ledger_apply(
                     movement.base_cost_minor = Some(snap.base_amount_minor);
                 }
             }
-        }
-
-        // A withdrawal takes a unit out of saleable stock, and a pool unit is
-        // not saleable. Lock the serial here, in the writing transaction, and
-        // read its class under that lock: the class-movement trigger takes the
-        // same row lock, so a commission either commits before this read or
-        // waits for this write.
-        if let Some(serial_id) = extras.sale_side_serial {
-            let class = sqlx::query_scalar!(
-                r#"SELECT custody_class AS "custody_class!" FROM stock_serials
-                    WHERE org_id = $1 AND id = $2 FOR UPDATE"#,
-                org_id,
-                serial_id
-            )
-            .fetch_optional(&mut *ctx.tx)
-            .await?;
-            if class.as_deref() == Some("rental_out") {
-                return Err(ApiError::Conflict(
-                    "that unit is in the rental pool; decommission it before withdrawing it as sale stock"
-                        .into(),
-                ));
-            }
-        }
-
-        // A consumption names a ticket in this org, on a board the caller can
-        // see. The same check the manual cost routes make, inside the writing
-        // transaction, so a foreign ticket id cannot anchor a cost line.
-        if let Some(bill) = &extras.bill {
-            crate::routes::costs::ticket_for_board_check(
-                &mut ctx.tx,
-                &authed.principal,
-                org_id,
-                bill.ticket_id,
-                BoardOp::View,
-            )
-            .await?;
         }
 
         // A zero-rated consumption is stock-only: it writes the movement and

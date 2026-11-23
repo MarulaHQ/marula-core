@@ -620,6 +620,23 @@ async fn run_ledger_step(
     .execute(&mut *executor)
     .await?;
 
+    // 1b. Receipt cost roll-up: refresh the item's last locked unit cost,
+    // before the level rows. The item row is then always locked before any
+    // `stock_levels` row, which is the order a consumption takes, so the two
+    // cannot close a lock cycle against each other.
+    if m.kind == "receive" && m.cost_minor.is_some() {
+        let cost = m.cost_minor.unwrap_or(0);
+        sqlx::query!(
+            r#"UPDATE stock_items SET last_unit_cost_minor = $3, updated_at = now()
+                WHERE org_id = $1 AND id = $2"#,
+            m.org_id,
+            m.stock_item_id,
+            cost,
+        )
+        .execute(&mut *executor)
+        .await?;
+    }
+
     // 2. INTO side: insert-or-increment the destination level row.
     if let Some(to_loc) = m.to_location_id {
         sqlx::query!(
@@ -696,21 +713,7 @@ async fn run_ledger_step(
         .await?;
     }
 
-    // 5. Receipt cost roll-up: refresh the item's last locked unit cost.
-    if m.kind == "receive" && m.cost_minor.is_some() {
-        let cost = m.cost_minor.unwrap_or(0);
-        sqlx::query!(
-            r#"UPDATE stock_items SET last_unit_cost_minor = $3, updated_at = now()
-                WHERE org_id = $1 AND id = $2"#,
-            m.org_id,
-            m.stock_item_id,
-            cost,
-        )
-        .execute(&mut *executor)
-        .await?;
-    }
-
-    // 6. Serialized: the serial row is the WHERE-IT-IS-NOW consequence.
+    // 5. Serialized: the serial row is the WHERE-IT-IS-NOW consequence.
     if input.item_kind == "serialized" {
         apply_serial_tick(executor, m).await?;
     }

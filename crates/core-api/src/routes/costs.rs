@@ -463,8 +463,13 @@ pub async fn update_cost_line(
         }
         // A negative line is a reversal's offset, never a charge: billing it
         // would put a credit amount through the invoice run, and the negative
-        // CHECK forbids an invoice link anyway.
-        if req.billable == Some(true) && before.quantity < 0.0 {
+        // CHECK forbids an invoice link anyway. The guard tests the state the
+        // update would store, not the stored row alone: a request that sets the
+        // quantity negative, or leaves an already-billable line billable, must
+        // not slip past it.
+        let effective_quantity = req.quantity.unwrap_or(before.quantity);
+        let effective_billable = req.billable.unwrap_or(before.billable);
+        if effective_billable && effective_quantity < 0.0 {
             return Err(ApiError::Conflict(
                 "a negative cost line offsets a reversal and cannot be billed".into(),
             ));

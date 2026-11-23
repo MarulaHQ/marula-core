@@ -290,6 +290,18 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
         "the job's costs are unchanged"
     );
 
+    let rollup = get(
+        &app,
+        &token,
+        &format!("/api/v1/projects/{project_id}/cost-rollup"),
+    )
+    .await;
+    assert_eq!(
+        rollup["ticket_cost_base_minor"],
+        json!(200),
+        "a zero-rated use leaves the project total alone"
+    );
+
     // Reversal: shelf back, line negated, and only once.
     let (status, reversed) = post(
         &app,
@@ -364,6 +376,20 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
         patch.status().as_u16(),
         409,
         "a reversal offset cannot be billed"
+    );
+
+    let patch_original = send(
+        &app,
+        axum::http::Method::PATCH,
+        &format!("/api/v1/tickets/{ticket_id}/cost-lines/{line_uuid}"),
+        &[auth(&token)],
+        Some(json!({ "billable": true, "idempotency_key": Uuid::now_v7().to_string() })),
+    )
+    .await;
+    assert_eq!(
+        patch_original.status().as_u16(),
+        409,
+        "a reversed charge cannot be made billable again"
     );
 
     let (status, again) = post(
@@ -832,4 +858,193 @@ async fn a_dispatcher_sees_no_money_in_a_consumption() {
         "reading money needs the permission"
     );
     let _ = &state;
+}
+
+/// The lock order every leg uses: serial (when there is one), then the item,
+/// then the level rows. A concurrent receipt or withdrawal must not be able to
+/// close a cycle and deadlock the ledger.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn concurrent_movements_keep_one_lock_order() {
+    let (_state, app) =
+        boot_with(|config| config.secret_key = core_api::config::SecretKey([45; 32])).await;
+    let slug = format!("consume-lock-{}", Uuid::now_v7().simple());
+    let token = register_org_token(&app, "Lock Co", &slug).await;
+
+    let (status, item) = post(
+        &app,
+        &token,
+        "/api/v1/stock-items",
+        json!({
+            "name": "Lock cable",
+            "kind": "consumable",
+            "unit": "each",
+            "currency": "USD",
+            "last_unit_cost_minor": 2,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "item");
+    let item_id = item["id"].as_str().unwrap().to_string();
+    let (status, location) = post(
+        &app,
+        &token,
+        "/api/v1/stock-locations",
+        json!({ "name": "Shelf", "kind": "warehouse", "idempotency_key": Uuid::now_v7().to_string() }),
+    )
+    .await;
+    assert_eq!(status, 200, "location");
+    let location_id = location["id"].as_str().unwrap().to_string();
+    let (status, _) = post(
+        &app,
+        &token,
+        "/api/v1/stock/receive",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 50_000,
+            "unit_cost_minor": 2,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "receive");
+    let boards = get(&app, &token, "/api/v1/boards").await;
+    let board_id = boards[0]["id"].as_str().unwrap().to_string();
+    let (status, ticket) = post(
+        &app,
+        &token,
+        "/api/v1/tickets",
+        json!({
+            "board_id": board_id,
+            "title": "Concurrent use",
+            "priority": "p3",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "ticket");
+    let ticket_id = ticket["id"].as_str().unwrap().to_string();
+
+    let consume_a = post(
+        &app,
+        &token,
+        "/api/v1/stock/consume",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "ticket_id": ticket_id,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    );
+    let receive_b = post(
+        &app,
+        &token,
+        "/api/v1/stock/receive",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "unit_cost_minor": 3,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    );
+    let consume_c = post(
+        &app,
+        &token,
+        "/api/v1/stock/consume",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "ticket_id": ticket_id,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    );
+    let joined = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        tokio::join!(consume_a, receive_b, consume_c)
+    })
+    .await
+    .expect("no deadlock: every leg finished");
+    for (status, body) in [joined.0, joined.1, joined.2] {
+        assert_eq!(status, 200, "every leg lands: {body}");
+    }
+
+    // A serialized unit takes the serial lock before the item lock, the same
+    // order a ship-out takes; the pair must resolve, not deadlock.
+    let (status, serial_item) = post(
+        &app,
+        &token,
+        "/api/v1/stock-items",
+        json!({
+            "name": "Lock switch",
+            "kind": "serialized",
+            "unit": "each",
+            "currency": "USD",
+            "last_unit_cost_minor": 90_000,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "serial item");
+    let serial_item_id = serial_item["id"].as_str().unwrap().to_string();
+    let (status, received) = post(
+        &app,
+        &token,
+        "/api/v1/stock/receive",
+        json!({
+            "item_id": serial_item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "unit_cost_minor": 90_000,
+            "serial_numbers": ["LOCK-1"],
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "serial receive");
+    let serial_id = received["movement"]["serial_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let consume_serial = post(
+        &app,
+        &token,
+        "/api/v1/stock/consume",
+        json!({
+            "item_id": serial_item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "serial_id": serial_id,
+            "ticket_id": ticket_id,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    );
+    let ship_serial = post(
+        &app,
+        &token,
+        "/api/v1/stock/ship-out",
+        json!({
+            "item_id": serial_item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "serial_id": serial_id,
+            "ticket_id": ticket_id,
+            "carrier": "UPS",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    );
+    let pair = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        tokio::join!(consume_serial, ship_serial)
+    })
+    .await
+    .expect("no deadlock between a use and a ship-out of one unit");
+    for (status, body) in [pair.0, pair.1] {
+        assert!(
+            status == 200 || status == 409,
+            "a contested unit resolves to a landing or a typed conflict: {status} {body}"
+        );
+    }
 }
