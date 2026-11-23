@@ -461,6 +461,29 @@ pub async fn update_cost_line(
             };
             return Err(ApiError::Conflict(message.into()));
         }
+        // A reversed consumption put its money back and left the negative line
+        // as the record. Re-arming the original charge would subtract it twice,
+        // so a stock-sourced line whose movement was reversed cannot be made
+        // billable again.
+        if req.billable == Some(true) {
+            let reversed = sqlx::query_scalar!(
+                r#"SELECT EXISTS(
+                     SELECT 1 FROM stock_movements m
+                       JOIN stock_movements r
+                         ON r.org_id = m.org_id AND r.reverses_movement_id = m.id
+                      WHERE m.org_id = $1 AND m.ticket_cost_line_id = $2)"#,
+                org_id,
+                line_id,
+            )
+            .fetch_one(&mut *ctx.tx)
+            .await?;
+            if reversed.unwrap_or(false) {
+                return Err(ApiError::Conflict(
+                    "this consumption was reversed; its charge cannot be made billable again"
+                        .into(),
+                ));
+            }
+        }
         // Snapshot doctrine (ADR 0002): a fact that already locked an FX
         // snapshot cannot have its amount edited in place — the locked
         // `base_amount_minor` would silently stop matching the row's own
@@ -606,6 +629,22 @@ pub async fn remove_cost_line(
             core_db::purchasing::recharge_cost_line_state(&mut *ctx.tx, org_id, line_id).await?
         {
             return Err(ApiError::Conflict(RECHARGE_LINE_BILLED_REFUSAL.into()));
+        }
+        // A stock-sourced line is the other half of a movement that names it,
+        // and that row is append-only. Deleting the line would leave the
+        // movement citing nothing; the reversal path is the undo.
+        let source_kind = sqlx::query_scalar!(
+            r#"SELECT source_kind FROM ticket_cost_lines WHERE org_id = $1 AND id = $2"#,
+            org_id,
+            line_id,
+        )
+        .fetch_one(&mut *ctx.tx)
+        .await?;
+        if source_kind.as_deref() == Some("stock_movement") {
+            return Err(ApiError::Conflict(
+                "this line came from a stock consumption; reverse the consumption instead of deleting it"
+                    .into(),
+            ));
         }
         let removed = core_db::costs::remove_cost_line(&mut ctx.tx, org_id, line_id).await?;
         if !removed {

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(\n                     SELECT 1 FROM stock_movements m\n                       JOIN stock_movements r\n                         ON r.org_id = m.org_id AND r.reverses_movement_id = m.id\n                      WHERE m.org_id = $1 AND m.ticket_cost_line_id = $2)",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "15f7adc6092edbff4fde5734b99afeffd51167590c93cb1b754408b57685c81f"
+}

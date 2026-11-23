@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "SELECT id, quantity::double precision AS \"quantity!\", unit_cost_minor,\n                          currency, billable, description, invoice_line_id\n                     FROM ticket_cost_lines WHERE org_id = $1 AND id = $2",
+  "query": "SELECT id, quantity::double precision AS \"quantity!\", unit_cost_minor,\n                          currency, billable, description, invoice_line_id\n                     FROM ticket_cost_lines WHERE org_id = $1 AND id = $2 FOR UPDATE",
   "describe": {
     "columns": [
       {
@@ -55,5 +55,5 @@
       true
     ]
   },
-  "hash": "fa9ef035c9b68dae09ab5472d82d4e6a622481b2668d65946acc831027db356a"
+  "hash": "613bd448bc112c01636010823b32d77e5d703b5e13942a0d08870e87b6b31e90"
 }

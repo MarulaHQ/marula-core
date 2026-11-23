@@ -73,15 +73,18 @@ costs (below).
 
 ### What a use costs the job
 
-A use against a ticket writes one cost line in the same transaction as the
-ledger row, priced from the item's last unit cost, and it reaches the
-invoice run like any other parts cost. A consumption can record itself as
-not billable when the part is on the house: the shelf still moves and the
-job's costs stay where they were, because no line is written.
+A billable **Use** against a ticket writes one cost line in the same
+transaction as the ledger row, priced from the item's last unit cost, and it
+reaches the invoice run like any other parts cost. A consumption recorded as
+not billable moves the shelf and writes no line, so the job's costs stay
+where they were.
 
-A consumption reverses once. The reversal puts the quantity back on the
-shelf and adds a negative line to the same ticket, so the job's cost total
-returns to where it was before the use.
+A billable use can be reversed once, through the API operation
+`stock_consume_reverse`; the ticket screens do not offer the action yet. The
+reversal puts the quantity back on the shelf and adds a negative line, so the
+job's cost total returns to where it was. A zero-rated use also restores the
+shelf, with no line to offset. Once the cost line is on an invoice, reversal
+is refused and the correction is a credit note.
 
 ## 4. Dispatch stock to a ticket from the stockroom
 

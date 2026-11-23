@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT source_kind, source_id FROM ticket_cost_lines\n            WHERE org_id = $1 AND id = $2",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "source_kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 1,
+        "name": "source_id",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      true,
+      true
+    ]
+  },
+  "hash": "c2ffcec666b6d25d12e78d832eba87f24dce22924e8ec0094a31e7afb2d5960b"
+}

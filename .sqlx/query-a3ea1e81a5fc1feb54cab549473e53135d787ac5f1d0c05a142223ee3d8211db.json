@@ -1,0 +1,67 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT c.id AS line_id, c.ticket_id, t.number AS ticket_number,\n                  c.description, c.kind,\n                  round(c.quantity * c.unit_cost_minor)::bigint AS \"amount_minor!\",\n                  c.currency, c.base_amount_minor\n             FROM ticket_cost_lines c\n             JOIN project_ticket_links l\n               ON l.org_id = c.org_id AND l.ticket_id = c.ticket_id\n             JOIN tickets t ON t.org_id = c.org_id AND t.id = c.ticket_id\n            WHERE c.org_id = $1 AND l.project_id = $2\n              AND ($4::boolean OR t.client_id IS NULL OR NOT EXISTS (\n                    SELECT 1 FROM clients cl\n                     WHERE cl.org_id = t.org_id\n                       AND cl.id = t.client_id\n                       AND cl.restricted_to <> '[]'::jsonb\n                       AND NOT (cl.restricted_to ? $3)))\n            ORDER BY c.created_at, c.id",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "line_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "ticket_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "ticket_number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "description",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "kind",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "amount_minor!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 6,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "base_amount_minor",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Uuid",
+        "Text",
+        "Bool"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      null,
+      false,
+      true
+    ]
+  },
+  "hash": "a3ea1e81a5fc1feb54cab549473e53135d787ac5f1d0c05a142223ee3d8211db"
+}

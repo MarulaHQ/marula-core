@@ -1,12 +1,15 @@
 //! Consuming stock puts money on the job, through the REAL router.
 //!
 //! Pins the row's acceptance:
-//! 1. 100 units at 0.02 against a ticket write one 2.00 cost line and a
-//!    movement that carries the same money, each citing the other.
-//! 2. A zero-rated consumption moves the shelf and writes no line, so the job's
+//! 1. 100 units at 0.02 against a ticket write one 2.00 cost line, drop the
+//!    shelf by 100, and offer the charge to the invoice run; the movement and
+//!    the line cite each other.
+//! 2. The project rollup shows the same line and amount.
+//! 3. A zero-rated consumption moves the shelf and writes no line, so the job's
 //!    costs are unchanged.
-//! 3. A reversal restores the shelf and negates the line; a second reversal is
-//!    a typed 409.
+//! 4. A reversal restores the shelf and nets the line; a second reversal is a
+//!    typed 409.
+//! 5. A serialized consumption names the unit on its line.
 
 use crate::common::{auth, body_json, boot_with, register_org_token, send_headers as send};
 use axum::Router;
@@ -31,12 +34,73 @@ async fn get(app: &Router, token: &str, path: &str) -> Value {
     body_json(response).await
 }
 
+/// The shelf level for one item at one location, scoped to the fixture org.
+async fn shelf(pool: &sqlx::PgPool, org_id: Uuid, item_id: Uuid) -> i64 {
+    sqlx::query_scalar!(
+        r#"SELECT qty_milli FROM stock_levels
+            WHERE org_id = $1 AND stock_item_id = $2"#,
+        org_id,
+        item_id,
+    )
+    .fetch_one(pool)
+    .await
+    .expect("the item has a level")
+}
+
 #[tokio::test]
 async fn consuming_bills_the_job_and_reverses_both_sides() {
     let (state, app) =
         boot_with(|config| config.secret_key = core_api::config::SecretKey([41; 32])).await;
     let slug = format!("consume-{}", Uuid::now_v7().simple());
     let token = register_org_token(&app, "Consume Co", &slug).await;
+
+    // A project with a budget, a task, and the ticket promoted from that task:
+    // the ticket is linked to the project, so the rollup can see its costs.
+    let (status, project) = post(
+        &app,
+        &token,
+        "/api/v1/projects",
+        json!({
+            "name": "Consume a part",
+            "budget_minor": 500_000,
+            "currency": "USD",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "project");
+    let project_id = project["id"].as_str().unwrap().to_string();
+    let (status, task) = post(
+        &app,
+        &token,
+        &format!("/api/v1/projects/{project_id}/tasks"),
+        json!({
+            "title": "Install the patch panel",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "task");
+    let task_id = task["id"].as_str().unwrap().to_string();
+    let (status, promoted) = post(
+        &app,
+        &token,
+        &format!("/api/v1/projects/{project_id}/tasks/{task_id}/promote"),
+        json!({ "idempotency_key": Uuid::now_v7().to_string() }),
+    )
+    .await;
+    assert_eq!(status, 200, "promote: {promoted}");
+    let ticket_id = promoted["ticket_id"].as_str().unwrap().to_string();
+
+    // The fixture's org, resolved once from the project it just created, so
+    // every direct assertion below is scoped like a product read.
+    let org_id: Uuid = sqlx::query_scalar!(
+        r#"SELECT org_id FROM projects WHERE id = $1"#,
+        Uuid::parse_str(&project_id).unwrap(),
+    )
+    .fetch_one(&state.pool)
+    .await
+    .expect("the project has an org");
 
     let (status, item) = post(
         &app,
@@ -54,6 +118,7 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
     .await;
     assert_eq!(status, 200, "item");
     let item_id = item["id"].as_str().unwrap().to_string();
+    let item_uuid: Uuid = item_id.parse().unwrap();
     let (status, location) = post(
         &app,
         &token,
@@ -77,23 +142,16 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
     )
     .await;
     assert_eq!(status, 200, "receive");
+    assert_eq!(shelf(&state.pool, org_id, item_uuid).await, 200_000);
 
-    let boards = get(&app, &token, "/api/v1/boards").await;
-    let board_id = boards[0]["id"].as_str().unwrap().to_string();
-    let (status, ticket) = post(
+    // The rollup starts empty for this project.
+    let rollup = get(
         &app,
         &token,
-        "/api/v1/tickets",
-        json!({
-            "board_id": board_id,
-            "title": "Consume a patch cable",
-            "priority": "p3",
-            "idempotency_key": Uuid::now_v7().to_string(),
-        }),
+        &format!("/api/v1/projects/{project_id}/cost-rollup"),
     )
     .await;
-    assert_eq!(status, 200, "ticket");
-    let ticket_id = ticket["id"].as_str().unwrap().to_string();
+    assert_eq!(rollup["ticket_cost_base_minor"], json!(0));
 
     // A ticket id from nowhere is not a ticket to bill.
     let (status, _) = post(
@@ -127,6 +185,7 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
     assert_eq!(status, 200, "consume: {billed}");
     assert_eq!(billed["movement"]["cost_minor"], json!(2));
     let movement_uuid: Uuid = billed["movement"]["id"].as_str().unwrap().parse().unwrap();
+    assert_eq!(shelf(&state.pool, org_id, item_uuid).await, 100_000);
 
     let lines = get(
         &app,
@@ -141,28 +200,34 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
     assert_eq!(line["quantity"], json!(100.0));
     assert_eq!(line["unit_cost_minor"], json!(2));
     assert_eq!(line["kind"], json!("parts"));
+    assert_eq!(line["org_id"], json!(org_id));
     let line_uuid: Uuid = line["id"].as_str().unwrap().parse().unwrap();
 
     // The mutual citation is a row-level fact: the line names the movement as
     // its source, and the append-only movement names the line it wrote.
-    let (source_kind, source_id) = sqlx::query_as::<_, (String, Uuid)>(
-        "SELECT source_kind, source_id FROM ticket_cost_lines WHERE id = $1",
+    let cited = sqlx::query!(
+        r#"SELECT source_kind, source_id FROM ticket_cost_lines
+            WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        line_uuid,
     )
-    .bind(line_uuid)
     .fetch_one(&state.pool)
     .await
     .expect("the line names its source");
-    assert_eq!(source_kind, "stock_movement");
-    assert_eq!(source_id, movement_uuid);
-    let linked: Option<Uuid> =
-        sqlx::query_scalar("SELECT ticket_cost_line_id FROM stock_movements WHERE id = $1")
-            .bind(movement_uuid)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap();
+    assert_eq!(cited.source_kind.as_deref(), Some("stock_movement"));
+    assert_eq!(cited.source_id, Some(movement_uuid));
+    let linked = sqlx::query_scalar!(
+        r#"SELECT ticket_cost_line_id FROM stock_movements
+            WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        movement_uuid,
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
     assert_eq!(linked, Some(line_uuid));
 
-    // The charge is offered to the invoice run before it is reversed.
+    // The charge is offered to the invoice run, and the project sees it too.
     let candidates = get(&app, &token, "/api/v1/invoice-candidates").await;
     let offered = |body: &Value| {
         body.as_array()
@@ -172,6 +237,17 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
             .count()
     };
     assert_eq!(offered(&candidates), 1, "the charge is billable");
+    let rollup = get(
+        &app,
+        &token,
+        &format!("/api/v1/projects/{project_id}/cost-rollup"),
+    )
+    .await;
+    assert_eq!(rollup["ticket_cost_base_minor"], json!(200));
+    let rollup_lines = rollup["ticket_cost_lines"].as_array().unwrap();
+    assert_eq!(rollup_lines.len(), 1);
+    assert_eq!(rollup_lines[0]["line_id"], json!(line_uuid));
+    assert_eq!(rollup_lines[0]["amount_minor"], json!(200));
 
     // Zero-rated: the shelf still moves and the job's costs do not change.
     let (status, free) = post(
@@ -190,13 +266,17 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
     .await;
     assert_eq!(status, 200, "zero-rated consume");
     assert_eq!(free["movement"]["cost_minor"], json!(2), "the cost is kept");
+    assert_eq!(shelf(&state.pool, org_id, item_uuid).await, 99_000);
     let free_movement: Uuid = free["movement"]["id"].as_str().unwrap().parse().unwrap();
-    let free_line: Option<Uuid> =
-        sqlx::query_scalar("SELECT ticket_cost_line_id FROM stock_movements WHERE id = $1")
-            .bind(free_movement)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap();
+    let free_line = sqlx::query_scalar!(
+        r#"SELECT ticket_cost_line_id FROM stock_movements
+            WHERE org_id = $1 AND id = $2"#,
+        org_id,
+        free_movement,
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap();
     assert_eq!(free_line, None, "a zero-rated use writes no line");
     let after_free = get(
         &app,
@@ -222,6 +302,7 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
     assert_eq!(reversed["movement"]["kind"], json!("consume_reverse"));
     assert_eq!(reversed["movement"]["qty_milli"], json!(100_000));
     assert_eq!(reversed["movement"]["cost_minor"], json!(2));
+    assert_eq!(shelf(&state.pool, org_id, item_uuid).await, 199_000);
 
     let lines = get(
         &app,
@@ -243,7 +324,6 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
         .map(|row| row["quantity"].as_f64().unwrap() * row["unit_cost_minor"].as_f64().unwrap())
         .sum();
     assert_eq!(net, 0.0, "the reversal takes the charge back off the job");
-
     assert!(
         rows.iter().all(|row| row["billable"] == json!(false)),
         "nothing is left to invoice"
@@ -254,8 +334,19 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
         0,
         "a reversed consumption cannot be invoiced"
     );
+    let rollup = get(
+        &app,
+        &token,
+        &format!("/api/v1/projects/{project_id}/cost-rollup"),
+    )
+    .await;
+    assert_eq!(
+        rollup["ticket_cost_base_minor"],
+        json!(0),
+        "the project total returns to where it was"
+    );
 
-    let (status, _) = post(
+    let (status, again) = post(
         &app,
         &token,
         &format!("/api/v1/stock/consume/{movement_uuid}/reverse"),
@@ -263,14 +354,162 @@ async fn consuming_bills_the_job_and_reverses_both_sides() {
     )
     .await;
     assert_eq!(status, 409, "a consumption reverses once");
+    assert_eq!(
+        again["error"]["reason"],
+        json!("consumption_already_reversed"),
+        "the repeat is the typed conflict"
+    );
+    assert_eq!(shelf(&state.pool, org_id, item_uuid).await, 199_000);
 
-    // 200 received, 100 consumed (billable), 1 consumed (zero-rated), 100
-    // restored.
-    let on_shelf: i64 =
-        sqlx::query_scalar("SELECT qty_milli FROM stock_levels WHERE stock_item_id = $1")
-            .bind(Uuid::parse_str(&item_id).unwrap())
-            .fetch_one(&state.pool)
-            .await
-            .unwrap();
-    assert_eq!(on_shelf, 199_000, "the reversal puts the quantity back");
+    // A same-key retry replays the original response instead of failing.
+    let key = Uuid::now_v7().to_string();
+    let (status, first) = post(
+        &app,
+        &token,
+        "/api/v1/stock/consume",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "ticket_id": ticket_id,
+            "idempotency_key": key,
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "fresh consumption");
+    let (status, replay) = post(
+        &app,
+        &token,
+        "/api/v1/stock/consume",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "ticket_id": ticket_id,
+            "idempotency_key": key,
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "replay");
+    assert_eq!(replay["movement"]["id"], first["movement"]["id"]);
+    assert_eq!(shelf(&state.pool, org_id, item_uuid).await, 198_000);
+
+    // The consumed charge is not deletable; the reversal is its undo.
+    let delete = send(
+        &app,
+        axum::http::Method::DELETE,
+        &format!(
+            "/api/v1/tickets/{ticket_id}/cost-lines/{}",
+            rows[0]["id"].as_str().unwrap()
+        ),
+        &[auth(&token)],
+        None,
+    )
+    .await;
+    assert_eq!(
+        delete.status().as_u16(),
+        409,
+        "a stock-sourced line is not deleted"
+    );
+}
+
+#[tokio::test]
+async fn serialized_consumption_names_the_unit_on_the_line() {
+    let (_state, app) =
+        boot_with(|config| config.secret_key = core_api::config::SecretKey([42; 32])).await;
+    let slug = format!("consume-sn-{}", Uuid::now_v7().simple());
+    let token = register_org_token(&app, "Serial Co", &slug).await;
+
+    let (status, item) = post(
+        &app,
+        &token,
+        "/api/v1/stock-items",
+        json!({
+            "name": "Switch",
+            "kind": "serialized",
+            "unit": "each",
+            "currency": "USD",
+            "last_unit_cost_minor": 90_000,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "item");
+    let item_id = item["id"].as_str().unwrap().to_string();
+    let (status, location) = post(
+        &app,
+        &token,
+        "/api/v1/stock-locations",
+        json!({ "name": "Shelf", "kind": "warehouse", "idempotency_key": Uuid::now_v7().to_string() }),
+    )
+    .await;
+    assert_eq!(status, 200, "location");
+    let location_id = location["id"].as_str().unwrap().to_string();
+    let (status, received) = post(
+        &app,
+        &token,
+        "/api/v1/stock/receive",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "unit_cost_minor": 90_000,
+            "serial_numbers": ["SW-0042"],
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "receive: {received}");
+    let serial_id = received["movement"]["serial_id"]
+        .as_str()
+        .expect("the receive names its serial")
+        .to_string();
+
+    let boards = get(&app, &token, "/api/v1/boards").await;
+    let board_id = boards[0]["id"].as_str().unwrap().to_string();
+    let (status, ticket) = post(
+        &app,
+        &token,
+        "/api/v1/tickets",
+        json!({
+            "board_id": board_id,
+            "title": "Install the switch",
+            "priority": "p3",
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "ticket");
+    let ticket_id = ticket["id"].as_str().unwrap().to_string();
+
+    let (status, consumed) = post(
+        &app,
+        &token,
+        "/api/v1/stock/consume",
+        json!({
+            "item_id": item_id,
+            "location_id": location_id,
+            "qty_milli": 1000,
+            "serial_id": serial_id,
+            "ticket_id": ticket_id,
+            "idempotency_key": Uuid::now_v7().to_string(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "consume: {consumed}");
+    let lines = get(
+        &app,
+        &token,
+        &format!("/api/v1/tickets/{ticket_id}/cost-lines"),
+    )
+    .await;
+    let rows = lines.as_array().unwrap();
+    assert_eq!(rows.len(), 1);
+    let description = rows[0]["description"].as_str().unwrap();
+    assert!(
+        description.contains("SN SW-0042"),
+        "the line names the unit: {description}"
+    );
+    assert_eq!(rows[0]["quantity"], json!(1.0));
+    assert_eq!(rows[0]["unit_cost_minor"], json!(90_000));
 }

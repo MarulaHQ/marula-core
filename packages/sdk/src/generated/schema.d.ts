@@ -20382,8 +20382,10 @@ export interface components {
         };
         ConsumeRequest: components["schemas"]["MutationParams"] & {
             /**
-             * @description Whether the consumption bills the ticket. Defaults to true; false is the
-             *     explicit zero-rated path (the movement still carries its cost).
+             * @description Whether the consumption bills the ticket. Defaults to true. False is
+             *     the explicit zero-rated path: the shelf still moves and the movement
+             *     carries its unit cost, but no cost line is written, so the job's costs
+             *     are unchanged.
              */
             billable?: boolean | null;
             /** Format: uuid */
@@ -31493,6 +31495,17 @@ export interface components {
             po_bill_base_minor: number;
             /** Format: uuid */
             project_id: string;
+            /**
+             * Format: int64
+             * @description Ticket cost lines in base currency, including parts drawn from stock.
+             */
+            ticket_cost_base_minor: number;
+            ticket_cost_lines: components["schemas"]["RollupCostLineView"][];
+            /**
+             * Format: int64
+             * @description Ticket rows left out of the total because they carry no base amount.
+             */
+            unconverted_ticket_rows: number;
         };
         /** @description The project's Gantt: dated phases as bars, undated ones as list items. */
         ProjectGanttView: {
@@ -34530,6 +34543,20 @@ export interface components {
             /** Format: uuid */
             purchase_order_id: string;
             purchase_order_number: string;
+        };
+        RollupCostLineView: {
+            /** Format: int64 */
+            amount_minor: number;
+            /** Format: int64 */
+            base_amount_minor?: number | null;
+            currency: string;
+            description: string;
+            kind: string;
+            /** Format: uuid */
+            line_id: string;
+            /** Format: uuid */
+            ticket_id: string;
+            ticket_number: string;
         };
         RoutingDayQuery: {
             /**

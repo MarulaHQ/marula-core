@@ -7,7 +7,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 
 **Marula Core API 0.6.3** — The single write surface for Project Marula. All mutations flow through this API and emit domain events. Generated from the committed [OpenAPI pin](openapi.md) (`packages/sdk/openapi.json`), which is byte-identical to `fixtures/openapi/v1/openapi.json`. License: AGPL-3.0-or-later.
 
-**799 paths · 1060 operations · 1672 schemas.**
+**799 paths · 1060 operations · 1673 schemas.**
 
 ## accounting
 
@@ -2946,6 +2946,7 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-roleslistresponse"></a>`RolesListResponse` | object |  |
 | <a id="schema-roleview"></a>`RoleView` | object | One org role row (preset or custom). `permissions` is the raw matrix vocabulary: `{"matrix": {"module", "action"}}` entries plus bare special strings (`"financial:read"`, `"special:manage_users"`, …). |
 | <a id="schema-rollupbillview"></a>`RollupBillView` | object |  |
+| <a id="schema-rollupcostlineview"></a>`RollupCostLineView` | object |  |
 | <a id="schema-routingdayquery"></a>`RoutingDayQuery` | object |  |
 | <a id="schema-routingdayview"></a>`RoutingDayView` | object |  |
 | <a id="schema-routingprofile"></a>`RoutingProfile` | object | The routing-capability declaration a provider pack carries. Closed vocabularies only; a pack cannot declare a capability or mode the seam does not speak. |
@@ -3381,4 +3382,4 @@ description: "Marula Core API reference: endpoints, operations, request bodies a
 | <a id="schema-worktypemaprowwire"></a>`WorkTypeMapRowWire` | object |  |
 | <a id="schema-worktypeslice"></a>`WorkTypeSlice` | object |  |
 
-*Tagged 34 operation groups; schema count 1672 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*
+*Tagged 34 operation groups; schema count 1673 matches the pin. Regenerate with `node docs/site/scripts/generate-api-reference.mjs` after any OpenAPI regen.*

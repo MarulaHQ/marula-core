@@ -302,13 +302,13 @@ impl StockMovement {
                         .into(),
                 ));
             }
-            "checkin" | "loan_return"
+            "checkin" | "loan_return" | "consume_reverse"
                 if self.from_location_id.is_some()
                     || self.to_location_id.is_none()
                     || self.qty_milli <= 0 =>
             {
                 return Err(DomainError::Validation(
-                    "checkin/loan_return require a destination location and positive quantity"
+                    "checkin/loan_return/consume_reverse require a destination location and positive quantity"
                         .into(),
                 ));
             }

@@ -408,7 +408,7 @@ pub struct ConsumeRequest {
     /// the explicit zero-rated path: the shelf still moves and the movement
     /// carries its unit cost, but no cost line is written, so the job's costs
     /// are unchanged.
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub billable: Option<bool>,
     pub note: Option<String>,
     #[serde(flatten, default)]
@@ -976,12 +976,21 @@ pub(crate) async fn emit_movement_side_effects(
         )
         .await?;
     }
+    // The stream is org-wide: any member can subscribe, and the HTTP reads mask
+    // money behind `ViewFinancials`. A receipt's payload is unchanged, but the
+    // consume legs are new, so their unit cost stays off the broadcast and is
+    // read through the permission-gated movement and cost-line endpoints.
+    let mut event_movement = movement.clone();
+    if matches!(movement.kind.as_str(), "consume" | "consume_reverse") {
+        event_movement.cost_minor = None;
+        event_movement.base_cost_minor = None;
+    }
     ctx.emit(
         core_domain::events::types::STOCK_MOVEMENT_RECORDED,
         "stock_movement",
         Some(movement.id.to_string().as_str()),
         &serde_json::to_value(core_domain::events::StockMovementRecorded {
-            movement: movement.clone(),
+            movement: event_movement,
         })
         .unwrap_or_else(|_| serde_json::json!({})),
     )
@@ -1526,10 +1535,25 @@ async fn ledger_apply(
         // cost on this table (a receive stores its unit cost there), and the
         // direction of the money is the sign of the quantity, so the unit stays
         // positive and the ticket line multiplies it by the quantity.
-        let bill_unit_cost = extras
-            .bill
-            .as_ref()
-            .map(|_| item.last_unit_cost_minor.unwrap_or(0));
+        //
+        // The row is locked before the price is read: a receipt that commits a
+        // new unit cost between this read and the decrement would otherwise
+        // charge the old cost for stock the receipt added. The lock is the same
+        // row the receipt roll-up writes, and it is taken before any
+        // `stock_levels` row, matching the withdrawal path's order.
+        let bill_unit_cost = if extras.bill.is_some() {
+            let locked = sqlx::query_scalar!(
+                r#"SELECT last_unit_cost_minor FROM stock_items
+                    WHERE org_id = $1 AND id = $2 FOR UPDATE"#,
+                org_id,
+                movement.stock_item_id,
+            )
+            .fetch_one(&mut *ctx.tx)
+            .await?;
+            Some(locked.unwrap_or(0))
+        } else {
+            None
+        };
         if let Some(unit) = bill_unit_cost {
             movement.cost_minor = Some(unit);
         }
@@ -1603,6 +1627,20 @@ async fn ledger_apply(
             .as_ref()
             .filter(|bill| bill.billable)
             .map(|_| Uuid::now_v7());
+        // A consumable is anonymous, a serialized unit is not: the line names
+        // the unit it consumed, so a reader can identify it from the job.
+        let serial_label = if let Some(serial_id) = movement.serial_id {
+            let number = sqlx::query_scalar!(
+                r#"SELECT serial_number FROM stock_serials WHERE org_id = $1 AND id = $2"#,
+                org_id,
+                serial_id,
+            )
+            .fetch_optional(&mut *ctx.tx)
+            .await?;
+            number.map(|n| format!(" (SN {n})")).unwrap_or_default()
+        } else {
+            String::new()
+        };
         if let (Some(bill), Some(line_id), Some(unit)) = (&extras.bill, line_id, bill_unit_cost) {
             core_db::costs::insert_sourced_cost_line(
                 &mut ctx.tx,
@@ -1612,8 +1650,9 @@ async fn ledger_apply(
                     ticket_id: bill.ticket_id,
                     kind: core_domain::entities::CostLineKind::Parts,
                     description: format!(
-                        "Consumed {} × {}",
+                        "Consumed {}{} × {}",
                         item.name,
+                        serial_label,
                         (movement.qty_milli.unsigned_abs() as f64) / 1000.0
                     ),
                     quantity: (movement.qty_milli.unsigned_abs() as f64) / 1000.0,
@@ -1689,6 +1728,29 @@ async fn ledger_apply(
         )
         .await?;
 
+        // The replay payload is the response body without `mutation` (the
+        // framework injects that), so a same-key retry deserializes back into
+        // `MovementMutationResponse` instead of failing on a missing `movement`.
+        let response_movement = mv_view(movement.clone(), financial);
+        let payload = serde_json::json!({ "movement": &response_movement });
+        // `mutation.after` is the entity snapshot, and it reaches the caller
+        // and the replay store. Money stays out of it for a caller without the
+        // financial read, exactly as the movement view masks it; the ledger row
+        // and the cost line keep the real amounts.
+        let mut after = serde_json::to_value(&movement).unwrap_or(Value::Null);
+        if !financial {
+            if let Some(map) = after.as_object_mut() {
+                for field in [
+                    "cost_minor",
+                    "base_cost_minor",
+                    "fx_rate_used",
+                    "fx_rate_date",
+                    "fx_source",
+                ] {
+                    map.insert(field.to_string(), Value::Null);
+                }
+            }
+        }
         let mutation = instant::record(
             &mut ctx,
             instant::RecordSpec {
@@ -1697,10 +1759,10 @@ async fn ledger_apply(
                 op,
                 seq: write_seq,
                 before: None,
-                after: serde_json::to_value(&movement).unwrap_or(Value::Null),
+                after,
                 updated_at: movement.created_at,
                 key: key.as_deref(),
-                payload: &movement,
+                payload: &payload,
                 provenance: Default::default(),
             },
         )
@@ -1709,7 +1771,7 @@ async fn ledger_apply(
         Ok((
             ctx,
             MutationOutcome::Applied(MovementMutationResponse {
-                movement: mv_view(movement, financial),
+                movement: response_movement,
                 mutation,
             }),
         ))
@@ -3103,11 +3165,26 @@ pub async fn reverse_consume(
         .fetch_one(&mut *ctx.tx)
         .await?;
         if already.unwrap_or(false) {
-            return Err(ApiError::Conflict(
-                "this consumption has already been reversed".into(),
-            ));
+            // Same typed reason the unique index maps to, so a client sees one
+            // code whether the check or the index catches the repeat.
+            return Err(ApiError::UniqueConflict {
+                kind: "consumption_already_reversed",
+                message: "that consumption has already been reversed",
+            });
         }
 
+        // A reversal changes the original ticket's money, so it passes the same
+        // board gate the cost routes do, not just org + financial scope.
+        if let Some(ticket_id) = original.ticket_id {
+            crate::routes::costs::ticket_for_board_check(
+                &mut ctx.tx,
+                &authed.principal,
+                org_id,
+                ticket_id,
+                BoardOp::View,
+            )
+            .await?;
+        }
         let item =
             core_db::stock::get_stock_item(&mut *ctx.tx, org_id, original.stock_item_id).await?;
         let reversal = core_domain::entities::StockMovement {
@@ -3142,7 +3219,7 @@ pub async fn reverse_consume(
             sqlx::query!(
                 r#"SELECT id, quantity::double precision AS "quantity!", unit_cost_minor,
                           currency, billable, description, invoice_line_id
-                     FROM ticket_cost_lines WHERE org_id = $1 AND id = $2"#,
+                     FROM ticket_cost_lines WHERE org_id = $1 AND id = $2 FOR UPDATE"#,
                 org_id,
                 line_id,
             )
@@ -3165,14 +3242,20 @@ pub async fn reverse_consume(
             // The reversed charge must not stay in the invoicing feed: the
             // negative line records the correction, and the original stops
             // being billable so a run cannot invoice stock that came back.
-            sqlx::query!(
+            let unbilled = sqlx::query!(
                 r#"UPDATE ticket_cost_lines SET billable = false, updated_at = now()
-                    WHERE org_id = $1 AND id = $2"#,
+                    WHERE org_id = $1 AND id = $2 AND invoice_line_id IS NULL"#,
                 org_id,
                 line.id,
             )
             .execute(&mut *ctx.tx)
             .await?;
+            if unbilled.rows_affected() == 0 {
+                return Err(ApiError::Conflict(
+                    "that consumption is already on an invoice; issue a credit note instead of reversing it"
+                        .into(),
+                ));
+            }
             let negated = core_domain::entities::TicketCostLine {
                 id: new_line_id,
                 org_id,
@@ -3222,7 +3305,46 @@ pub async fn reverse_consume(
             },
         )
         .await?;
-        let mut movement = ledger_out.movement;
+        let core_db::stock::LedgerOutcome { mut movement, low } = ledger_out;
+
+        // A serialized consumption took one unit out; putting it back is the
+        // serial row's consequence, so it happens in this transaction too. The
+        // row is locked and must still be out *because of this consumption*: a
+        // unit received or moved since is a conflict, not a silent overwrite
+        // that would leave the level and the serial disagreeing.
+        if let Some(serial_id) = original.serial_id {
+            let custody = sqlx::query!(
+                r#"SELECT status, movement_out_id FROM stock_serials
+                    WHERE org_id = $1 AND id = $2 FOR UPDATE"#,
+                org_id,
+                serial_id,
+            )
+            .fetch_optional(&mut *ctx.tx)
+            .await?;
+            let still_out = custody
+                .map(|row| row.status == "out" && row.movement_out_id == Some(movement_id))
+                .unwrap_or(false);
+            if !still_out {
+                return Err(ApiError::Conflict(
+                    "the unit is no longer out because of this consumption; it moved since"
+                        .into(),
+                ));
+            }
+            sqlx::query!(
+                r#"UPDATE stock_serials
+                      SET status = 'in_stock', location_id = $3, movement_in_id = $4,
+                          updated_at = now()
+                    WHERE org_id = $1 AND id = $2"#,
+                org_id,
+                serial_id,
+                original.from_location_id,
+                movement.id,
+            )
+            .execute(&mut *ctx.tx)
+            .await?;
+        }
+
+        emit_movement_side_effects(&mut ctx, org_id, &movement, low.as_ref()).await?;
 
         core_db::audit::insert(
             &mut *ctx.tx,
@@ -3253,6 +3375,10 @@ pub async fn reverse_consume(
             },
         )
         .await?;
+        // The replay payload is the response body without `mutation`, as in the
+        // pool reversal, so a same-key retry replays the original response.
+        let response_movement = mv_view(movement.clone(), financial);
+        let payload = serde_json::json!({ "movement": &response_movement });
         let mutation = instant::record(
             &mut ctx,
             instant::RecordSpec {
@@ -3264,7 +3390,7 @@ pub async fn reverse_consume(
                 after: serde_json::to_value(&movement).unwrap_or(Value::Null),
                 updated_at: movement.created_at,
                 key: key.as_deref(),
-                payload: &movement,
+                payload: &payload,
                 provenance: Default::default(),
             },
         )
@@ -3273,7 +3399,7 @@ pub async fn reverse_consume(
         Ok((
             ctx,
             MutationOutcome::Applied(MovementMutationResponse {
-                movement: mv_view(movement, financial),
+                movement: response_movement,
                 mutation,
             }),
         ))
