@@ -1109,11 +1109,12 @@ pub async fn package_records(
         memo: Some(r.description),
     }));
     // Stock valuation at period end: one row per item that has quantity on
-    // hand, valued at the last receipt cost locked at or before the period end
-    // (the item's current cost when the ledger holds no receipt up to that
-    // date). Quantity is the
-    // ledger's net movement up to that date, never the live level, so a package
-    // for an earlier period values what was on the shelf then.
+    // hand, valued at the last receipt cost locked at or before the period end.
+    // Both halves are dated, so regenerating a closed period yields the same
+    // number: the quantity is the ledger's net movement up to that date (never
+    // the live level) and the cost is the latest receipt up to it (never the
+    // mutable `last_unit_cost_minor`, which a later receipt overwrites). An
+    // item with quantity but no dated receipt cost reports zero and says why.
     let stock = sqlx::query!(
         r#"WITH on_hand AS (
               SELECT m.stock_item_id, SUM(m.qty_milli)::bigint AS qty_milli
@@ -1130,7 +1131,7 @@ pub async fn package_records(
                  AND m.created_at < (($2::date + 1)::timestamp AT TIME ZONE 'UTC')
                ORDER BY m.stock_item_id, m.created_at DESC, m.id DESC
            )
-           SELECT i.id, i.name, i.sku, i.currency AS item_currency, i.last_unit_cost_minor,
+           SELECT i.id, i.name, i.sku, i.currency AS item_currency,
                   h.qty_milli AS "qty_milli!", b.cost_minor AS "receipt_cost_minor?",
                   b.currency AS "receipt_currency?", b.base_cost_minor
              FROM on_hand h
@@ -1143,7 +1144,7 @@ pub async fn package_records(
     .fetch_all(&mut *conn)
     .await?;
     out.extend(stock.into_iter().map(|r| {
-        let unit_cost = r.receipt_cost_minor.or(r.last_unit_cost_minor);
+        let unit_cost = r.receipt_cost_minor;
         let amount_minor = unit_cost.map_or(0, |c| snapshot_value_minor(r.qty_milli, c));
         let base_amount_minor = match (r.receipt_cost_minor, r.base_cost_minor) {
             (Some(_), Some(base)) => Some(snapshot_value_minor(r.qty_milli, base)),
@@ -1151,7 +1152,7 @@ pub async fn package_records(
         };
         let mut memo = format!("{} {} on hand", units_text(r.qty_milli), r.name);
         if unit_cost.is_none() {
-            memo.push_str(" (no cost on record)");
+            memo.push_str(" (no receipt cost at or before the period end)");
         }
         PackageRecord {
             kind: "stock_item".into(),

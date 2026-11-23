@@ -81,10 +81,12 @@ A non-capitalised layer posts to a ticket instead, so it is not in the package;
 it appears on the ticket's costs and in the reporting-class rollup.
 
 A stock valuation row is one per item, valued at the item's last receipt cost at
-or before the period end, over the quantity the ledger shows at that date. It is
-not a FIFO layer: Marula prices stock at its last unit cost everywhere, and the
-package follows the same rule. An item that has quantity but no receipt cost on
-record appears at zero with a note in its memo.
+or before the period end, over the quantity the ledger shows at that date. Both
+halves are dated, so re-reading a closed period gives the same value even after
+later receipts. It is not a FIFO layer: Marula prices stock at its last unit
+cost everywhere, and the package follows the same rule. An item that has
+quantity but no receipt cost at or before that date appears at zero, with the
+reason in its memo. It never borrows the cost of a later receipt.
 
 An e-waste disposition row has no amount because the disposition itself records
 no money. The memo carries the pathway, the weight, the partner and the

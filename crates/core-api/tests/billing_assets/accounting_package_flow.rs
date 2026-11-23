@@ -224,7 +224,7 @@ async fn receive_and_bill(
 
 #[tokio::test]
 async fn a_package_carries_bills_valuation_and_ewaste_and_holds_on_an_unmapped_class() {
-    let (_state, app) =
+    let (state, app) =
         boot_with(|config| config.secret_key = core_api::config::SecretKey([38; 32])).await;
     let slug = format!("acct-kinds-{}", Uuid::now_v7().simple());
     let token = register_org_token(&app, "Handoff Co", &slug).await;
@@ -283,6 +283,47 @@ async fn a_package_carries_bills_valuation_and_ewaste_and_holds_on_an_unmapped_c
     .await;
     assert_eq!(status, 200, "create location: {location}");
     let location_id = location["id"].as_str().expect("location id").to_string();
+
+    // An item whose quantity came from an adjustment, never a receipt. Its
+    // mutable `last_unit_cost_minor` is set to a value a later receipt would
+    // leave behind; the valuation must not read it, because that would let a
+    // closed period change when a later receipt lands.
+    let (status, legacy) = mutate(
+        &app,
+        &token,
+        axum::http::Method::POST,
+        "/api/v1/stock-items",
+        json!({
+            "name": "Legacy stock",
+            "kind": "consumable",
+            "unit": "each",
+            "currency": "USD",
+            "idempotency_key": key(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "create legacy item: {legacy}");
+    let legacy_id = legacy["id"].as_str().expect("legacy id").to_string();
+    let (status, adjusted) = mutate(
+        &app,
+        &token,
+        axum::http::Method::POST,
+        "/api/v1/stock/adjust",
+        json!({
+            "item_id": legacy_id,
+            "location_id": location_id,
+            "qty_milli": 2_000,
+            "note": "opening count",
+            "idempotency_key": key(),
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "adjust legacy quantity: {adjusted}");
+    sqlx::query("UPDATE stock_items SET last_unit_cost_minor = 9999 WHERE id = $1")
+        .bind(Uuid::parse_str(&legacy_id).expect("legacy uuid"))
+        .execute(&state.pool)
+        .await
+        .expect("a stale current cost");
 
     // Ten units into stock at 1500, then five more at 2000: the last receipt is
     // the cost basis, so fifteen units value at 15 × 2000.
@@ -459,6 +500,24 @@ async fn a_package_carries_bills_valuation_and_ewaste_and_holds_on_an_unmapped_c
     assert!(valuation["stable_ref"]
         .as_str()
         .is_some_and(|s| s.starts_with("stock_item:")));
+
+    let legacy_row = records
+        .iter()
+        .find(|r| {
+            r["kind"] == json!("stock_item")
+                && r["stable_ref"]
+                    .as_str()
+                    .is_some_and(|s| s.ends_with(&legacy_id))
+        })
+        .expect("the adjusted item is valued too");
+    assert_eq!(
+        legacy_row["amount_minor"],
+        json!(0),
+        "no dated receipt cost means zero, never the mutable current cost"
+    );
+    assert!(legacy_row["memo"]
+        .as_str()
+        .is_some_and(|m| m.contains("no receipt cost at or before the period end")));
 
     let ewaste = records
         .iter()
