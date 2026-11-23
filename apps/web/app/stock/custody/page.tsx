@@ -33,6 +33,7 @@ import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, useRequireAuth } from "../../../lib/api";
+import { showsEmptyRegister } from "../../../lib/list-view";
 import { LocalTime } from "../../../components/local-time";
 
 type CustodyClass = components["schemas"]["CustodyClassView"];
@@ -175,7 +176,8 @@ export default function CustodyPage(): React.ReactNode {
             Class ledger
           </h2>
           <p className="text-sm" style={{ color: "var(--m-text-secondary)" }}>
-            Newest first. Every move between classes is a row here; nothing is edited.
+            Newest first. The ledger is append-only: each move between classes is written once
+            and never edited.
           </p>
         </div>
         <Select value={unitKind} onValueChange={setUnitKind}>
@@ -190,6 +192,11 @@ export default function CustodyPage(): React.ReactNode {
         </Select>
       </div>
 
+      {movements.length >= 100 ? (
+        <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+          Showing the newest 100 moves. Older moves are in the ledger and not on this page.
+        </p>
+      ) : null}
       {ledgerStale && movementFilter !== unitKind && movements.length > 0 ? (
         <p className="text-xs" style={{ color: "var(--m-status-warning-fg)" }}>
           Showing {movementFilter === "all" ? "both kinds" : movementFilter === "serial" ? "stock serials" : "device assets"} from the last successful read; the current filter did not load.
@@ -202,7 +209,11 @@ export default function CustodyPage(): React.ReactNode {
             <Spinner />
           </div>
         ) : movements.length === 0 ? (
-          <EmptyState message="No class movements yet. A receipt, a loan, a rental or an e-waste disposition writes the first one." />
+          // A failed read is not an empty ledger: the error above says what
+          // happened, and an "empty" claim under it would contradict it.
+          showsEmptyRegister(movements.length, loadError) ? (
+            <EmptyState message="No class movements yet. A receipt, a loan, a rental or an e-waste disposition writes the first one." />
+          ) : null
         ) : (
           <Table>
             <thead>

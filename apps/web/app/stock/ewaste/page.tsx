@@ -42,6 +42,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { rejectionText } from "../../../lib/error-copy";
+import { showsEmptyRegister } from "../../../lib/list-view";
 
 type Summary = components["schemas"]["IntakeSummary"];
 type Detail = components["schemas"]["IntakeDetailResponse"];
@@ -130,7 +131,7 @@ export default function EwastePage(): React.ReactNode {
         return;
       }
       setIntakes(intakeRes.data);
-      setClients((clientRes.data ?? []).map((c) => ({ ...c, name: c.name })));
+      setClients(clientRes.data ?? []);
     } catch {
       if (seq === requestSeq.current) {
         setLoadError("Could not load the e-waste register — try reloading.");
@@ -410,7 +411,7 @@ export default function EwastePage(): React.ReactNode {
     <div className="grid gap-4">
       <SurfaceHeader
         title="E-waste custody"
-        description={`Client goods received and tracked to a way out: ${openIntakes} open, ${grams(weightHeld)} still held.`}
+        description={`Client goods received and tracked to a way out: ${openIntakes} open in this view, ${grams(weightHeld)} held here.`}
         actions={
           <Button
             onClick={() => {
@@ -430,6 +431,12 @@ export default function EwastePage(): React.ReactNode {
         </p>
       ) : null}
       {loadError !== null ? <FieldError>{loadError}</FieldError> : null}
+      {intakes.length >= 200 ? (
+        <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+          Showing the 200 most recent. Older consignments are still on file and are not on this
+          page.
+        </p>
+      ) : null}
 
       <Card>
         {loading ? (
@@ -437,7 +444,11 @@ export default function EwastePage(): React.ReactNode {
             <Spinner />
           </div>
         ) : intakes.length === 0 ? (
-          <EmptyState message="No consignments yet. Receive a client's e-waste to start the custody record." />
+          // A failed read is not an empty register: the error above says what
+          // happened, and an "empty" claim under it would contradict it.
+          showsEmptyRegister(intakes.length, loadError) ? (
+            <EmptyState message="No consignments yet. Receive a client's e-waste to start the custody record." />
+          ) : null
         ) : (
           <Table>
             <thead>
