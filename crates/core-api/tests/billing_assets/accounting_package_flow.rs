@@ -228,6 +228,9 @@ async fn a_package_carries_bills_valuation_and_ewaste_and_holds_on_an_unmapped_c
         boot_with(|config| config.secret_key = core_api::config::SecretKey([38; 32])).await;
     let slug = format!("acct-kinds-{}", Uuid::now_v7().simple());
     let token = register_org_token(&app, "Handoff Co", &slug).await;
+    let (status, me) = get(&app, &token, "/api/v1/me").await;
+    assert_eq!(status, 200, "read the session's organisation: {me}");
+    let org_id = Uuid::parse_str(me["org_id"].as_str().expect("org id")).expect("org uuid");
 
     // A client for the e-waste custody.
     let (status, client) = mutate(
@@ -320,7 +323,8 @@ async fn a_package_carries_bills_valuation_and_ewaste_and_holds_on_an_unmapped_c
     .await;
     assert_eq!(status, 200, "adjust legacy quantity: {adjusted}");
     sqlx::query!(
-        "UPDATE stock_items SET last_unit_cost_minor = 9999 WHERE id = $1",
+        "UPDATE stock_items SET last_unit_cost_minor = 9999 WHERE org_id = $1 AND id = $2",
+        org_id,
         Uuid::parse_str(&legacy_id).expect("legacy uuid")
     )
     .execute(&state.pool)
