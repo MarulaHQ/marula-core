@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE stock_items SET last_unit_cost_minor = 9999 WHERE id = $1",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f4d09f359a6b347f837ee2728c167c6f5d963deceb6be3aefc48012aea5e411f"
+}

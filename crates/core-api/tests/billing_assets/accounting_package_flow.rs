@@ -319,11 +319,13 @@ async fn a_package_carries_bills_valuation_and_ewaste_and_holds_on_an_unmapped_c
     )
     .await;
     assert_eq!(status, 200, "adjust legacy quantity: {adjusted}");
-    sqlx::query("UPDATE stock_items SET last_unit_cost_minor = 9999 WHERE id = $1")
-        .bind(Uuid::parse_str(&legacy_id).expect("legacy uuid"))
-        .execute(&state.pool)
-        .await
-        .expect("a stale current cost");
+    sqlx::query!(
+        "UPDATE stock_items SET last_unit_cost_minor = 9999 WHERE id = $1",
+        Uuid::parse_str(&legacy_id).expect("legacy uuid")
+    )
+    .execute(&state.pool)
+    .await
+    .expect("a stale current cost");
 
     // Ten units into stock at 1500, then five more at 2000: the last receipt is
     // the cost basis, so fifteen units value at 15 × 2000.
