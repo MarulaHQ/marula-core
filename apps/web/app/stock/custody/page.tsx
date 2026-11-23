@@ -33,6 +33,7 @@ import type { components } from "@marula-core/sdk";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { api, useRequireAuth } from "../../../lib/api";
+import { showsEmptyRegister } from "../../../lib/list-view";
 import { LocalTime } from "../../../components/local-time";
 
 type CustodyClass = components["schemas"]["CustodyClassView"];
@@ -71,14 +72,22 @@ export default function CustodyPage(): React.ReactNode {
   // True only once the current filter's read has failed; while it is running,
   // the retained rows are simply old, not a failure.
   const [ledgerStale, setLedgerStale] = useState(false);
+  // `loading` owns the first paint; `reading` is any read in flight. A manual
+  // retry sets `reading` only, so a stalled request cannot disable the button
+  // that would start a fresh one, and the sequence guard discards the old
+  // answer.
   const [loading, setLoading] = useState(true);
+  const [reading, setReading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const requestSeq = useRef(0);
 
   const refresh = useCallback(async (): Promise<void> => {
     const seq = ++requestSeq.current;
+    setReading(true);
     setLoadError(null);
-    setLedgerStale(false);
+    // `ledgerStale` is cleared only when the ledger read succeeds: while a
+    // retry is pending the retained rows still belong to the previous filter,
+    // and the notice must keep saying so.
     try {
       const [classRes, ledgerRes] = await Promise.all([
         api.api.GET("/api/v1/inventory/custody"),
@@ -101,13 +110,17 @@ export default function CustodyPage(): React.ReactNode {
       }
       setMovements(ledgerRes.data);
       setMovementFilter(unitKind);
+      setLedgerStale(false);
     } catch {
       if (seq === requestSeq.current) {
         setLedgerStale(true);
         setLoadError("Could not load the custody view — try reloading.");
       }
     } finally {
-      if (seq === requestSeq.current) setLoading(false);
+      if (seq === requestSeq.current) {
+        setReading(false);
+        setLoading(false);
+      }
     }
   }, [unitKind]);
 
@@ -175,7 +188,8 @@ export default function CustodyPage(): React.ReactNode {
             Class ledger
           </h2>
           <p className="text-sm" style={{ color: "var(--m-text-secondary)" }}>
-            Newest first. Every move between classes is a row here; nothing is edited.
+            Newest first. The ledger is append-only: each move between classes is written once
+            and never edited.
           </p>
         </div>
         <Select value={unitKind} onValueChange={setUnitKind}>
@@ -190,19 +204,28 @@ export default function CustodyPage(): React.ReactNode {
         </Select>
       </div>
 
+      {movements.length >= 100 ? (
+        <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+          Showing the newest 100 moves. Older moves are in the ledger and not on this page.
+        </p>
+      ) : null}
       {ledgerStale && movementFilter !== unitKind && movements.length > 0 ? (
         <p className="text-xs" style={{ color: "var(--m-status-warning-fg)" }}>
-          Showing {movementFilter === "all" ? "both kinds" : movementFilter === "serial" ? "stock serials" : "device assets"} from the last successful read; the current filter did not load.
+          Showing {movementFilter === "all" ? "both kinds" : movementFilter === "serial" ? "stock serials" : "device assets"} from the last successful read; the current filter {reading ? "is still loading" : "did not load"}.
         </p>
       ) : null}
 
       <Card>
-        {loading ? (
+        {loading || (reading && movements.length === 0) ? (
           <div className="p-6">
             <Spinner />
           </div>
         ) : movements.length === 0 ? (
-          <EmptyState message="No class movements yet. A receipt, a loan, a rental or an e-waste disposition writes the first one." />
+          // A failed read is not an empty ledger: the error above says what
+          // happened, and an "empty" claim under it would contradict it.
+          showsEmptyRegister(movements.length, loadError) ? (
+            <EmptyState message="No class movements yet. A receipt, a loan, a rental or an e-waste disposition writes the first one." />
+          ) : null
         ) : (
           <Table>
             <thead>
