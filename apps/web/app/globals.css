@@ -202,6 +202,20 @@ body {
  ---break---
  */
 
+/*
+ React Flow 13 paints the chrome it does not take from our tokens
+ (handles, connection line, selection rectangle) from `color-scheme`, and its
+ shipped selectors only know `[data-theme="dark"]` and `[data-theme="light"]`
+ (see @xyflow/react/dist/base.css). This app writes the kit's own name for
+ light mode — `neutral`, from `toDomTheme` in packages/ui/src/theme.ts — so
+ light matched neither selector and fell back to `color-scheme: light dark`,
+ which is the reader's OS preference. A light canvas on a dark-mode machine
+ then drew dark handles and selection chrome on a light surface. Pin it.
+ */
+[data-theme="neutral"] .react-flow {
+  color-scheme: light;
+}
+
 [data-theme="dark"] {
   /* The kit's dark tokens (tokens-kit.css) define --secondary, --muted,
      --accent, --input and --ring for this mode, so they are not repeated.
