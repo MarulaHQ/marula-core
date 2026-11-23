@@ -5341,7 +5341,7 @@ dependencies = [
  "clap",
  "core-db",
  "core-domain",
- "md-5 0.10.6",
+ "md-5 0.11.0",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
