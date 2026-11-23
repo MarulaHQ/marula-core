@@ -85,7 +85,9 @@ export default function CustodyPage(): React.ReactNode {
     const seq = ++requestSeq.current;
     setReading(true);
     setLoadError(null);
-    setLedgerStale(false);
+    // `ledgerStale` is cleared only when the ledger read succeeds: while a
+    // retry is pending the retained rows still belong to the previous filter,
+    // and the notice must keep saying so.
     try {
       const [classRes, ledgerRes] = await Promise.all([
         api.api.GET("/api/v1/inventory/custody"),
@@ -108,6 +110,7 @@ export default function CustodyPage(): React.ReactNode {
       }
       setMovements(ledgerRes.data);
       setMovementFilter(unitKind);
+      setLedgerStale(false);
     } catch {
       if (seq === requestSeq.current) {
         setLedgerStale(true);
@@ -208,7 +211,7 @@ export default function CustodyPage(): React.ReactNode {
       ) : null}
       {ledgerStale && movementFilter !== unitKind && movements.length > 0 ? (
         <p className="text-xs" style={{ color: "var(--m-status-warning-fg)" }}>
-          Showing {movementFilter === "all" ? "both kinds" : movementFilter === "serial" ? "stock serials" : "device assets"} from the last successful read; the current filter did not load.
+          Showing {movementFilter === "all" ? "both kinds" : movementFilter === "serial" ? "stock serials" : "device assets"} from the last successful read; the current filter {reading ? "is still loading" : "did not load"}.
         </p>
       ) : null}
 
