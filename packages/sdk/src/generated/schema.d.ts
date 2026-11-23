@@ -16570,6 +16570,13 @@ export interface components {
             records: components["schemas"]["PackageRecordView"][];
             totals_by_account: components["schemas"]["AccountTotalView"][];
             totals_by_kind: components["schemas"]["KindTotalView"][];
+            /**
+             * Format: int64
+             * @description Rows whose amount is not in the base currency and carries no locked
+             *     snapshot. They are listed in `records` and left out of the totals, so a
+             *     total is never a sum of mixed currencies.
+             */
+            unconverted_rows: number;
         };
         /** @enum {string} */
         AcquiredFor: "sale_stock" | "internal_fleet" | "rental_pool" | "vendor_rental" | "client_stocked" | "client_drop_ship" | "project_consumable" | "ewaste_service";

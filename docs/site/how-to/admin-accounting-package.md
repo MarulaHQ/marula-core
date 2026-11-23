@@ -42,8 +42,11 @@ stable reference that points back at the one Marula record it came from.
      `kind:id`, its document reference where one exists, the currency, the
      amount, the base amount where a snapshot exists, its reporting class and
      the account it posts to.
-   - `totals_by_account` and `totals_by_kind`, in the base currency where a row
-     carries one.
+   - `totals_by_account` and `totals_by_kind`. These add a row only when it is
+     in the base currency or carries a locked exchange snapshot, so a total
+     never mixes currencies.
+   - `unconverted_rows`: foreign rows with no snapshot. They stay in `records`
+     and are left out of the totals.
 
 5. If a line is questioned, the `stable_ref` is the trail: `invoice:<id>`,
    `credit_note:<id>`, `acquisition_cost:<id>` or `rental_charge:<id>` names the

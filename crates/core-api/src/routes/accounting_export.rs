@@ -1995,6 +1995,10 @@ pub struct AccountingPackageView {
     pub base_currency: String,
     pub class_accounts: Vec<ClassAccountView>,
     pub records: Vec<PackageRecordView>,
+    /// Rows whose amount is not in the base currency and carries no locked
+    /// snapshot. They are listed in `records` and left out of the totals, so a
+    /// total is never a sum of mixed currencies.
+    pub unconverted_rows: i64,
     pub totals_by_account: Vec<AccountTotalView>,
     pub totals_by_kind: Vec<KindTotalView>,
 }
@@ -2161,8 +2165,20 @@ pub async fn accounting_package(
 
     let mut by_account: std::collections::BTreeMap<String, (String, i64)> = Default::default();
     let mut by_kind: std::collections::BTreeMap<String, (i64, i64)> = Default::default();
+    let mut unconverted_rows: i64 = 0;
     for r in &views {
-        let money = r.base_amount_minor.unwrap_or(r.amount_minor);
+        // A total is only meaningful in one currency: take the locked base
+        // amount, or the amount itself when the row is already in base. A
+        // foreign row with no snapshot stays in `records` and is counted, not
+        // added.
+        let money = match (r.base_amount_minor, r.currency == base_currency) {
+            (Some(base), _) => base,
+            (None, true) => r.amount_minor,
+            (None, false) => {
+                unconverted_rows += 1;
+                continue;
+            }
+        };
         let (_, name) = account_of(r.reporting_class.as_deref());
         let entry = by_account
             .entry(r.account_code.clone())
@@ -2187,6 +2203,7 @@ pub async fn accounting_package(
             })
             .collect(),
         records: views,
+        unconverted_rows,
         totals_by_account: by_account
             .into_iter()
             .map(
