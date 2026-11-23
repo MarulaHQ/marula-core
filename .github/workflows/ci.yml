@@ -1054,7 +1054,7 @@ jobs:
           node scripts/check-compose-hardening.mjs
       # SHA-pinned, carried from the retired `ga-gates.yml` as it stood.
       - name: Trivy config scan (deploy/ — Dockerfile misconfiguration)
-        uses: aquasecurity/trivy-action@d2a0b60797ff03db6132bd4e2b293f9b37081297 # v0.36.0
+        uses: aquasecurity/trivy-action@38b337fff0a2f984d5be173c99e3f633438167ec # v0.36.0
         with:
           scan-type: config
           scan-ref: deploy/
