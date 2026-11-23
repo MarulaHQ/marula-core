@@ -55,7 +55,8 @@ import {
   type PickedPhoto,
   type StagedAttachment,
 } from "@/tickets/attachments";
-import { EmptyState, ErrorNote, Loading, SuccessNote } from "@/ui/primitives";
+import { EmptyState, ErrorNote, SuccessNote } from "@/ui/primitives";
+import { SkeletonDetail } from "@/ui/skeleton";
 import {
   PackHeader,
   PackLabel,
@@ -251,7 +252,11 @@ export function PackTicketDetail({ id, fromNotification = false }: { id: string;
   if (ticket.status === "loading" && ticket.data === undefined) {
     return (
       <View style={[styles.screen, { backgroundColor: tokens.background, paddingTop: 16 }]}>
-        <Loading label="Loading ticket" />
+        <SkeletonDetail
+          label="Loading ticket"
+          sentence="Loading the ticket and its activity."
+          facts={0}
+        />
       </View>
     );
   }

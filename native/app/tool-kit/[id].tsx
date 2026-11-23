@@ -40,6 +40,7 @@ import {
   SuccessNote,
 } from "@/ui/primitives";
 import { PackHeader, PackLabel } from "@/ui/pack";
+import { SkeletonDetail } from "@/ui/skeleton";
 import { infoPair, shape, type, useTheme } from "@/ui/tokens";
 
 export default function ToolKitScreen() {
@@ -127,7 +128,7 @@ export default function ToolKitScreen() {
   if (kit.status === "loading" && kit.data === undefined) {
     return (
       <Screen testID="tool-kit-screen" scroll={false}>
-        <Loading label="Loading toolbox" />
+        <SkeletonDetail label="Loading toolbox" sentence="Loading the toolbox." facts={4} inset={false} />
       </Screen>
     );
   }

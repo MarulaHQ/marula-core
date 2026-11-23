@@ -19,7 +19,9 @@ import {
   type ToolAvailabilityRow,
 } from "@/core/models";
 import { useModel } from "@/data/sync-context";
-import { EmptyState, ErrorNote, Loading } from "@/ui/primitives";
+import { FadeIn } from "@/ui/motion";
+import { EmptyState, ErrorNote } from "@/ui/primitives";
+import { SkeletonRows } from "@/ui/skeleton";
 import {
   PACK_ICONS,
   actionReserve,
@@ -92,7 +94,15 @@ export function StockLookupScreen() {
           <ErrorNote text={items.error?.text ?? "Couldn't load the catalog."} onRetry={items.refresh} />
         ) : null}
         {items.status === "loading" && items.data === undefined ? (
-          <Loading label="Loading stock" />
+          <SkeletonRows
+            label="Loading stock"
+            sentence="Loading the catalog."
+            rows={5}
+            minHeight={64}
+            leading={false}
+            pills={false}
+            chevron={false}
+          />
         ) : null}
         {items.data !== undefined && rows.length === 0 ? (
           <EmptyState message="No items match — check the spelling or scan the label." />
@@ -104,75 +114,76 @@ export function StockLookupScreen() {
         ) : null}
 
         <View style={[styles.list, { borderColor: tokens.border }]}>
-          {rows.map(({ item, stock, totalMilli, availability }) => (
-            <Pressable
-              key={item.id}
-              testID={`stock-row-${item.id}`}
-              onPress={() => router.push(`/stock-item/${item.id}`)}
-              accessibilityRole="button"
-              style={({ pressed }) => [
-                styles.rowCard,
-                { borderBottomColor: tokens.border, opacity: pressed ? 0.85 : 1 },
-              ]}
-            >
-              <View style={styles.rowHead}>
-                <Text style={[styles.itemName, { color: tokens.text }]} numberOfLines={1}>
-                  {item.name}
-                </Text>
-                <Text style={[styles.total, { color: tokens.text }]}>
-                  {formatQty(totalMilli)} {item.unit ?? ""}
-                </Text>
-                <Ionicons name={PACK_ICONS.chev} size={16} color={tokens.textMuted} />
-              </View>
-              {item.sku != null || item.part_number != null ? (
-                <Text style={[styles.skuLine, { color: tokens.textSecondary }]}>
-                  {[item.sku, item.part_number].filter(Boolean).join(" · ")}
-                </Text>
-              ) : null}
-              {stock.length === 0 ? (
-                <Text style={[styles.none, { color: tokens.textMuted }]}>
-                  None on hand at any location.
-                </Text>
-              ) : (
-                stock.map((row: OnHandRow) => (
-                  <View key={row.stock_location_id} style={styles.locationRow}>
-                    <Text style={[styles.locationName, { color: tokens.textSecondary }]} numberOfLines={1}>
-                      {row.location_name}
-                    </Text>
-                    <View style={styles.locationEnd}>
-                      <Text style={[styles.locationQty, { color: tokens.text }]}>
-                        {formatQty(row.qty_milli)} {row.unit ?? ""}
-                      </Text>
-                      {row.low ? (
-                        <View style={[styles.lowPill, { backgroundColor: tokens.warning.background }]}>
-                          <Text style={[styles.lowText, { color: tokens.warning.text }]}>LOW</Text>
-                        </View>
-                      ) : null}
-                    </View>
-                  </View>
-                ))
-              )}
-              {availability.length > 0 && !availabilityDuplicatesStock(stock, availability) ? (
-                <View style={styles.toolRow}>
-                  <Ionicons name="construct-outline" size={14} color={chrome.goldText} />
-                  <Text style={[styles.toolText, { color: tokens.textSecondary }]}>
-                    {availability
-                      .map(
-                        (row) =>
-                          `${row.available_units} available${
-                            row.checked_out_units > 0 ? ` · ${row.checked_out_units} out` : ""
-                          }${row.location_name != null ? ` · ${row.location_name}` : ""}`,
-                      )
-                      .join("  |  ")}
+          {rows.map(({ item, stock, totalMilli, availability }, index) => (
+            <FadeIn key={item.id} index={index}>
+              <Pressable
+                testID={`stock-row-${item.id}`}
+                onPress={() => router.push(`/stock-item/${item.id}`)}
+                accessibilityRole="button"
+                style={({ pressed }) => [
+                  styles.rowCard,
+                  { borderBottomColor: tokens.border, opacity: pressed ? 0.85 : 1 },
+                ]}
+              >
+                <View style={styles.rowHead}>
+                  <Text style={[styles.itemName, { color: tokens.text }]} numberOfLines={1}>
+                    {item.name}
                   </Text>
+                  <Text style={[styles.total, { color: tokens.text }]}>
+                    {formatQty(totalMilli)} {item.unit ?? ""}
+                  </Text>
+                  <Ionicons name={PACK_ICONS.chev} size={16} color={tokens.textMuted} />
                 </View>
-              ) : null}
-              {item.is_tool === true ? (
-                <View style={[styles.toolPill, { backgroundColor: tokens.neutral.background }]}>
-                  <Text style={[styles.lowText, { color: tokens.text }]}>TOOL</Text>
-                </View>
-              ) : null}
-            </Pressable>
+                {item.sku != null || item.part_number != null ? (
+                  <Text style={[styles.skuLine, { color: tokens.textSecondary }]}>
+                    {[item.sku, item.part_number].filter(Boolean).join(" · ")}
+                  </Text>
+                ) : null}
+                {stock.length === 0 ? (
+                  <Text style={[styles.none, { color: tokens.textMuted }]}>
+                    None on hand at any location.
+                  </Text>
+                ) : (
+                  stock.map((row: OnHandRow) => (
+                    <View key={row.stock_location_id} style={styles.locationRow}>
+                      <Text style={[styles.locationName, { color: tokens.textSecondary }]} numberOfLines={1}>
+                        {row.location_name}
+                      </Text>
+                      <View style={styles.locationEnd}>
+                        <Text style={[styles.locationQty, { color: tokens.text }]}>
+                          {formatQty(row.qty_milli)} {row.unit ?? ""}
+                        </Text>
+                        {row.low ? (
+                          <View style={[styles.lowPill, { backgroundColor: tokens.warning.background }]}>
+                            <Text style={[styles.lowText, { color: tokens.warning.text }]}>LOW</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    </View>
+                  ))
+                )}
+                {availability.length > 0 && !availabilityDuplicatesStock(stock, availability) ? (
+                  <View style={styles.toolRow}>
+                    <Ionicons name="construct-outline" size={14} color={chrome.goldText} />
+                    <Text style={[styles.toolText, { color: tokens.textSecondary }]}>
+                      {availability
+                        .map(
+                          (row) =>
+                            `${row.available_units} available${
+                              row.checked_out_units > 0 ? ` · ${row.checked_out_units} out` : ""
+                            }${row.location_name != null ? ` · ${row.location_name}` : ""}`,
+                        )
+                        .join("  |  ")}
+                    </Text>
+                  </View>
+                ) : null}
+                {item.is_tool === true ? (
+                  <View style={[styles.toolPill, { backgroundColor: tokens.neutral.background }]}>
+                    <Text style={[styles.lowText, { color: tokens.text }]}>TOOL</Text>
+                  </View>
+                ) : null}
+              </Pressable>
+            </FadeIn>
           ))}
         </View>
       </View>
