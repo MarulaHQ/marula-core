@@ -78,7 +78,7 @@ sqlx = { workspace = true }
 # QR + Code128 SVG rendering for label previews/prints (lane 5,
 # p32-labels-scanning): pure-Rust encoders, svg feature only for qrcode,
 # no image codecs either way — the web draws the returned SVG as an image.
-qrcode = { version = "0.14", default-features = false, features = ["svg"] }
+qrcode = { version = "0.15", default-features = false, features = ["svg"] }
 barcoders = { version = "2", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
