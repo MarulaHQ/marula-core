@@ -42,6 +42,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, useRequireAuth } from "../../../lib/api";
 import { runEnvelopeMutation } from "../../../lib/envelope-write";
 import { rejectionText } from "../../../lib/error-copy";
+import { showsEmptyRegister } from "../../../lib/list-view";
 
 import { money } from "../../../lib/format";
 
@@ -290,7 +291,7 @@ export default function VendorRentalsPage(): React.ReactNode {
     <div className="grid gap-4">
       <SurfaceHeader
         title="Vendor rentals"
-        description={`Gear rented in from a supplier: ${openCount} open, ${rentals.length} in view. Not owned stock, never in inventory value.`}
+        description={`Gear rented in from a supplier: ${rentals.length} in view, ${openCount} open here. Not owned stock, never in inventory value.`}
         actions={
           <div className="flex items-center gap-2">
             <Select value={statusFilter} onValueChange={setStatusFilter}>
@@ -322,6 +323,12 @@ export default function VendorRentalsPage(): React.ReactNode {
         </p>
       ) : null}
       {loadError !== null ? <FieldError>{loadError}</FieldError> : null}
+      {rentals.length >= 500 ? (
+        <p className="text-xs" style={{ color: "var(--m-text-muted)" }}>
+          Showing the 500 most recent. The register holds older rentals too; switch the status
+          filter to narrow this view.
+        </p>
+      ) : null}
 
       <Card>
         {loading ? (
@@ -329,7 +336,11 @@ export default function VendorRentalsPage(): React.ReactNode {
             <Spinner />
           </div>
         ) : rentals.length === 0 ? (
-          <EmptyState message="No vendor rentals in this view. Record a unit the organisation rents in, with its cycle cost and deposit." />
+          // A failed read is not an empty register: the error above says what
+          // happened, and an "empty" claim under it would contradict it.
+          showsEmptyRegister(rentals.length, loadError) ? (
+            <EmptyState message="No vendor rentals in this view. Record a unit the organisation rents in, with its cycle cost and deposit." />
+          ) : null
         ) : (
           <Table>
             <thead>

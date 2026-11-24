@@ -1,0 +1,72 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT b.id, b.bill_number, (b.posted_at AT TIME ZONE 'UTC')::date AS \"posted_on!\", po.number AS order_number,\n                  po.client_id, b.currency, b.amount_minor, b.base_amount_minor,\n                  CASE po.acquired_for\n                    WHEN 'vendor_rental' THEN 'rental_expense'\n                    WHEN 'ewaste_service' THEN 'ewaste_cost'\n                    WHEN 'project_consumable' THEN 'cogs'\n                    ELSE 'inventory'\n                  END AS \"reporting_class!\"\n             FROM purchase_bills b\n             JOIN purchase_orders po ON po.id = b.purchase_order_id AND po.org_id = $1\n            WHERE b.org_id = $1 AND b.posted_at IS NOT NULL\n              -- Half-open UTC bounds, so the (org_id, posted_at) index is used\n              -- and a bill posted at 23:59 on the last day is in the period.\n              AND b.posted_at >= ($2::date::timestamp AT TIME ZONE 'UTC')\n              AND b.posted_at <  (($3::date + 1)::timestamp AT TIME ZONE 'UTC')",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "bill_number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "posted_on!",
+        "type_info": "Date"
+      },
+      {
+        "ordinal": 3,
+        "name": "order_number",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "client_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 5,
+        "name": "currency",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 6,
+        "name": "amount_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 7,
+        "name": "base_amount_minor",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 8,
+        "name": "reporting_class!",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Date",
+        "Date"
+      ]
+    },
+    "nullable": [
+      false,
+      true,
+      null,
+      false,
+      true,
+      false,
+      false,
+      true,
+      null
+    ]
+  },
+  "hash": "d37fff8c449905e8bdac699e41668957069511a0369d9c46489b4a02d1cc6b13"
+}

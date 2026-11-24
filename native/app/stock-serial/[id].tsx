@@ -16,7 +16,8 @@ import { MODELS, fetchStockSerials } from "@/core/models";
 import { checkinTools, checkoutTools } from "@/core/writes";
 import { useModel, useMutation } from "@/data/sync-context";
 import { commitConfirmed } from "@/ui/haptics";
-import { EmptyState, ErrorNote, Loading } from "@/ui/primitives";
+import { EmptyState, ErrorNote } from "@/ui/primitives";
+import { SkeletonDetail } from "@/ui/skeleton";
 import {
   FactRow,
   Facts,
@@ -44,7 +45,7 @@ export default function StockSerialScreen() {
   if (serials.status === "loading" && serials.data === undefined) {
     return (
       <View style={[styles.screen, { backgroundColor: tokens.background, paddingTop: 16 }]}>
-        <Loading label="Loading unit" />
+        <SkeletonDetail label="Loading unit" sentence="Loading the serial record." facts={4} />
       </View>
     );
   }

@@ -25,7 +25,8 @@ import {
 } from "@/core/models";
 import { consumeStock } from "@/core/writes";
 import { useModel, useMutation } from "@/data/sync-context";
-import { EmptyState, ErrorNote, Loading } from "@/ui/primitives";
+import { EmptyState, ErrorNote } from "@/ui/primitives";
+import { SkeletonDetail } from "@/ui/skeleton";
 import {
   PackHeader,
   PackLabel,
@@ -84,7 +85,7 @@ export default function StockItemScreen() {
   if (item.status === "loading" && item.data === undefined) {
     return (
       <View style={[styles.screen, { backgroundColor: tokens.background, paddingTop: 16 }]}>
-        <Loading label="Loading item" />
+        <SkeletonDetail label="Loading item" sentence="Loading the item and where it sits." facts={4} />
       </View>
     );
   }

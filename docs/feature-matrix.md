@@ -73,6 +73,7 @@ surface: 794 paths in 66 groups, pinned in `fixtures/openapi/v1/openapi.json`.
 | Contracts | Types, billing preview, change orders and SLA credits | Web, API | Shipped | `crates/core-api/src/routes/billing.rs` |
 | FX | Append-only rate book, resolution, reconciliation | Web, API | Shipped | `crates/core-api/src/routes/fx.rs` |
 | Payments | A payment provider seam, a Stripe adapter and typed declines | Web, API | Shipped | `crates/core-api/src/routes/billing_provider.rs` |
+| Accountant package | One period of money rows with their references, mapped to accounts, as JSON or CSV; holds when a class has no account | API | Shipped | `crates/core-api/src/routes/accounting_export.rs` |
 | Project billing | Phase and milestone releases with cost rollup | Web, API | Shipped | `crates/core-api/src/routes/projects.rs` |
 
 ## 4. Sales

@@ -13,7 +13,8 @@ import Ionicons from "@expo/vector-icons/Ionicons";
 import { REASON_COPY } from "@/core/errors";
 import { MODELS, fetchOnHand, fetchStockLocation, type OnHandRow } from "@/core/models";
 import { useModel } from "@/data/sync-context";
-import { EmptyState, ErrorNote, Loading } from "@/ui/primitives";
+import { EmptyState, ErrorNote } from "@/ui/primitives";
+import { SkeletonDetail } from "@/ui/skeleton";
 import {
   PackHeader,
   PackLabel,
@@ -53,7 +54,7 @@ export default function StockLocationScreen() {
   if (location.status === "loading" && location.data === undefined) {
     return (
       <View style={[styles.screen, { backgroundColor: tokens.background, paddingTop: 16 }]}>
-        <Loading label="Loading location" />
+        <SkeletonDetail label="Loading location" sentence="Loading the location and its stock." facts={4} />
       </View>
     );
   }

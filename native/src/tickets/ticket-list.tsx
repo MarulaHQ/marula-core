@@ -15,7 +15,9 @@ import { MODELS, fetchActiveTimer, fetchMyWork, type MyWorkItem } from "@/core/m
 import { useModel } from "@/data/sync-context";
 import { slaState, type SlaState } from "@/ui/sla";
 import { useNow } from "@/ui/use-now";
-import { EmptyState, ErrorNote, Loading } from "@/ui/primitives";
+import { FadeIn } from "@/ui/motion";
+import { EmptyState, ErrorNote } from "@/ui/primitives";
+import { SkeletonRows } from "@/ui/skeleton";
 import {
   PackPill,
   PriorityChip,
@@ -52,66 +54,67 @@ export function TicketList({
     return <ErrorNote text={work.error?.text ?? "Couldn't load your work."} onRetry={work.refresh} />;
   }
   if (rows === undefined && work.status === "loading" && work.data === undefined) {
-    return <Loading label="Loading work" />;
+    return <SkeletonRows label="Loading work" sentence="Loading the work list." />;
   }
   if (list.length === 0) {
     return <EmptyState message="Nothing assigned to you right now." />;
   }
   return (
     <View testID="ticket-list" style={styles.list}>
-      {list.map((item: MyWorkItem) => {
+      {list.map((item: MyWorkItem, index: number) => {
         const selected = item.id === selectedId;
         return (
-          <Pressable
-            key={item.id}
-            testID={`ticket-row-${item.id}`}
-            onPress={() => onSelect(item.id)}
-            accessibilityRole="button"
-            accessibilityState={{ selected }}
-            accessibilityLabel={
-              item.id === runningId
-                ? `${item.number} ${item.title} — Timer running`
-                : `${item.number} ${item.title}`
-            }
-            style={({ pressed }) => [
-              styles.row,
-              { borderBottomColor: tokens.border },
-              item.id === runningId ? styles.rowRunning : null,
-              item.id === runningId
-                ? { backgroundColor: tokens.surfaceHover }
-                : pressed && !selected
+          <FadeIn key={item.id} index={index}>
+            <Pressable
+              testID={`ticket-row-${item.id}`}
+              onPress={() => onSelect(item.id)}
+              accessibilityRole="button"
+              accessibilityState={{ selected }}
+              accessibilityLabel={
+                item.id === runningId
+                  ? `${item.number} ${item.title} — Timer running`
+                  : `${item.number} ${item.title}`
+              }
+              style={({ pressed }) => [
+                styles.row,
+                { borderBottomColor: tokens.border },
+                item.id === runningId ? styles.rowRunning : null,
+                item.id === runningId
                   ? { backgroundColor: tokens.surfaceHover }
-                  : null,
-            ]}
-          >
-            {item.priority !== undefined && item.priority !== null ? (
-              <PriorityChip label={String(item.priority)} />
-            ) : null}
-            <View style={styles.rowBody}>
-              <Text style={[styles.rowTitle, { color: tokens.text }]} numberOfLines={2}>
-                {item.title}
-              </Text>
-              <View style={styles.rowMeta}>
-                <Text style={[styles.rowNumber, { color: tokens.textSecondary }]}>
-                  {item.number}
+                  : pressed && !selected
+                    ? { backgroundColor: tokens.surfaceHover }
+                    : null,
+              ]}
+            >
+              {item.priority !== undefined && item.priority !== null ? (
+                <PriorityChip label={String(item.priority)} />
+              ) : null}
+              <View style={styles.rowBody}>
+                <Text style={[styles.rowTitle, { color: tokens.text }]} numberOfLines={2}>
+                  {item.title}
                 </Text>
-                {item.client_name !== null && item.client_name !== undefined ? (
-                  <Text style={[styles.rowClient, { color: tokens.textSecondary }]} numberOfLines={1}>
-                    {item.client_name}
+                <View style={styles.rowMeta}>
+                  <Text style={[styles.rowNumber, { color: tokens.textSecondary }]}>
+                    {item.number}
                   </Text>
-                ) : null}
+                  {item.client_name !== null && item.client_name !== undefined ? (
+                    <Text style={[styles.rowClient, { color: tokens.textSecondary }]} numberOfLines={1}>
+                      {item.client_name}
+                    </Text>
+                  ) : null}
+                </View>
+                <View style={styles.rowPills}>
+                  {item.id === runningId ? (
+                    <PackPill pair={tokens.neutral} label="Timer running" />
+                  ) : (
+                    <PackPill pair={statusPairFor(tokens, item.category)} label={item.status_name} />
+                  )}
+                  <SlaPill tokens={tokens} iso={item.sla_resolution_due ?? null} now={now} />
+                </View>
               </View>
-              <View style={styles.rowPills}>
-                {item.id === runningId ? (
-                  <PackPill pair={tokens.neutral} label="Timer running" />
-                ) : (
-                  <PackPill pair={statusPairFor(tokens, item.category)} label={item.status_name} />
-                )}
-                <SlaPill tokens={tokens} iso={item.sla_resolution_due ?? null} now={now} />
-              </View>
-            </View>
-            <Ionicons name="chevron-forward" size={18} color={tokens.textSecondary} />
-          </Pressable>
+              <Ionicons name="chevron-forward" size={18} color={tokens.textSecondary} />
+            </Pressable>
+          </FadeIn>
         );
       })}
       {work.offline ? (

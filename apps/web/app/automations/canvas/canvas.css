@@ -102,6 +102,16 @@
 .wf-body .react-flow__edge.selected .react-flow__edge-path {
   stroke: var(--m-primary);
 }
+/* Edges are keyboard-focusable (React Flow gives the edge wrapper tabindex 0),
+   and the node card beside them already carries a ring. An outline does not
+   render on the SVG <g> that takes the focus, so the ring is painted on the
+   path itself: the focus token at a heavier stroke. It applies whether or not
+   the edge is selected — `.selected` is already --m-primary at 1.75, so the
+   weight is what tells focus apart from selection. */
+.wf-body .react-flow__edge:focus-visible .react-flow__edge-path {
+  stroke: var(--m-focus-ring, var(--m-primary));
+  stroke-width: 3.5;
+}
 .wf-body .react-flow__edge-text {
   fill: var(--m-text-secondary);
   font-size: 12px;
